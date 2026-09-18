@@ -1,0 +1,3 @@
+# Build artifacts (do not commit)
+fibonacci
+*.o
