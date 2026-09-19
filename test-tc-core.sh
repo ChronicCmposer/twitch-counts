@@ -556,6 +556,7 @@ if [ -d "$g_home" ]; then
 [12:00:02] bob: hey
 EOF
 
+  if [ "$(uname -s)" = Darwin ]; then
     # g1. macOS: no -d finds the synthetic tree under the built-in default,
     #     and the driver's output matches the python3 oracle byte for byte
     #     on the fields both dump (channel + per-user counts).
@@ -603,6 +604,30 @@ EOF
     else
         echo "SKIP: g2b. twitch-counts-full not built ($FBIN); run: make twitch-counts-full"
     fi
+  else
+    # Linux: the platform has no default; both the driver and python3 must
+    # report the Unsupported text (exit 1) and, with --json, the {"error":
+    # ...} shape -- byte for byte the same text on both sides.
+    want='error: TODO - not implemented: the default Chatterino log location on Linux. pass --logs-dir, or set logs_dir in the config. Chatterino is believed to use ~/.local/share/chatterino/Logs/Twitch/Channels.'
+    lin_err=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
+              "$BIN" -c defchan -e 2026-09-01 2>&1 >/dev/null); lin_rc=$?
+    ok=0
+    [ "$lin_rc" -eq 1 ] && [ "$lin_err" = "$want" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: rc=$lin_rc err='$lin_err'"
+    ok_or_fail "g1L. Linux: no default logs dir -> TODO text, exit 1 (driver)" "$ok"
+    lin_json=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
+               "$BIN" -c defchan -e 2026-09-01 --json 2>&1 >/dev/null)
+    ok=0
+    [ "$lin_json" = '{"error": "'"${want#error: }"'"}' ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: json='$lin_json'"
+    ok_or_fail "g2L. Linux: --json {\"error\": ...} shape (driver)" "$ok"
+    py_err=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
+             python3 "$PY" -c defchan -e 2026-09-01 --no-config --no-cache 2>&1 >/dev/null); py_rc=$?
+    ok=0
+    [ "$py_rc" = "$lin_rc" ] && [ "$py_err" = "$lin_err" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: py rc=$py_rc err='$py_err'"
+    ok_or_fail "g2bL. Linux: driver and python3 agree on the missing-default error" "$ok"
+  fi
 
     rm -rf "$g_home"
 else

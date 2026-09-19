@@ -130,10 +130,15 @@ rc = "alive"
 # KeyboardInterrupt handling is installed exits with a traceback instead
 # of the shape under test.
 first_out = None
-while time.time() - start < tmo:
+deadline = start + tmo
+while time.time() < deadline:
     since = (time.time() - first_out) if first_out is not None else -1.0
     if sig_after >= 0 and not sent and since > sig_after:
         os.kill(pid, signal.SIGINT); sent = True
+        # give the child a grace period to exit cleanly after the signal
+        # even when its slow start-up used up most of the timeout (a loaded
+        # Linux VM took >2 s to paint the Python's first frame)
+        deadline = max(deadline, time.time() + 3.0)
     if app_after >= 0 and not appended and since > app_after and line:
         with open(os.environ.get("TCWATCH_LOG", "/nonexistent"), "a") as f:
             f.write(line + "\n")
