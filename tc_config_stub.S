@@ -206,4 +206,14 @@ stub_eq_lower:
     mov x0, #1
     ret
 
+
+// tc_excl_src_count() -> x0 = 0: the stub has no exclusion sources (the
+// render/json modules linked into tc-core-test ask for the count).
+    .p2align 2
+    .global tc_excl_src_count
+    FUNC_TYPE(tc_excl_src_count)
+tc_excl_src_count:
+    mov x0, #0
+    ret
+
     .end

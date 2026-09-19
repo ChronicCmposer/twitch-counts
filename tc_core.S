@@ -172,6 +172,7 @@ tc_core_g_unk:      .skip 8
 // ============================================================================
     RODATA
 s_dir_not_found:    .asciz "logs directory not found: "
+s_logs_dir_unsupported: .asciz "TODO - not implemented: the default Chatterino log location on Linux. pass --logs-dir, or set logs_dir in the config. Chatterino is believed to use ~/.local/share/chatterino/Logs/Twitch/Channels."
 s_no_logs_pre:      .asciz "no logs for channel '"
 s_no_logs_mid:      .asciz "' in "
 s_avail:            .asciz "available: "
@@ -485,6 +486,20 @@ tc_resolve_channel:
     ret
 
 .Lrc_dir_notfound:
+    // logs_dir unset (empty string): the resolved setting has no value at
+    // all (Python's logs_dir.value is None, require_logs_dir() raises
+    // Unsupported on Linux; macOS always has a built-in default so this
+    // is unreachable there once tc_cli applies it).  logs_dir set but the
+    // directory does not exist: today's "logs directory not found: <path>".
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    add x0, x0, #TC_O_LOGS_DIR
+    ldrb w1, [x0]
+    cbnz w1, .Lrc_dir_notfound_set
+    adrp x0, PAGE(s_logs_dir_unsupported)
+    add x0, x0, LO12(s_logs_dir_unsupported)
+    bl .Lrc_emit_fail
+.Lrc_dir_notfound_set:
     // "logs directory not found: <dir>"
     adrp x0, PAGE(tc_core_scratch)
     add x0, x0, LO12(tc_core_scratch)
@@ -502,6 +517,24 @@ tc_resolve_channel:
     strb w1, [x0]
     adrp x0, PAGE(tc_core_scratch)
     add x0, x0, LO12(tc_core_scratch)
+    bl .Lrc_emit_fail
+
+// ----------------------------------------------------------------------------
+// .Lrc_emit_fail(x0=message) — report_failure: "error: <msg>" on stderr in
+// text mode, {"error": "<msg>"} on stderr in --json mode; exit 1 either way.
+// ----------------------------------------------------------------------------
+    .p2align 2
+.Lrc_emit_fail:
+    stp x29, x30, [sp, #-16]!
+    mov x1, x0
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    ldr x0, [x0, #TC_O_FLAGS]
+    tst x0, #TC_F_JSON
+    mov x0, x1
+    b.eq .Lrc_emit_fail_text
+    bl tc_json_err
+.Lrc_emit_fail_text:
     bl tc_fail
 
 .Lrc_no_channel:

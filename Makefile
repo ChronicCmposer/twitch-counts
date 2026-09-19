@@ -221,11 +221,14 @@ $(BUILD)/tc-config-test: $(addprefix $(BUILD)/,check_tc_config.o tc_config.o tc_
 		$(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
 	$(LINK) $@ $^
 
-$(BUILD)/tc-core-test: $(addprefix $(BUILD)/,check_tc_core.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o) \
+# Every driver that links tc_core.o also links tc_json.o and tc_render.o:
+# the counting core's failure path emits the --json error shape through
+# tc_json_err, and tc_json needs the render module's plan.
+$(BUILD)/tc-core-test: $(addprefix $(BUILD)/,check_tc_core.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o tc_json.o tc_render.o) \
 		$(LIBS)
 	$(LINK) $@ $^
 
-$(BUILD)/tc-cache-test: $(addprefix $(BUILD)/,check_tc_cache.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o) \
+$(BUILD)/tc-cache-test: $(addprefix $(BUILD)/,check_tc_cache.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o) \
 		$(LIBS)
 	$(LINK) $@ $^
 
@@ -237,7 +240,7 @@ $(BUILD)/tc_cache_bump.S: tc_cache.S | $(BUILD)
 $(BUILD)/tc_cache_bump.o: $(BUILD)/tc_cache_bump.S tc_platform.h tc_layout.inc | $(TOOLCHAIN_DEP)
 	$(CC) -I. -c $< -o $@
 
-$(BUILD)/tc-cache-bump-test: $(addprefix $(BUILD)/,check_tc_cache.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o) \
+$(BUILD)/tc-cache-bump-test: $(addprefix $(BUILD)/,check_tc_cache.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o) \
 		$(LIBS)
 	$(LINK) $@ $^
 
@@ -245,7 +248,7 @@ $(BUILD)/tc-render-test: $(addprefix $(BUILD)/,check_tc_render.o tc_render.o tc_
 		$(LIBS)
 	$(LINK) $@ $^
 
-$(BUILD)/tc-misc-test: $(addprefix $(BUILD)/,check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o) \
+$(BUILD)/tc-misc-test: $(addprefix $(BUILD)/,check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_json.o tc_render.o) \
 		$(LIBS)
 	$(LINK) $@ $^
 

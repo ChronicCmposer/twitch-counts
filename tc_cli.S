@@ -164,6 +164,9 @@
     .equ OPT_MAX,     256
     .equ ARGSTR_SZ,   128
     .equ SCRATCH_SZ,  512
+    .equ HELP_TEXT_SZ, 1104           // help text buffer (value up to ~1024)
+    .equ HELP_LINE_SZ, 64
+    .equ HELP_WRAP_W,  54             // argparse: 80 columns - 2 - help position 24
 
 // ----------------------------------------------------------------------------
 // External symbols
@@ -216,6 +219,8 @@ tc_opt_argv:        .skip 8 * OPT_MAX
 tc_extras:          .skip 8 * OPT_MAX
 tc_argstr:          .skip OPT_MAX * ARGSTR_SZ
 tc_scratch:         .skip SCRATCH_SZ
+help_text:          .skip HELP_TEXT_SZ  // "--config" help line before wrapping
+help_line:          .skip HELP_LINE_SZ  // one wrapped line
 tc_scratch2:        .skip SCRATCH_SZ
 tc_strtod_end:      .skip 8
 tc_tm_buf:          .skip 64
@@ -681,6 +686,8 @@ tc_fd_puts:
     .global tc_print_help
     FUNC_TYPE(tc_print_help)
 tc_print_help:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
@@ -689,8 +696,167 @@ tc_print_help:
     adrp x0, PAGE(help_body)
     add x0, x0, LO12(help_body)
     bl tc_puts
+    // dynamic "--config" default: expanduser(DEFAULT_CONFIG_PATH), then
+    // shorten_path — computed at runtime the way argparse does (line 3954
+    // of twitch-counts.py).  When it comes out identical to the ordinary
+    // "~/.config/twitch-counts.toml" (true whenever HOME resolves to a
+    // real home directory), the pre-wrapped static two-line text is used
+    // verbatim.  Otherwise the value is spliced into a single unwrapped
+    // line — argparse's own wrapping only breaks the text when it does
+    // not fit the terminal width, which the common short values here do.
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
+    mov x1, #SCRATCH_SZ
+    bl tc_default_config_path        // the platform class's DEFAULT_CONFIG_PATH
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
+    bl tc_shorten_path               // x0 = ptr to shortened path (scratch)
+    mov x19, x0
+    adrp x1, PAGE(s_default_config_path)
+    add x1, x1, LO12(s_default_config_path)
+    bl tc_streq
+    cbz w0, .Lph_config_dyn
+    adrp x0, PAGE(s_help_config_static)
+    add x0, x0, LO12(s_help_config_static)
+    bl tc_puts
+    b .Lph_config_done
+.Lph_config_dyn:
+    // argparse wraps a help string with textwrap at width 78 - 24 = 54
+    // (an 80-column terminal, the help column at 24): greedy fill of
+    // chunks split at whitespace and after a hyphen that sits between two
+    // word characters; a lone chunk wider than the line is cut at the
+    // width; trailing spaces are dropped at a break.  The value is spliced
+    // into "TOML config file (default: <value>)" and wrapped the same way.
+    adrp x20, PAGE(help_text)
+    add x20, x20, LO12(help_text)
+    mov x0, x20
+    adrp x1, PAGE(s_help_cfg_text)
+    add x1, x1, LO12(s_help_cfg_text)
+    bl tc_cat_cstr
+    mov x1, x19
+    bl tc_cat_cstr
+    mov w1, #')'
+    strb w1, [x0], #1
+    strb wzr, [x0]
+    adrp x26, PAGE(help_line)
+    add x26, x26, LO12(help_line)
+    mov x21, #0                       // pos in help_text
+    mov x22, #1                       // first line pending
+.Lhw_line:
+    ldrb w9, [x20, x21]
+    cbz w9, .Lph_config_done
+    cmp w9, #' '                      // a line never starts with a space
+    b.ne .Lhw_fill
+    add x21, x21, #1
+    b .Lhw_line
+.Lhw_fill:
+    mov x23, #0                       // col = line length so far
+.Lhw_chunk:
+    ldrb w9, [x20, x21]
+    cbz w9, .Lhw_flush
+    cmp w9, #' '
+    b.ne .Lhw_word
+    add x24, x21, #1                  // a space is a chunk of its own
+    b .Lhw_have_chunk
+.Lhw_word:
+    mov x24, x21
+.Lhw_scan:
+    ldrb w9, [x20, x24]
+    cbz w9, .Lhw_have_chunk
+    cmp w9, #' '
+    b.eq .Lhw_have_chunk
+    add x24, x24, #1
+    cmp w9, #'-'
+    b.ne .Lhw_scan
+    // hyphen: break after it when both neighbours are word characters
+    sub x10, x24, #2
+    cmp x10, x21
+    b.lt .Lhw_scan
+    ldrb w10, [x20, x10]
+    bl help_is_word_char
+    cbz w0, .Lhw_scan
+    ldrb w10, [x20, x24]
+    bl help_is_word_char
+    cbz w0, .Lhw_scan
+.Lhw_have_chunk:
+    sub x25, x24, x21                 // chunk length
+    add x9, x23, x25
+    cmp x9, #HELP_WRAP_W
+    b.le .Lhw_take
+    cbnz x23, .Lhw_flush              // does not fit: break before it
+    mov x25, #HELP_WRAP_W             // a lone over-wide chunk is cut
+    add x24, x21, x25
+.Lhw_take:
+    mov x9, #0
+.Lhw_copy:
+    cmp x9, x25
+    b.ge .Lhw_copied
+    ldrb w10, [x20, x21]
+    add x11, x26, x23
+    strb w10, [x11]
+    add x21, x21, #1
+    add x23, x23, #1
+    add x9, x9, #1
+    b .Lhw_copy
+.Lhw_copied:
+    b .Lhw_chunk
+.Lhw_flush:
+    // drop trailing spaces, terminate, print prefix + line
+    cbz x23, .Lhw_emit
+    sub x9, x23, #1
+    ldrb w9, [x26, x9]
+    cmp w9, #' '
+    b.ne .Lhw_emit
+    sub x23, x23, #1
+    b .Lhw_flush
+.Lhw_emit:
+    strb wzr, [x26, x23]
+    cbz x22, .Lhw_rest_prefix
+    mov x22, #0
+    adrp x0, PAGE(s_help_cfg_first)
+    add x0, x0, LO12(s_help_cfg_first)
+    b .Lhw_prefix_out
+.Lhw_rest_prefix:
+    adrp x0, PAGE(s_help_indent)
+    add x0, x0, LO12(s_help_indent)
+.Lhw_prefix_out:
+    bl tc_puts
+    mov x0, x26
+    bl tc_puts
+    adrp x0, PAGE(s_help_nl)
+    add x0, x0, LO12(s_help_nl)
+    bl tc_puts
+    b .Lhw_line
+.Lph_config_done:
+    adrp x0, PAGE(help_body_b)
+    add x0, x0, LO12(help_body_b)
+    bl tc_puts
     mov w0, #0
     bl exit
+
+
+// help_is_word_char: w0 = 1 when the byte in w10 is [0-9A-Za-z_], else 0.
+    .p2align 2
+help_is_word_char:
+    mov w0, #1
+    cmp w10, #'0'
+    b.lt .Lhiw_no
+    cmp w10, #'9'
+    b.le .Lhiw_yes
+    cmp w10, #'A'
+    b.lt .Lhiw_no
+    cmp w10, #'Z'
+    b.le .Lhiw_yes
+    cmp w10, #'_'
+    b.eq .Lhiw_yes
+    cmp w10, #'a'
+    b.lt .Lhiw_no
+    cmp w10, #'z'
+    b.le .Lhiw_yes
+.Lhiw_no:
+    mov w0, #0
+.Lhiw_yes:
+    ret
 
 // ============================================================================
 // tc_handle_opt(x0=val, x1=optarg) — dispatch one option (may exit 2).
@@ -1763,6 +1929,11 @@ tc_prepass:
     mov x21, x0
     b .Lpp_loop
 .Lpp_endopts:
+    // Python's argparse keeps the "--" token itself in the extras
+    // ('unrecognized arguments: --'), unlike traditional getopt which
+    // silently consumes it.  x24 still holds argv[x21] (the "--" token).
+    mov x0, x24
+    bl tc_pp_extra
     add x24, x21, #1
 .Lpp_end_loop:
     cmp x24, x19
@@ -2374,7 +2545,7 @@ tc_pp_short:
 .Lps_eq_attached:
     add x26, x26, #1
     ldrb w0, [x26]
-    cbz w0, .Lps_no_attached
+    cbz w0, .Lps_eq_empty
     // "=value": build merged token without the '='
     mov x0, x20
     bl tc_pp_slot
@@ -2392,6 +2563,17 @@ tc_pp_short:
     bl tc_pp_emit
     add x0, x20, #1
     b .Lps_ret
+.Lps_eq_empty:
+    // "-x=" with an EMPTY explicit value: Python keeps it as channel/value
+    // "".  A merged token of just "-x" is indistinguishable from a bare
+    // "-x" to getopt_long (it would go hunting the NEXT argv for a value),
+    // so route through the long-option spelling instead: "--name=" is
+    // real getopt_long syntax for an explicit (possibly empty) value.
+    mov x0, x23
+    mov x1, x20
+    bl tc_pp_build_long_val
+    add x0, x20, #1
+    b .Lps_ret
 .Lps_no_attached:
     // value from the next argv if value-like
     adrp x26, PAGE(tc_argc_saved)
@@ -2403,9 +2585,12 @@ tc_pp_short:
     adrp x26, PAGE(tc_argv_saved)
     add x26, x26, LO12(tc_argv_saved)
     ldr x26, [x26]
-    ldr x0, [x26, x27, lsl #3]
+    ldr x28, [x26, x27, lsl #3]     // next argv token
+    mov x0, x28
     bl tc_is_value_token
     cbz x0, .Lps_missing
+    ldrb w0, [x28]
+    cbz w0, .Lps_no_attached_empty  // "-c \"\"": empty separate argument
     // value available: merge tok[0..p] + value into the slot
     mov x0, x20
     bl tc_pp_slot
@@ -2417,13 +2602,16 @@ tc_pp_short:
     mov x0, x26
     add x0, x0, x22
     add x0, x0, #1
-    adrp x1, PAGE(tc_argv_saved)
-    add x1, x1, LO12(tc_argv_saved)
-    ldr x1, [x1]
-    ldr x1, [x1, x27, lsl #3]
+    mov x1, x28
     bl tc_cat_cstr
     mov x0, x26
     bl tc_pp_emit
+    add x0, x20, #2
+    b .Lps_ret
+.Lps_no_attached_empty:
+    mov x0, x23
+    mov x1, x20
+    bl tc_pp_build_long_val
     add x0, x20, #2
     b .Lps_ret
 .Lps_missing:
@@ -2466,6 +2654,65 @@ tc_pp_short:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_pp_build_long_val(x0=short val, x1=index) — writes "--<name>=" into
+// the scratch slot for `index` and emits it.  Used to spell an explicit,
+// possibly-empty value ("-c=", "-c \"\"") through getopt_long's native
+// "--long=value" syntax, since a bare merged "-c" token is indistinguishable
+// from "no value attached" and would make getopt_long consume another argv.
+// ----------------------------------------------------------------------------
+    .p2align 2
+tc_pp_build_long_val:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    mov w19, w0                     // short val
+    mov x20, x1                     // index
+    mov x0, x20
+    bl tc_pp_slot
+    mov x21, x0                     // slot
+    adrp x0, PAGE(tc_longopts)
+    add x0, x0, LO12(tc_longopts)
+.Lpbv_scan:
+    ldr x1, [x0]
+    cbz x1, .Lpbv_use_fallback
+    ldr w2, [x0, #24]
+    cmp w2, w19
+    b.eq .Lpbv_found
+    add x0, x0, #32
+    b .Lpbv_scan
+.Lpbv_found:
+    mov x22, x1
+    b .Lpbv_build
+.Lpbv_use_fallback:
+    strb wzr, [x21]
+    mov w2, #'-'
+    strb w2, [x21]
+    strb w2, [x21, #1]
+    mov w2, #'='
+    strb w2, [x21, #2]
+    strb wzr, [x21, #3]
+    b .Lpbv_done
+.Lpbv_build:
+    strb wzr, [x21]
+    mov w2, #'-'
+    strb w2, [x21]
+    strb w2, [x21, #1]
+    add x0, x21, #2
+    mov x1, x22
+    bl tc_cat_cstr
+    mov w2, #'='
+    strb w2, [x0]
+    add x0, x0, #1
+    strb wzr, [x0]
+.Lpbv_done:
+    mov x0, x21
+    bl tc_pp_emit
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -2638,8 +2885,34 @@ tc_resolve_settings:
     b.eq .Lrs_bcast
     cmp x19, #TC_SET_HIGHLIGHT
     b.eq .Lrs_highlights
+    cmp x19, #TC_SET_LOGS_DIR
+    b.eq .Lrs_logs_dir
     mov x0, x19
     bl tc_resolve_one
+    b .Lrs_next
+.Lrs_logs_dir:
+    // logs_dir: CLI/env/config take the generic path.  Only when nothing
+    // set it (source still TC_SRC_DEFAULT after resolution) does the
+    // platform supply its built-in default (already expanded); on a
+    // platform with no default (Linux) the value stays empty and the
+    // source stays TC_SRC_DEFAULT, matching Python's None.
+    mov x0, x19
+    bl tc_resolve_one
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    ldr x1, [x0, #TC_O_SRC + TC_SET_LOGS_DIR*8]
+    cmp x1, #TC_SRC_DEFAULT
+    b.ne .Lrs_next
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    add x0, x0, #TC_O_LOGS_DIR
+    mov x1, #TC_O_LOGS_DIR_SZ
+    bl tc_platform_default_logs_dir
+    cbz x0, .Lrs_next
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
+    mov x2, #TC_SRC_DEFAULT_BUILTIN
+    str x2, [x1, #TC_O_SRC + TC_SET_LOGS_DIR*8]
     b .Lrs_next
 .Lrs_config:
     // config path
@@ -7005,6 +7278,11 @@ s_by_state_label: .asciz "--by-state"
 s_comma_space:  .asciz ", "
 s_default_compact: .asciz "compact"
 s_default_config_path: .asciz "~/.config/twitch-counts.toml"
+s_help_config_static:  .asciz "  --config CONFIG       TOML config file (default: ~/.config/twitch-\n                        counts.toml)\n"
+s_help_cfg_text:       .asciz "TOML config file (default: "
+s_help_cfg_first:      .asciz "  --config CONFIG       "
+s_help_indent:         .asciz "                        "
+s_help_nl:             .asciz "\n"
 s_flag_end:     .asciz "--end"
 s_flag_begin:   .asciz "--begin"
 s_flag_since:   .asciz "--since"
@@ -8615,8 +8893,9 @@ help_body:
     .ascii "                        re-include users the merged exclusions would drop;\n"
     .ascii "                        repeatable\n"
     .ascii "  --no-exclude          ignore every exclusion for this run\n"
-    .ascii "  --config CONFIG       TOML config file (default: ~/.config/twitch-\n"
-    .ascii "                        counts.toml)\n"
+help_body_config_end:
+    .byte 0
+help_body_b:
     .ascii "  --no-config           ignore the config file entirely\n"
     .ascii "  --streamer            streamer mode: no content highlights while watching\n"
     .ascii "  --no-cache            parse the logs instead of using the cache\n"

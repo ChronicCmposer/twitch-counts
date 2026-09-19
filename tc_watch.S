@@ -106,6 +106,11 @@
     .globl rint
     .globl clock_gettime
     .globl nanosleep
+    .globl getenv
+#ifdef __APPLE__
+    .globl kqueue
+    .globl kevent
+#endif
     .globl signal
     .globl fflush
     .globl strcmp
@@ -198,7 +203,8 @@
     .equ RD_DAY_CAP,     928
     .equ RD_DAY_REV,     936             // revision at the last day build
     .equ RD_TEXT_BASE,   944             // malloc base of the read text buffer
-    .equ READER_SZ,      952
+    .equ RD_KQ_FD,       952             // kqueue vnode handle fd (Darwin), 0 = none
+    .equ READER_SZ,      960
 
     // bucket record (BK_SZ 48), sorted by (second, login, state)
     .equ BK_SECOND,      0
@@ -394,6 +400,17 @@ tc_watch_seed_lookback:.skip 8
 tc_watch_win_width:  .skip 8             // u64 sliding width in seconds
 tc_watch_end_given:  .skip 8             // u64 1 = explicit --end
 tc_watch_first:      .skip 8             // u64 1 until the first loop tick
+tc_watch_color_on:   .skip 8             // u64 color_enabled(args): tints drawn
+// change notification (the Python's KqueueWatcher; Darwin only)
+    .equ KQ_EVENTS_MAX,  64              // cap on [tail] max_events
+tc_watch_kq_on:      .skip 8             // u64 1 when the kqueue watcher runs
+tc_watch_kq:         .skip 8             // u64 kqueue fd
+tc_watch_woke_write: .skip 8             // u64 wakes by a vnode event (cumulative)
+tc_watch_woke_timer: .skip 8             // u64 wakes by the timeout
+tc_watch_kts:        .skip 16            // struct timespec for kevent()
+    .p2align 3
+tc_watch_kev1:       .skip 32            // one struct kevent (registration)
+tc_watch_kevents:    .skip KQ_EVENTS_MAX * 32
 tc_watch_painted_at: .skip 8             // double monotonic (0 = never)
 tc_watch_started:    .skip 8             // double monotonic (tick start)
 tc_watch_elapsed:    .skip 8             // double
@@ -555,6 +572,10 @@ s_clr_eol:          .asciz "\033[K"
 s_clr_below:        .asciz "\033[J"
 s_reset:            .asciz "\033[0m"
 s_esc_38:           .asciz "\033[38;2;"
+s_env_no_color:     .asciz "NO_COLOR"
+s_woke_on:          .asciz ", woke on "
+s_woke_write:       .asciz "write"
+s_woke_timer:       .asciz "timer"
 s_m:                .asciz "m"
 
 s_curve_linear:     .asciz "linear"
@@ -629,10 +650,54 @@ tc_watch_run:
     add x9, x9, LO12(tc_watch_notify)
     ldr x9, [x9]
     cbz x9, .Lwr_notify_ok
+#ifdef __APPLE__
+    // MacOS.watcher(notify=True): KqueueWatcher -- wake on a write to a
+    // watched log, or on the timer, whichever comes first.
+    bl kqueue
+    cmp w0, #0
+    b.lt .Lwr_notify_ok               // no kqueue: fall back to polling
+    adrp x9, PAGE(tc_watch_kq)
+    add x9, x9, LO12(tc_watch_kq)
+    str x0, [x9]
+    adrp x9, PAGE(tc_watch_kq_on)
+    add x9, x9, LO12(tc_watch_kq_on)
+    mov x10, #1
+    str x10, [x9]
+#else
     adrp x0, PAGE(s_todo_notify)
     add x0, x0, LO12(s_todo_notify)
     bl tc_report_fail                 // noreturn
+#endif
 .Lwr_notify_ok:
+    // color_enabled(args): --color never -> off, always -> on, auto ->
+    // stdout is a tty and NO_COLOR is unset or empty
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
+    ldr x9, [x9, #TC_O_COLOR_MODE]
+    cmp x9, #TC_COLOR_NEVER
+    b.eq .Lwr_color_off
+    cmp x9, #TC_COLOR_ALWAYS
+    b.eq .Lwr_color_on
+    mov x0, #1
+    bl isatty
+    cbz w0, .Lwr_color_off
+    adrp x0, PAGE(s_env_no_color)
+    add x0, x0, LO12(s_env_no_color)
+    bl getenv
+    cbz x0, .Lwr_color_on
+    ldrb w1, [x0]
+    cbz w1, .Lwr_color_on
+.Lwr_color_off:
+    adrp x9, PAGE(tc_watch_color_on)
+    add x9, x9, LO12(tc_watch_color_on)
+    str xzr, [x9]
+    b .Lwr_color_done
+.Lwr_color_on:
+    adrp x9, PAGE(tc_watch_color_on)
+    add x9, x9, LO12(tc_watch_color_on)
+    mov x10, #1
+    str x10, [x9]
+.Lwr_color_done:
     // ---- channel + listing + window --------------------------------------
     bl tc_resolve_channel
     bl watch_build_dirpath
@@ -747,6 +812,7 @@ tc_watch_run:
     bl watch_next_wait
     b .Lwr_loop
 .Lwr_done:
+    bl watch_kq_close                 // changes.close()
     // restore the cursor + newline, flush
     adrp x0, PAGE(s_cursor_show)
     add x0, x0, LO12(s_cursor_show)
@@ -876,6 +942,224 @@ watch_sleep:
 .Lws_done:
     ldp x19, x30, [sp], #16
     ret
+
+// ============================================================================
+// Change notification -- the Python's KqueueWatcher (twitch-counts.py
+// 3546-3606), Darwin only.  On Linux (and with [tail] notify = false) the
+// loop polls exactly as before: watch_kq_arm is a no-op and
+// watch_wait_changes is watch_sleep.
+//
+//   arm:   every reader without a handle gets one: open(path, O_RDONLY) and a
+//          kevent registration {ident=fd, EVFILT_VNODE, EV_ADD|EV_ENABLE|
+//          EV_CLEAR, NOTE_WRITE|NOTE_EXTEND|NOTE_DELETE|NOTE_RENAME}; a
+//          reader that leaves the table has its handle closed
+//          (watch_retain_readers).
+//   wait:  no handles -> sleep, woke_on_timer++; else kevent() with the
+//          timeout and [tail] max_events (capped at KQ_EVENTS_MAX): any event
+//          -> woke_on_write++, else woke_on_timer++.
+//   close: every handle and the queue.
+// ============================================================================
+    .p2align 2
+watch_kq_arm:
+#ifdef __APPLE__
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    adrp x9, PAGE(tc_watch_kq_on)
+    add x9, x9, LO12(tc_watch_kq_on)
+    ldr x9, [x9]
+    cbz x9, .Lwka_out
+    adrp x19, PAGE(tc_watch_readers)
+    add x19, x19, LO12(tc_watch_readers)
+    ldr x19, [x19]                    // reader pointer array
+    adrp x20, PAGE(tc_watch_reader_n)
+    add x20, x20, LO12(tc_watch_reader_n)
+    ldr x20, [x20]
+    mov x21, #0
+.Lwka_loop:
+    cmp x21, x20
+    b.ge .Lwka_out
+    ldr x22, [x19, x21, lsl #3]       // rd
+    ldr x9, [x22, #RD_KQ_FD]
+    cbnz x9, .Lwka_next
+    add x0, x22, #RD_PATH
+    mov x1, #O_RDONLY
+    bl open
+    cmp w0, #0
+    b.lt .Lwka_next                   // unreadable: not tracked (Python: skip)
+    mov w9, w0
+    str x9, [x22, #RD_KQ_FD]
+    adrp x10, PAGE(tc_watch_kev1)
+    add x10, x10, LO12(tc_watch_kev1)
+    str x9, [x10, #KE_IDENT]
+    mov w11, #EVFILT_VNODE
+    strh w11, [x10, #KE_FILTER]
+    mov w11, #(EV_ADD | EV_ENABLE | EV_CLEAR)
+    strh w11, [x10, #KE_FLAGS]
+    mov w11, #(NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME)
+    str w11, [x10, #KE_FFLAGS]
+    str xzr, [x10, #KE_DATA]
+    str xzr, [x10, #KE_UDATA]
+    adrp x0, PAGE(tc_watch_kq)
+    add x0, x0, LO12(tc_watch_kq)
+    ldr w0, [x0]
+    mov x1, x10                       // changelist
+    mov x2, #1                        // nchanges
+    mov x3, #0                        // eventlist
+    mov x4, #0                        // nevents
+    mov x5, #0                        // timeout
+    bl kevent
+.Lwka_next:
+    add x21, x21, #1
+    b .Lwka_loop
+.Lwka_out:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+#else
+    ret
+#endif
+
+// watch_wait_changes(d0 = seconds) -- KqueueWatcher.wait, else watch_sleep
+    .p2align 2
+watch_wait_changes:
+#ifdef __APPLE__
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    adrp x9, PAGE(tc_watch_kq_on)
+    add x9, x9, LO12(tc_watch_kq_on)
+    ldr x9, [x9]
+    cbz x9, .Lwwc_sleep
+    fcmp d0, #0.0
+    b.le .Lwwc_out
+    // any handle at all?  (no handles: the timer is the only wake source)
+    adrp x19, PAGE(tc_watch_readers)
+    add x19, x19, LO12(tc_watch_readers)
+    ldr x19, [x19]
+    adrp x20, PAGE(tc_watch_reader_n)
+    add x20, x20, LO12(tc_watch_reader_n)
+    ldr x20, [x20]
+    mov x9, #0
+.Lwwc_scan:
+    cmp x9, x20
+    b.ge .Lwwc_none
+    ldr x10, [x19, x9, lsl #3]
+    ldr x10, [x10, #RD_KQ_FD]
+    cbnz x10, .Lwwc_have
+    add x9, x9, #1
+    b .Lwwc_scan
+.Lwwc_none:
+    bl watch_sleep
+    adrp x9, PAGE(tc_watch_woke_timer)
+    add x9, x9, LO12(tc_watch_woke_timer)
+    ldr x10, [x9]
+    add x10, x10, #1
+    str x10, [x9]
+    b .Lwwc_out
+.Lwwc_have:
+    // timeout -> tc_watch_kts (seconds + nanoseconds, as watch_sleep does)
+    fcvtzs x9, d0
+    scvtf d1, x9
+    fsub d2, d0, d1
+    adrp x10, PAGE(dbl_nanosec)
+    add x10, x10, LO12(dbl_nanosec)
+    ldr d3, [x10]
+    fmul d2, d2, d3
+    fcvtzu x11, d2
+    adrp x10, PAGE(tc_watch_kts)
+    add x10, x10, LO12(tc_watch_kts)
+    str x9, [x10]
+    str x11, [x10, #8]
+    // nevents = min([tail] max_events, KQ_EVENTS_MAX)
+    adrp x9, PAGE(tc_watch_max_events)
+    add x9, x9, LO12(tc_watch_max_events)
+    ldr x4, [x9]
+    cmp x4, #KQ_EVENTS_MAX
+    b.le .Lwwc_nev_ok
+    mov x4, #KQ_EVENTS_MAX
+.Lwwc_nev_ok:
+    cmp x4, #1
+    b.ge .Lwwc_call
+    mov x4, #1
+.Lwwc_call:
+    adrp x0, PAGE(tc_watch_kq)
+    add x0, x0, LO12(tc_watch_kq)
+    ldr w0, [x0]
+    mov x1, #0                        // changelist
+    mov x2, #0                        // nchanges
+    adrp x3, PAGE(tc_watch_kevents)
+    add x3, x3, LO12(tc_watch_kevents)
+    mov x5, x10                       // timeout
+    bl kevent
+    cmp w0, #0
+    b.le .Lwwc_timer
+    adrp x9, PAGE(tc_watch_woke_write)
+    add x9, x9, LO12(tc_watch_woke_write)
+    b .Lwwc_count
+.Lwwc_timer:
+    adrp x9, PAGE(tc_watch_woke_timer)
+    add x9, x9, LO12(tc_watch_woke_timer)
+.Lwwc_count:
+    ldr x10, [x9]
+    add x10, x10, #1
+    str x10, [x9]
+    b .Lwwc_out
+.Lwwc_sleep:
+    bl watch_sleep
+.Lwwc_out:
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+#else
+    b watch_sleep
+#endif
+
+// watch_kq_close -- KqueueWatcher.close: every handle, then the queue
+    .p2align 2
+watch_kq_close:
+#ifdef __APPLE__
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    adrp x9, PAGE(tc_watch_kq_on)
+    add x9, x9, LO12(tc_watch_kq_on)
+    ldr x9, [x9]
+    cbz x9, .Lwkc_out
+    adrp x19, PAGE(tc_watch_readers)
+    add x19, x19, LO12(tc_watch_readers)
+    ldr x19, [x19]
+    adrp x20, PAGE(tc_watch_reader_n)
+    add x20, x20, LO12(tc_watch_reader_n)
+    ldr x20, [x20]
+    mov x21, #0
+.Lwkc_loop:
+    cmp x21, x20
+    b.ge .Lwkc_queue
+    ldr x22, [x19, x21, lsl #3]
+    ldr x0, [x22, #RD_KQ_FD]
+    cbz x0, .Lwkc_next
+    bl close
+    str xzr, [x22, #RD_KQ_FD]
+.Lwkc_next:
+    add x21, x21, #1
+    b .Lwkc_loop
+.Lwkc_queue:
+    adrp x0, PAGE(tc_watch_kq)
+    add x0, x0, LO12(tc_watch_kq)
+    ldr w0, [x0]
+    bl close
+    adrp x9, PAGE(tc_watch_kq_on)
+    add x9, x9, LO12(tc_watch_kq_on)
+    str xzr, [x9]
+.Lwkc_out:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+#else
+    ret
+#endif
 
 // ============================================================================
 // watch_load_settings — copy the resolved watch settings out of tc_opts into
@@ -5692,6 +5976,11 @@ watch_retain_readers:
     add x26, x26, #1
     b .Lwret_loop
 .Lwret_drop:
+    ldr x0, [x27, #RD_KQ_FD]          // its change-notification handle, if any
+    cbz x0, .Lwret_drop_next
+    bl close
+    str xzr, [x27, #RD_KQ_FD]
+.Lwret_drop_next:
     add x26, x26, #1
     b .Lwret_loop
 .Lwret_done:
@@ -8586,10 +8875,20 @@ watch_tint_hook:
     stp x27, x28, [sp, #-16]!
     mov x19, x1                        // rec
     mov x20, x2                        // text
+    // colorizer(frame, enabled=False): the row stays plain and no tint is
+    // assigned (carried tints still expire in watch_filter_tints)
+    adrp x9, PAGE(tc_watch_color_on)
+    add x9, x9, LO12(tc_watch_color_on)
+    ldr x9, [x9]
+    cbnz x9, .Lwth_apply
+    mov x0, x20
+    b .Lwth_out
+.Lwth_apply:
     add x0, x19, #ROW_LOGIN
     ldr x1, [x19, #ROW_COUNT]
     mov x2, x20
     bl watch_tint_apply
+.Lwth_out:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
@@ -8636,10 +8935,18 @@ watch_next_wait:
     b.ge .Lwnw_sleep
     fmov d2, d0                        // wait = min(wait, due - now)
 .Lwnw_sleep:
+    // changes.arm(readers.paths()); changes.wait(max(wait, 0.0))
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
+    str d2, [x9]
+    bl watch_kq_arm
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
+    ldr d2, [x9]
     fcmp d2, #0.0
     b.le .Lwnw_done
     fmov d0, d2
-    bl watch_sleep
+    bl watch_wait_changes
 .Lwnw_done:
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -8906,6 +9213,36 @@ watch_build_status:
     mov x0, x19
     adrp x1, PAGE(s_ms)
     add x1, x1, LO12(s_ms)
+    bl wc_cat
+    mov x19, x0
+    // ", woke on write|timer" only for a watcher that is enabled (kqueue);
+    // the Python's woke_on_write counter is cumulative, so once any write
+    // has woken the loop every later frame says "write" (mirrored as is)
+    adrp x9, PAGE(tc_watch_kq_on)
+    add x9, x9, LO12(tc_watch_kq_on)
+    ldr x9, [x9]
+    cbz x9, .Lwbs_slower
+    mov x0, x19
+    adrp x1, PAGE(s_woke_on)
+    add x1, x1, LO12(s_woke_on)
+    bl wc_cat
+    mov x19, x0
+    adrp x9, PAGE(tc_watch_woke_write)
+    add x9, x9, LO12(tc_watch_woke_write)
+    ldr x9, [x9]
+    cbz x9, .Lwbs_woke_timer
+    adrp x9, PAGE(tc_watch_first)
+    add x9, x9, LO12(tc_watch_first)
+    ldr x9, [x9]
+    cbnz x9, .Lwbs_woke_timer
+    adrp x1, PAGE(s_woke_write)
+    add x1, x1, LO12(s_woke_write)
+    b .Lwbs_woke_emit
+.Lwbs_woke_timer:
+    adrp x1, PAGE(s_woke_timer)
+    add x1, x1, LO12(s_woke_timer)
+.Lwbs_woke_emit:
+    mov x0, x19
     bl wc_cat
     mov x19, x0
 .Lwbs_slower:

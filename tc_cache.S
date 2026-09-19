@@ -151,6 +151,7 @@
     .globl malloc
     .globl free
     .globl getenv
+    .globl tc_expanduser
     .globl mkdir
     .globl stat
     .globl time
@@ -253,6 +254,7 @@ s_reason_rebuild:   .asciz "--rebuild-cache"
 s_env_xdg_cache:    .asciz "XDG_CACHE_HOME"
 s_env_home:         .asciz "HOME"
 s_home_cache_tail:  .asciz "/.cache"
+s_cache_default:    .asciz "~/.cache/twitch-counts/rollup.db"
 s_path_tail:        .asciz "/twitch-counts/rollup.db"
 s_state_live:       .asciz "live"
 s_state_offline:    .asciz "offline"
@@ -1858,59 +1860,59 @@ state_id:
     ret
 
 // ============================================================================
-// resolve_cache_path — XDG_CACHE_HOME or $HOME/.cache + "/twitch-counts/
-//   rollup.db" into tc_cache_path.  No HOME -> empty path (cache disabled).
+// resolve_cache_path -- DEFAULT_CACHE_PATH per platform class into
+//   tc_cache_path:
+//     MacOS: expanduser("~/.cache/twitch-counts/rollup.db")   (XDG_* ignored)
+//     Linux: os.path.join(XDG_CACHE_HOME or expanduser("~/.cache"),
+//                         "twitch-counts/rollup.db") -- an empty variable
+//            counts as unset, a set one is used verbatim.
+//   expanduser follows CPython (HOME present even if empty; else the
+//   password database), so there is no "no HOME -> no cache" case any more.
 // ============================================================================
     .p2align 2
 resolve_cache_path:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    // XDG_CACHE_HOME
+#ifndef __APPLE__
     adrp x0, PAGE(s_env_xdg_cache)
     add x0, x0, LO12(s_env_xdg_cache)
     bl getenv
-    cbz x0, .Lrcp_home
+    cbz x0, .Lrcp_default
     ldrb w1, [x0]
-    cbz w1, .Lrcp_home
-    mov x19, x0                     // base = XDG_CACHE_HOME
-    b .Lrcp_build
-.Lrcp_home:
-    // $HOME/.cache
-    adrp x0, PAGE(s_env_home)
-    add x0, x0, LO12(s_env_home)
-    bl getenv
-    cbz x0, .Lrcp_none
-    ldrb w1, [x0]
-    cbz w1, .Lrcp_none
-    mov x20, x0                     // home
-    adrp x0, PAGE(tc_cache_scratch)
-    add x0, x0, LO12(tc_cache_scratch)
-    mov x19, x0                     // cursor
-    mov x1, x20
-    bl cat_cstr
-    adrp x1, PAGE(s_home_cache_tail)
-    add x1, x1, LO12(s_home_cache_tail)
-    bl cat_cstr
-    adrp x19, PAGE(tc_cache_scratch)
-    add x19, x19, LO12(tc_cache_scratch)
-.Lrcp_build:
-    // path = base + tail
+    cbz w1, .Lrcp_default
+    mov x19, x0                     // base = XDG_CACHE_HOME, verbatim
     adrp x0, PAGE(tc_cache_path)
     add x0, x0, LO12(tc_cache_path)
-    mov x21, x0                     // cursor
     mov x1, x19
     mov x2, #PATH_SZ
-    bl cat_cstr_cap
-    adrp x1, PAGE(s_path_tail)
+    bl cat_cstr_cap                 // x0 = cursor at the NUL
+    mov x20, x0
+    mov x0, x19
+    bl tc_strlen
+    sub x9, x0, #1
+    ldrb w9, [x19, x9]
+    adrp x1, PAGE(s_path_tail)      // "/twitch-counts/rollup.db"
     add x1, x1, LO12(s_path_tail)
-    mov x2, #PATH_SZ
+    cmp w9, #'/'
+    b.ne .Lrcp_join
+    add x1, x1, #1                  // os.path.join: no doubled slash
+.Lrcp_join:
+    mov x0, x20
+    adrp x2, PAGE(tc_cache_path)
+    add x2, x2, LO12(tc_cache_path)
+    add x2, x2, #PATH_SZ
+    sub x2, x2, x20                 // bytes left from the cursor
     bl cat_cstr_cap
     b .Lrcp_done
-.Lrcp_none:
-    adrp x0, PAGE(tc_cache_path)
-    add x0, x0, LO12(tc_cache_path)
-    strb wzr, [x0]
+.Lrcp_default:
+#endif
+    adrp x0, PAGE(s_cache_default)
+    add x0, x0, LO12(s_cache_default)
+    adrp x1, PAGE(tc_cache_path)
+    add x1, x1, LO12(tc_cache_path)
+    mov x2, #PATH_SZ
+    bl tc_expanduser
 .Lrcp_done:
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16

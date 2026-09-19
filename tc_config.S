@@ -1041,53 +1041,14 @@ tc_config_reload:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_shorten_path(x0=path) -> x0 = pointer to the shortened path.
-//   Python shorten_path: replace a leading $HOME with "~".
+// tc_expanduser / tc_shorten_path / tc_default_config_path /
+// tc_platform_default_logs_dir live in tc_util.S (every driver links it;
+// tc-cli-test links the config stub instead of this module).
 // ----------------------------------------------------------------------------
-    .p2align 2
-    .global tc_shorten_path
-    FUNC_TYPE(tc_shorten_path)
-tc_shorten_path:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    mov x19, x0                     // path
-    adrp x0, PAGE(s_home)
-    add x0, x0, LO12(s_home)
-    bl getenv
-    cbz x0, .Lsp_orig
-    ldrb w1, [x0]
-    cbz w1, .Lsp_orig
-    mov x20, x0                     // home
-    mov x0, x19
-    mov x1, x20
-    bl starts_with
-    cbz x0, .Lsp_orig
-    mov x0, x19
-    bl tc_strlen
-    mov x21, x0                     // path len
-    mov x0, x20
-    bl tc_strlen
-    mov x22, x0                     // home len
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    mov x1, #'~'
-    strb w1, [x0], #1
-    mov x1, x19
-    add x1, x1, x22
-    mov x2, x21
-    sub x2, x2, x22
-    bl copy_n_nul
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    b .Lsp_done
-.Lsp_orig:
-    mov x0, x19
-.Lsp_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
-    ret
+    .globl tc_expanduser
+    .globl tc_shorten_path
+    .globl tc_default_config_path
+    .globl tc_platform_default_logs_dir
 
 // ============================================================================
 // Internal helpers
@@ -1173,73 +1134,24 @@ config_resolve_path:
     mov x20, #1                     // explicit
     b .Lcr_expand
 .Lcr_default:
-    // XDG_CONFIG_HOME or $HOME/.config + "/twitch-counts.toml"
-    adrp x0, PAGE(s_env_xdg)
-    add x0, x0, LO12(s_env_xdg)
-    bl getenv
-    cbz x0, .Lcr_home
-    ldrb w1, [x0]
-    cbz w1, .Lcr_home
-    mov x19, x0
+    // DEFAULT_CONFIG_PATH per platform class (tc_default_config_path)
+    adrp x0, PAGE(tc_cfg_scratch2)
+    add x0, x0, LO12(tc_cfg_scratch2)
+    mov x1, #CFG_SCRATCH_SZ
+    bl tc_default_config_path
+    adrp x19, PAGE(tc_cfg_scratch2)
+    add x19, x19, LO12(tc_cfg_scratch2)
     mov x20, #0
-    adrp x21, PAGE(tc_cfg_scratch)
-    add x21, x21, LO12(tc_cfg_scratch)
-    mov x0, x21
-    mov x1, x19
-    bl cat_cstr
-    adrp x1, PAGE(s_xdg_tail)
-    add x1, x1, LO12(s_xdg_tail)
-    bl cat_cstr
-    adrp x19, PAGE(tc_cfg_scratch)
-    add x19, x19, LO12(tc_cfg_scratch)
-    b .Lcr_expand
-.Lcr_home:
-    adrp x0, PAGE(s_home)
-    add x0, x0, LO12(s_home)
-    bl getenv
-    cbz x0, .Lcr_nohome
-    ldrb w1, [x0]
-    cbz w1, .Lcr_nohome
-    mov x19, x0
-    mov x20, #0
-    adrp x21, PAGE(tc_cfg_scratch)
-    add x21, x21, LO12(tc_cfg_scratch)
-    mov x0, x21
-    mov x1, x19
-    bl cat_cstr
-    adrp x1, PAGE(s_home_config_tail)
-    add x1, x1, LO12(s_home_config_tail)
-    bl cat_cstr
-    adrp x19, PAGE(tc_cfg_scratch)
-    add x19, x19, LO12(tc_cfg_scratch)
-    b .Lcr_expand
-.Lcr_nohome:
-    adrp x19, PAGE(s_default_config_path)
-    add x19, x19, LO12(s_default_config_path)
-    mov x20, #0
+    b .Lcr_copy
 .Lcr_expand:
-    // expanduser: a leading "~" becomes $HOME (Python os.path.expanduser)
-    ldrb w1, [x19]
-    cmp w1, #'~'
-    b.ne .Lcr_copy
-    adrp x0, PAGE(s_home)
-    add x0, x0, LO12(s_home)
-    bl getenv
-    cbz x0, .Lcr_copy
-    ldrb w1, [x0]
-    cbz w1, .Lcr_copy
-    mov x21, x0                     // home
-    add x22, x19, #1                // skip the '~'
-    adrp x23, PAGE(tc_cfg_scratch)
-    add x23, x23, LO12(tc_cfg_scratch)
-    mov x0, x23
-    mov x1, x21
-    bl cat_cstr
-    mov x0, x0                      // end
-    mov x1, x22
-    bl cat_cstr
-    adrp x19, PAGE(tc_cfg_scratch)
-    add x19, x19, LO12(tc_cfg_scratch)
+    // an explicit path: os.path.expanduser (CPython semantics, tc_expanduser)
+    mov x0, x19
+    adrp x1, PAGE(tc_cfg_scratch2)
+    add x1, x1, LO12(tc_cfg_scratch2)
+    mov x2, #CFG_SCRATCH_SZ
+    bl tc_expanduser
+    adrp x19, PAGE(tc_cfg_scratch2)
+    add x19, x19, LO12(tc_cfg_scratch2)
 .Lcr_copy:
     adrp x0, PAGE(tc_cfg_path)
     add x0, x0, LO12(tc_cfg_path)

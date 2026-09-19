@@ -88,6 +88,9 @@
     .globl fclose
     .globl strcmp
     .globl getenv
+    .globl tc_expanduser
+    .globl tc_shorten_path
+    .globl tc_default_config_path
     .globl clock_gettime
     .globl write
     .globl toml_parse_file
@@ -175,8 +178,22 @@ tc_misc_manual:
     FUNC_TYPE(tc_misc_fish)
 tc_misc_fish:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_fish_text)
-    add x0, x0, LO12(tc_fish_text)
+    // The blob is split where fish_completions() embeds
+    // shorten_path(DEFAULT_CONFIG_PATH) (twitch-counts.py:3954), which the
+    // Python computes at runtime for the machine it runs on.
+    adrp x0, PAGE(tc_fish_text_a)
+    add x0, x0, LO12(tc_fish_text_a)
+    bl tc_puts
+    adrp x0, PAGE(tc_misc_expanded)
+    add x0, x0, LO12(tc_misc_expanded)
+    mov x1, #MISC_PATH_SZ
+    bl tc_default_config_path
+    adrp x0, PAGE(tc_misc_expanded)
+    add x0, x0, LO12(tc_misc_expanded)
+    bl tc_shorten_path
+    bl tc_puts
+    adrp x0, PAGE(tc_fish_text_b)
+    add x0, x0, LO12(tc_fish_text_b)
     bl tc_puts
     mov x0, #0
     ldp x29, x30, [sp], #16
@@ -2319,43 +2336,11 @@ misc_env_get:
 // Path helpers.
 // ============================================================================
 
-// misc_expanduser(x0=src, x1=dst) — a leading "~"/"~/" becomes $HOME
-//   (Python os.path.expanduser for the common current-user forms).
+// misc_expanduser(x0=src, x1=dst) — os.path.expanduser with CPython
+//   semantics (tc_expanduser in tc_config.S); dst is MISC_PATH_SZ bytes.
 misc_expanduser:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    mov x19, x0                         // src
-    mov x20, x1                         // dst
-    ldrb w1, [x19]
-    cmp w1, #'~'
-    b.ne .Lxu_copy
-    ldrb w1, [x19, #1]
-    cmp w1, #'/'
-    b.eq .Lxu_home
-    cbnz w1, .Lxu_copy                  // "~user" is left alone
-.Lxu_home:
-    adrp x0, PAGE(s_env_home)
-    add x0, x0, LO12(s_env_home)
-    bl getenv
-    cbz x0, .Lxu_copy                   // no HOME: keep "~" as-is
-    mov x1, x0                          // home
-    mov x0, x20                         // dst
-    bl misc_cat
-    mov x20, x0                         // cursor
-    ldrb w1, [x19, #1]
-    cbz w1, .Lxu_nul                    // bare "~"
-    add x19, x19, #1                    // skip the "~", keep the '/'
-.Lxu_copy:
-    mov x0, x20
-    mov x1, x19
-    bl misc_cat
-    mov x20, x0
-.Lxu_nul:
-    mov w1, #0
-    strb w1, [x20]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
-    ret
+    mov x2, #MISC_PATH_SZ
+    b tc_expanduser
 
 // misc_expand_root() — expand TC_O_LOGS_DIR into tc_misc_root.
 misc_expand_root:
@@ -2363,50 +2348,28 @@ misc_expand_root:
     adrp x0, PAGE(tc_opts)
     add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_LOGS_DIR
+    ldrb w1, [x0]
+    cbnz w1, .Lxr_expand
+    // nothing set it and the platform has no default (the Linux class):
+    // the Python expands str(DEFAULT_LOGS_DIR), i.e. the literal "None"
+    adrp x0, PAGE(s_none_path)
+    add x0, x0, LO12(s_none_path)
+.Lxr_expand:
     adrp x1, PAGE(tc_misc_root)
     add x1, x1, LO12(tc_misc_root)
     bl misc_expanduser
     ldp x29, x30, [sp], #16
     ret
 
-// misc_shorten_path(x0=src, x1=dst) — replace a leading $HOME with "~"
-//   (Python shorten_path).
+// misc_shorten_path(x0=src, x1=dst) — Python shorten_path (tc_shorten_path
+//   in tc_config.S, CPython semantics), copied into dst.
 misc_shorten_path:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    mov x19, x0                         // src
     mov x20, x1                         // dst
-    adrp x0, PAGE(s_env_home)
-    add x0, x0, LO12(s_env_home)
-    bl getenv
-    cbz x0, .Lsp_copy
-    mov x1, x0                          // home
-    mov x0, x19
-    // does src start with home?
-    mov x2, #0                          // i
-.Lsp_match:
-    ldrb w3, [x1, x2]
-    cbz w3, .Lsp_hit
-    ldrb w4, [x19, x2]
-    cmp w3, w4
-    b.ne .Lsp_copy
-    add x2, x2, #1
-    b .Lsp_match
-.Lsp_hit:
-    mov w3, #'~'
-    strb w3, [x20], #1
-    // copy src + len(home) onward
-    add x1, x19, x2
+    bl tc_shorten_path                  // x0 = shortened (scratch or src)
+    mov x1, x0
     mov x0, x20
-    bl misc_cat
-    mov w1, #0
-    strb w1, [x0]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
-    ret
-.Lsp_copy:
-    mov x0, x20
-    mov x1, x19
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
@@ -2884,6 +2847,7 @@ s_key_always:       .asciz "always"
 s_env_exclude:      .asciz "TWITCH_EXCLUDE"
 s_env_counts_config:.asciz "TWITCH_COUNTS_CONFIG"
 s_env_home:         .asciz "HOME"
+s_none_path:        .asciz "None"
 s_mode_r:           .asciz "r"
 s_flag_exclude:     .asciz "--exclude"
 s_flag_exclude_group: .asciz "--exclude-group"
