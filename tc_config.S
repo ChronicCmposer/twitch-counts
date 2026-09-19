@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_config.S — config & environment hooks for twitch-counts-full
+// tc_config.S — config & environment hooks for twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and

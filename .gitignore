@@ -1,7 +1,6 @@
 # Build artifacts (do not commit)
 fibonacci
 twitch-counts
-twitch-counts-full
 *.o
 
 # Per-phase driver binaries (tc-*-test) and their check_*.o drivers

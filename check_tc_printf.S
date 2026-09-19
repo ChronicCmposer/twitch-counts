@@ -18,7 +18,7 @@
 //  On Linux every wrapper is a tail call.  Each wrapper clobbers x0-x17,
 //  preserves x19-x28 and keeps sp 16-aligned.  Linked into the drivers
 //  that print (tc-cli-test, tc-config-test) by the Makefile; never into
-//  twitch-counts-full.
+//  twitch-counts.
 // ============================================================================
 
 #include "tc_platform.h"

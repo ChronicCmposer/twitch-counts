@@ -1,11 +1,11 @@
 // ============================================================================
-// tc_json.S — the self-describing JSON report for twitch-counts-full
+// tc_json.S — the self-describing JSON report for twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
 //              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
 //  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
-//  Linking:    by the Makefile (build/<os>/twitch-counts-full and the drivers)
+//  Linking:    by the Makefile (build/<os>/twitch-counts and the drivers)
 //
 //  Byte-for-byte port of the Python reference's emit_json / build_report /
 //  report_schema / report_failure (2992-3008, 4804-4808, 2784-2989).

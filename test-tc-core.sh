@@ -1,5 +1,5 @@
 #!/bin/sh
-# test-tc-core.sh — harness for tc_core.S (twitch-counts-full).
+# test-tc-core.sh — harness for tc_core.S (twitch-counts).
 #
 # Builds a synthetic Chatterino log tree in a mktemp dir and checks:
 #   (a) channel resolution: case-insensitive match + exact error strings
@@ -22,7 +22,7 @@
 # anything itself); BUILD defaults to build/<os> under this script's own
 # directory, using the same `uname -s | tr A-Z a-z` rule as the Makefile,
 # and can be overridden with TC_BUILD (as `make test` does).  Run
-# `make drivers twitch-counts-full` first if $BUILD/tc-core-test is missing.
+# `make drivers twitch-counts` first if $BUILD/tc-core-test is missing.
 #
 # Isolation: every invocation of the driver and of the python3 oracle below
 # runs with HOME/XDG_CONFIG_HOME/XDG_CACHE_HOME pointed at a directory under
@@ -551,10 +551,10 @@ EOF
     [ "$ok" -eq 0 ] && echo "  detail: py header logs-dir row='$py_hdr'"
     ok_or_fail "g2. python3 header 'logs dir' row: shortened path + built-in default" "$ok"
 
-    # g2b. same, against the real twitch-counts-full product binary when it
-    # has been built (make twitch-counts-full); best-effort, not a hard
+    # g2b. same, against the real twitch-counts product binary when it
+    # has been built (make twitch-counts); best-effort, not a hard
     # requirement of this script since it is built by a separate target.
-    FBIN="$BUILD/twitch-counts-full"
+    FBIN="$BUILD/twitch-counts"
     if [ -x "$FBIN" ]; then
         fout=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
                "$FBIN" -c defchan -e 2026-09-01 2>"$tmpdir/fe")
@@ -565,9 +565,9 @@ EOF
         ok=0
         [ "$frc" -eq 0 ] && [ "$f_path" = "$py_path" ] && [ "$f_src" = "$py_src" ] && ok=1
         [ "$ok" -eq 0 ] && echo "  detail: full-binary header='$f_hdr' rc=$frc stderr=$(cat "$tmpdir/fe")"
-        ok_or_fail "g2b. twitch-counts-full header 'logs dir' row matches python3" "$ok"
+        ok_or_fail "g2b. twitch-counts header 'logs dir' row matches python3" "$ok"
     else
-        echo "SKIP: g2b. twitch-counts-full not built ($FBIN); run: make twitch-counts-full"
+        echo "SKIP: g2b. twitch-counts not built ($FBIN); run: make twitch-counts"
     fi
   else
     # Linux: the platform has no default; both the driver and python3 must

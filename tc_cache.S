@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_cache.S — the SQLite rollup cache for twitch-counts-full
+// tc_cache.S — the SQLite rollup cache for twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and

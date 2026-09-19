@@ -1,6 +1,6 @@
 // ============================================================================
 // tc_misc.S — --manual, --emit-fish-completions and --complete for
-//             twitch-counts-full
+//             twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and

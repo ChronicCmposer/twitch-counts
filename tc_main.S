@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_main.S — main() for twitch-counts-full (the FULL port of twitch-counts.py)
+// tc_main.S — main() for twitch-counts (the FULL port of twitch-counts.py)
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and

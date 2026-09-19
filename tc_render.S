@@ -1,12 +1,12 @@
 // ============================================================================
 // tc_render.S — ranking, provenance header, table and footer for
-//               twitch-counts-full
+//               twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
 //              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
 //  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
-//  Linking:    by the Makefile (build/<os>/twitch-counts-full and the drivers)
+//  Linking:    by the Makefile (build/<os>/twitch-counts and the drivers)
 //
 //  Byte-for-byte port of the Python reference's presentation half:
 //    rank_users / choose_columns / render_choose_limit / plan_presentation

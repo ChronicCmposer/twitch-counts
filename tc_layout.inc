@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_layout.inc — the shared data contract for twitch-counts-full
+// tc_layout.inc — the shared data contract for twitch-counts
 // ============================================================================
 //
 //  This file defines the byte layout of the shared .bss data structures and

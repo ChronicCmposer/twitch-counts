@@ -1,12 +1,12 @@
 // ============================================================================
 // tc_core.S — channel resolution, log listing, window completion, counting
-//             and --users sizing for twitch-counts-full
+//             and --users sizing for twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
 //              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
 //  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
-//  Linking:    by the Makefile (build/<os>/twitch-counts-full and the drivers)
+//  Linking:    by the Makefile (build/<os>/twitch-counts and the drivers)
 //
 //  What this module owns (the shared contract is tc_layout.inc)
 //  ----------------------------------------------------------------------

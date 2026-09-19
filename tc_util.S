@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_util.S — shared utilities for twitch-counts-full
+// tc_util.S — shared utilities for twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and

@@ -1,5 +1,5 @@
 // ============================================================================
-// check_tc_misc.S — test driver for tc_misc.S (twitch-counts-full).
+// check_tc_misc.S — test driver for tc_misc.S (twitch-counts).
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and

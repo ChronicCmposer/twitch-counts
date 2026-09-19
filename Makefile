@@ -1,8 +1,7 @@
-# Makefile for fibonacci.S, twitch-counts.S and twitch-counts-full (tc_*.S)
-# — AArch64 assembly programs.
+# Makefile for twitch-counts (tc_*.S) and fibonacci.S — AArch64 assembly.
 #
-#   twitch-counts-full: the FULL port of twitch-counts.py — hand-written
-#       ARMv8-a assembly linked against libc and the vendored libraries in
+#   twitch-counts: the port of twitch-counts.py — hand-written ARMv8-a
+#       assembly linked against libc and the vendored libraries in
 #       third_party/ (tomlc99, sqlite3 amalgamation, pcre2-8).  It builds on
 #       two platforms from the same sources (tc_platform.h selects):
 #         Linux   static, musl libc (a musl toolchain is built from source
@@ -11,18 +10,18 @@
 #                 ships no static libc); Apple clang from Xcode / the CLT
 #       All vendored C is compiled with the same compiler that assembles the
 #       .S files, so the two never disagree about the ABI.
-#   fibonacci / twitch-counts: pure Linux syscalls, no libc (as + ld); they
-#       are Linux-only and not built on macOS.
+#   fibonacci: pure Linux syscalls, no libc (as + ld); Linux-only, not built
+#       on macOS.
 #
 # Layout: every object, driver, third-party object and the pcre2 build live
 # under build/<os>/ (build/linux, build/darwin) so a tree shared between a
 # Mac and a Linux VM never hands one platform's objects to the other's
-# linker.  The final binary is copied to ./twitch-counts-full for
-# convenience; the harnesses run the copy under build/<os>/.
+# linker.  The final binary is copied to ./twitch-counts for convenience;
+# the harnesses run the copy under build/<os>/.
 #
 # Entry points:
-#   make twitch-counts-full   build (and refresh ./twitch-counts-full)
-#   make all                  + the Linux-only syscall programs on Linux
+#   make twitch-counts        build (and refresh ./twitch-counts)
+#   make all                  + the Linux-only fibonacci on Linux
 #   make drivers              the per-module test drivers (build/<os>/tc-*-test)
 #   make test                 every harness for this platform
 #   make check-<harness>      one harness, e.g. check-tc-watch
@@ -38,9 +37,8 @@ NPROC   := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 AS      := as
 LD      := ld
 
-TARGET  := fibonacci
-TARGET2 := twitch-counts
-TARGET3 := twitch-counts-full
+FIB     := fibonacci
+TC      := twitch-counts
 
 # ---- third-party paths ------------------------------------------------------
 THIRD      := third_party
@@ -77,7 +75,7 @@ endif
 # The harness scripts find their drivers through this.
 export TC_BUILD := $(BUILD)
 
-# Object files for twitch-counts-full.  The full module inventory: util, the
+# Object files for twitch-counts.  The full module inventory: util, the
 # main() orchestrator, the CLI (which also resolves [[watch.highlight]]),
 # config/env/exclusions, the counting core, the SQLite rollup cache, the
 # renderer, the JSON report, the --manual/--fish/--complete module and watch
@@ -90,37 +88,31 @@ TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 # deliverable); regenerated only by an explicit `make gen-inc`.
 GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
 
-.PHONY: all run test clean third-party gen-inc drivers $(TARGET3) $(addprefix check-,$(HARNESSES))
+.PHONY: all run test clean third-party gen-inc drivers $(TC) $(addprefix check-,$(HARNESSES))
 
 ifeq ($(OS),Linux)
-LINUX_ONLY  := $(TARGET) $(TARGET2)
-LINUX_TESTS := ./test.sh && ./test-twitch-counts.sh
+LINUX_ONLY  := $(FIB)
+LINUX_TESTS := ./test.sh
 endif
 
-all: $(LINUX_ONLY) $(TARGET3)
+all: $(LINUX_ONLY) $(TC)
 
 $(BUILD):
 	mkdir -p $@
 
 # ---------------------------------------------------------------------------
-# fibonacci / twitch-counts (pure Linux syscalls, no libc) — Linux only
+# fibonacci (pure Linux syscalls, no libc) — Linux only
 # ---------------------------------------------------------------------------
 ifeq ($(OS),Linux)
-$(TARGET): $(BUILD)/fibonacci.o
+$(FIB): $(BUILD)/fibonacci.o
 	$(LD) $< -o $@
 
 $(BUILD)/fibonacci.o: fibonacci.S | $(BUILD)
 	$(AS) $< -o $@
 
-$(TARGET2): $(BUILD)/twitch-counts.o
-	$(LD) $< -o $@
-
-$(BUILD)/twitch-counts.o: twitch-counts.S | $(BUILD)
-	$(AS) $< -o $@
-
 # Usage: make run ARGS="10"
-run: $(TARGET)
-	./$(TARGET) $(ARGS)
+run: $(FIB)
+	./$(FIB) $(ARGS)
 endif
 
 # ---------------------------------------------------------------------------
@@ -194,14 +186,14 @@ $(BUILD)/tc_misc.o: tc_manual.inc tc_fish.inc
 $(BUILD)/tc_json.o: tc_json_schema.inc
 
 # ---------------------------------------------------------------------------
-# twitch-counts-full
+# twitch-counts
 # ---------------------------------------------------------------------------
-$(BUILD)/$(TARGET3): $(TC_OBJS) $(LIBS)
+$(BUILD)/$(TC): $(TC_OBJS) $(LIBS)
 	$(LINK) $@ $(TC_OBJS) $(LIBS)
 
-# ./twitch-counts-full is a copy refreshed by every make (the target is
-# phony so the copy is always current for the platform that last ran make).
-$(TARGET3): $(BUILD)/$(TARGET3)
+# ./twitch-counts is a copy refreshed by every make (the target is phony so
+# the copy is always current for the platform that last ran make).
+$(TC): $(BUILD)/$(TC)
 	cp -f $< $@
 
 # ---------------------------------------------------------------------------
@@ -254,18 +246,18 @@ drivers: $(DRIVERS)
 
 # `make check-<name>` runs one harness (check-watch, check-cli, ...);
 # `make test` runs them all in this order.
-HARNESSES := twitch-counts-full tc-cli tc-config tc-core tc-cache tc-render tc-misc tc-watch
+HARNESSES := twitch-counts tc-cli tc-config tc-core tc-cache tc-render tc-misc tc-watch
 
 check-%: all drivers
 	./test-$*.sh
 
 # The full battery: every harness for this platform, fail on any failure.
-# (test-twitch-counts-full.sh exercises the REAL twitch-counts-full binary;
-# the Linux-only syscall programs' harnesses run only on Linux.)
+# (test-twitch-counts.sh exercises the REAL twitch-counts binary; the
+# Linux-only fibonacci harness runs only on Linux.)
 test: all drivers
 	$(if $(LINUX_TESTS),$(LINUX_TESTS),true)
 	$(foreach h,$(HARNESSES),./test-$(h).sh &&) true
 
 clean:
 	rm -rf build
-	rm -f $(TARGET) $(TARGET2) $(TARGET3)
+	rm -f $(FIB) $(TC)

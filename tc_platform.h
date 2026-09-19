@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_platform.h — the platform layer for twitch-counts-full
+// tc_platform.h — the platform layer for twitch-counts
 // ============================================================================
 //
 //  Every module #includes this file first.  The assembly is written in GNU

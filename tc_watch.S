@@ -1,5 +1,5 @@
 // ============================================================================
-// tc_watch.S — watch mode for twitch-counts-full
+// tc_watch.S — watch mode for twitch-counts
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
