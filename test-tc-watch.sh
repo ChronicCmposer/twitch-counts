@@ -178,6 +178,9 @@ while time.time() < deadline:
             buf += chunk
             if first_out is None:
                 first_out = time.time()
+                # the run's timeout counts from here too: a slow start-up
+                # must not eat the time the scripted SIGINT/append needs
+                deadline = max(deadline, first_out + tmo)
 if rc == "alive":
     os.kill(pid, signal.SIGKILL)
     try: os.waitpid(pid, 0)
