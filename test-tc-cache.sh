@@ -42,37 +42,18 @@
 # clearing XDG and setting HOME covers both). This keeps every run away from
 # the real ~/.cache/twitch-counts/rollup.db and ~/.config/twitch-counts.toml.
 set -u
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 2
-cd "$HERE" || exit 2
+tc_build_dir
 
-BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-case $BUILD in
-    /*) : ;;
-    *) BUILD="$HERE/$BUILD" ;;
-esac
+BIN=$(tc_driver tc-cache-test)
+BUMP_BIN=$(tc_driver tc-cache-bump-test)
 
-BIN="$BUILD/tc-cache-test"
-BUMP_BIN="$BUILD/tc-cache-bump-test"
-for d in "$BIN" "$BUMP_BIN"; do
-    if [ ! -x "$d" ]; then
-        echo "FAIL: driver not found or not executable: $d"
-        echo "      run: make drivers"
-        exit 2
-    fi
-done
+TC_PY="$TC_HERE/twitch-counts.py"
+tc_require_python_tomllib
 
-TC_PY="$HERE/twitch-counts.py"
-if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
-    echo "FAIL: python3 >= 3.11 with tomllib is required as the oracle (python3 -c 'import tomllib' failed)"
-    exit 2
-fi
-
-tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-cache-test.XXXXXX") || {
-    echo "FAIL: cannot create temp directory"
-    exit 2
-}
-trap 'rm -rf "$tmpdir"' EXIT INT TERM
+tmpdir=$(tc_sandbox tc-cache-test)
 
 channels="$tmpdir/Logs/Twitch/Channels"
 home="$tmpdir/home"
@@ -80,18 +61,6 @@ pyhome="$tmpdir/pyhome"
 mkdir -p "$channels/chroniccmposer" "$home" "$pyhome"
 DB="$home/.cache/twitch-counts/rollup.db"
 PYDB="$pyhome/.cache/twitch-counts/rollup.db"
-
-pass=0
-fail=0
-ok_or_fail() { # ok_or_fail <name> <ok: 1=pass, 0=fail>
-    if [ "$2" -ne 0 ]; then
-        echo "PASS: $1"
-        pass=$((pass + 1))
-    else
-        echo "FAIL: $1"
-        fail=$((fail + 1))
-    fi
-}
 
 # --- synthetic channel logs (three whole days) -------------------------------
 cd "$channels/chroniccmposer" || exit 2
@@ -398,7 +367,4 @@ Linux)
     ;;
 esac
 
-# --- Summary ----------------------------------------------------------------
-echo
-echo "Summary: $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+tc_summary

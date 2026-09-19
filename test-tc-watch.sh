@@ -15,6 +15,9 @@
 #   $BUILD/tc-watch-test, where BUILD defaults to build/<os> (uname -s,
 #   lowercased) or comes from $TC_BUILD if set.  Run `make drivers` first;
 #   this script fails fast with a clear message if the driver is missing.
+#   Scaffolding (layout, pass/fail bookkeeping, sandbox/isolation, ANSI
+#   stripping) lives in tc-test-lib.sh; this file keeps only what's
+#   watch-specific (run_pty and its frame helpers).
 #
 #   Isolation: a fresh tmp root is made with mktemp, and HOME,
 #   XDG_CONFIG_HOME and XDG_CACHE_HOME are exported to point inside it
@@ -36,15 +39,11 @@
 #   Exit:   0 = all tests passed; nonzero = at least one failure.
 # ============================================================================
 set -u
-cd "$(dirname "$0")"
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
-BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-BIN="$BUILD/tc-watch-test"
-
-if [ ! -x "$BIN" ]; then
-    echo "FAIL: $BIN not found or not executable -- run: make drivers" >&2
-    exit 1
-fi
+tc_build_dir
+BIN=$(tc_driver tc-watch-test)
 
 # ---------------------------------------------------------------------------
 # isolation: a per-run tmp root, with HOME/XDG pointed inside it so nothing
@@ -52,25 +51,15 @@ fi
 # the real ~/.cache/twitch-counts or ~/.config.  This runs before the very
 # first python3 invocation in the file, with no exceptions.
 # ---------------------------------------------------------------------------
-TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/tc-watch-test.XXXXXX") || {
-    echo "FAIL: cannot create temp directory" >&2
-    exit 1
-}
-trap 'rm -rf "$TMPROOT"' EXIT
+TMPROOT=$(tc_sandbox tc-watch-test)
 
-export HOME="$TMPROOT/home"
-export XDG_CONFIG_HOME="$HOME/.config"
-export XDG_CACHE_HOME="$HOME/.cache"
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+tc_isolate_home "$TMPROOT"
 
 PY=$(command -v python3) || {
     echo "FAIL: python3 not found on PATH" >&2
     exit 2
 }
-if ! "$PY" -c 'import tomllib' >/dev/null 2>&1; then
-    echo "FAIL: python3 (from PATH: $PY) must be >= 3.11 with tomllib available" >&2
-    exit 2
-fi
+tc_require_python_tomllib
 PYSCRIPT="$(pwd)/twitch-counts.py"
 if [ ! -f "$PYSCRIPT" ]; then
     echo "FAIL: $PYSCRIPT not found" >&2
@@ -80,20 +69,10 @@ fi
 DATA="$TMPROOT/data"
 LOGS="$DATA/Logs/Twitch/Channels"
 CH=chron
-PASS=0
-FAIL=0
-FAILED_TESTS=()
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
-ok()   { PASS=$((PASS+1)); echo "PASS[$1]"; }
-bad()  { FAIL=$((FAIL+1)); FAILED_TESTS+=("$1"); echo "FAIL[$1]"; }
-
-check() { # check <name> <expected> <actual>
-    if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; echo "    expected: $2"; echo "    got:      $3"; fi
-}
-
 # run_pty <outfile> <timeout> <sigint_after> <append_after> <append_line> -- args...
 # Launches the command in a pty; optionally sends SIGINT and/or appends a
 # line to the log mid-run.  Writes the pty transcript to <outfile> and the
@@ -195,16 +174,6 @@ with open(out + ".rc", "w") as f:
 PYEOF
 }
 
-# strip_ansi <file>: printable transcript without CSI sequences
-strip_ansi() {
-    python3 - "$1" <<'PYEOF'
-import re, sys
-txt = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-txt = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", txt)
-print("\n".join(l.rstrip() for l in txt.split("\r\n") if l.strip()))
-PYEOF
-}
-
 first_frame() { # first_frame <stripped-file> : lines up to the status line
     python3 - "$1" <<'PYEOF'
 import sys
@@ -249,11 +218,11 @@ if [ "$UNAME_S" = "Darwin" ]; then
     run_pty "$DATA/notify.out" 4 1.0 -1 "" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
     NRC=$(cat "$DATA/notify.out.rc")
     check "notify (macOS) SIGINT exit code" "0" "$NRC"
-    strip_ansi "$DATA/notify.out" > "$DATA/notify.plain"
+    tc_strip_ansi "$DATA/notify.out" > "$DATA/notify.plain"
     first_frame "$DATA/notify.plain" > "$DATA/notify.frame"
 
     run_pty "$DATA/notify_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
-    strip_ansi "$DATA/notify_py.out" > "$DATA/notify_py.plain"
+    tc_strip_ansi "$DATA/notify_py.out" > "$DATA/notify_py.plain"
     first_frame "$DATA/notify_py.plain" > "$DATA/notify_py.frame"
 
     if diff -u "$DATA/notify_py.frame" "$DATA/notify.frame" > "$DATA/notify_frame.diff"; then
@@ -266,7 +235,7 @@ else
     echo "== notify=true (default) under a pty =="
     run_pty "$DATA/notify.out" 4 -1 -1 "" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
     NRC=$(cat "$DATA/notify.out.rc")
-    NERR=$(strip_ansi "$DATA/notify.out" | head -1)
+    NERR=$(tc_strip_ansi "$DATA/notify.out" | head -1)
     check "notify exit code" "1" "$NRC"
     check "notify error text" "error: TODO - not implemented: change notification on Linux. set [tail] notify = false to poll on the interval instead" "$NERR"
 fi
@@ -276,12 +245,12 @@ echo "== differential: first frame vs Python =="
 run_pty "$DATA/asm.out" 4 1.0 -1 "" "$BIN" "${BASE[@]}"
 ARC=$(cat "$DATA/asm.out.rc")
 check "asm SIGINT exit code" "0" "$ARC"
-strip_ansi "$DATA/asm.out" > "$DATA/asm.plain"
+tc_strip_ansi "$DATA/asm.out" > "$DATA/asm.plain"
 first_frame "$DATA/asm.plain" > "$DATA/asm.frame"
 
 run_pty "$DATA/py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${BASE[@]}"
 PRC=$(cat "$DATA/py.out.rc")
-strip_ansi "$DATA/py.out" > "$DATA/py.plain"
+tc_strip_ansi "$DATA/py.out" > "$DATA/py.plain"
 first_frame "$DATA/py.plain" > "$DATA/py.frame"
 
 check "python SIGINT exit code" "0" "$PRC"
@@ -302,7 +271,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "== append updates the frame =="
 run_pty "$DATA/app.out" 5 4.5 1.5 "[10:00:05] alice: hello again" "$BIN" "${BASE[@]}"
-strip_ansi "$DATA/app.out" > "$DATA/app.plain"
+tc_strip_ansi "$DATA/app.out" > "$DATA/app.plain"
 if grep -q "alice                     2" "$DATA/app.plain" && grep -q "3 of 3 message" "$DATA/app.plain"; then
     ok "appended line appears on the next frame"
 else
@@ -346,10 +315,10 @@ RBASE=( -c "$RCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache )
 
 echo "== differential: --since first frame vs Python =="
 run_pty "$DATA/s_asm.out" 4 1.0 -1 "" "$BIN" "${RBASE[@]}" --since 30m
-strip_ansi "$DATA/s_asm.out" > "$DATA/s_asm.plain"
+tc_strip_ansi "$DATA/s_asm.out" > "$DATA/s_asm.plain"
 first_frame "$DATA/s_asm.plain" > "$DATA/s_asm.frame"
 run_pty "$DATA/s_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${RBASE[@]}" --since 30m
-strip_ansi "$DATA/s_py.out" > "$DATA/s_py.plain"
+tc_strip_ansi "$DATA/s_py.out" > "$DATA/s_py.plain"
 first_frame "$DATA/s_py.plain" > "$DATA/s_py.frame"
 if diff -u "$DATA/s_py.frame" "$DATA/s_asm.frame" > "$DATA/s_frame.diff"; then
     ok "--since first frame matches Python byte-for-byte"
@@ -378,10 +347,10 @@ printf '[11:00:00] b: two\n[11:00:01] c: three\n' > "$LOGS/$SCH/$SCH-2026-09-02.
 printf '[12:00:00] seedch is now offline.\n[12:00:01] d: four\n' > "$LOGS/$SCH/$SCH-2026-09-03.log"
 SBASE=( -c "$SCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache -b 2026-09-01 -e 2026-09-04 )
 run_pty "$DATA/seed_asm.out" 4 1.0 -1 "" "$BIN" "${SBASE[@]}"
-strip_ansi "$DATA/seed_asm.out" > "$DATA/seed_asm.plain"
+tc_strip_ansi "$DATA/seed_asm.out" > "$DATA/seed_asm.plain"
 first_frame "$DATA/seed_asm.plain" > "$DATA/seed_asm.frame"
 run_pty "$DATA/seed_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${SBASE[@]}"
-strip_ansi "$DATA/seed_py.out" > "$DATA/seed_py.plain"
+tc_strip_ansi "$DATA/seed_py.out" > "$DATA/seed_py.plain"
 first_frame "$DATA/seed_py.plain" > "$DATA/seed_py.frame"
 if diff -u "$DATA/seed_py.frame" "$DATA/seed_asm.frame" > "$DATA/seed_frame.diff"; then
     ok "marker-less day first frame matches Python byte-for-byte"
@@ -397,10 +366,10 @@ fi
 
 echo "== differential: --users first frame vs Python =="
 run_pty "$DATA/u_asm.out" 4 1.0 -1 "" "$BIN" "${RBASE[@]}" --users 2
-strip_ansi "$DATA/u_asm.out" > "$DATA/u_asm.plain"
+tc_strip_ansi "$DATA/u_asm.out" > "$DATA/u_asm.plain"
 first_frame "$DATA/u_asm.plain" > "$DATA/u_asm.frame"
 run_pty "$DATA/u_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${RBASE[@]}" --users 2
-strip_ansi "$DATA/u_py.out" > "$DATA/u_py.plain"
+tc_strip_ansi "$DATA/u_py.out" > "$DATA/u_py.plain"
 first_frame "$DATA/u_py.plain" > "$DATA/u_py.frame"
 if diff -u "$DATA/u_py.frame" "$DATA/u_asm.frame" > "$DATA/u_frame.diff"; then
     ok "--users first frame matches Python byte-for-byte"
@@ -437,7 +406,7 @@ cat > "$LOGS/$VCH/$VCH-2026-09-18.log" <<'EOF'
 [10:00:00] VoidChannel is live!
 EOF
 run_pty "$DATA/empty.out" 4 1.0 -1 "" "$BIN" -c "$VCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache
-strip_ansi "$DATA/empty.out" > "$DATA/empty.plain"
+tc_strip_ansi "$DATA/empty.out" > "$DATA/empty.plain"
 if grep -q "No users met the threshold" "$DATA/empty.plain"; then
     ok "empty-range frame paints"
 else
@@ -463,7 +432,7 @@ notify = true
 EOF
     run_pty "$DATA/wake.out" 3 -1 1.0 "[10:00:05] alice: wake test" \
         "$BIN" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/notify_true.toml" --no-cache
-    strip_ansi "$DATA/wake.out" > "$DATA/wake.plain"
+    tc_strip_ansi "$DATA/wake.out" > "$DATA/wake.plain"
     if grep -q "alice                     2" "$DATA/wake.plain" && grep -q "3 of 3 message" "$DATA/wake.plain"; then
         ok "notify=true wakes on write before the 5s tick"
     else
@@ -478,7 +447,7 @@ EOF
 EOF
     run_pty "$DATA/nowake.out" 3 -1 1.0 "[10:00:05] alice: wake test" \
         "$BIN" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/cfg.toml" --no-cache
-    strip_ansi "$DATA/nowake.out" > "$DATA/nowake.plain"
+    tc_strip_ansi "$DATA/nowake.out" > "$DATA/nowake.plain"
     if grep -q "alice                     2" "$DATA/nowake.plain"; then
         bad "notify=false does not wake on write before the tick"
     else
@@ -501,7 +470,7 @@ show_timing = true
 EOF
     run_pty "$DATA/timing_asm.out" 3 -1 1.0 "[10:00:05] alice: timing test" \
         "$BIN" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/timing.toml" --no-cache
-    strip_ansi "$DATA/timing_asm.out" > "$DATA/timing_asm.plain"
+    tc_strip_ansi "$DATA/timing_asm.out" > "$DATA/timing_asm.plain"
     cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
 [10:00:00] Chron is live!
 [10:00:01] alice: hello
@@ -509,7 +478,7 @@ EOF
 EOF
     run_pty "$DATA/timing_py.out" 3 -1 1.0 "[10:00:05] alice: timing test" \
         "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/timing.toml" --no-cache
-    strip_ansi "$DATA/timing_py.out" > "$DATA/timing_py.plain"
+    tc_strip_ansi "$DATA/timing_py.out" > "$DATA/timing_py.plain"
 
     # first frame (before the append lands) must show "woke on timer" -- do
     # not hardcode this: derive the expectation from what python3 actually
@@ -713,8 +682,8 @@ echo "== \$COLUMNS / \$LINES override the terminal (shutil.get_terminal_size) ==
 reset_log
 COLUMNS=50 LINES=12 run_pty "$DATA/cols_asm.out" 4 1.0 -1 "" "$BIN" "${BASE[@]}"
 COLUMNS=50 LINES=12 run_pty "$DATA/cols_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${BASE[@]}"
-strip_ansi "$DATA/cols_asm.out" > "$DATA/cols_asm.plain"
-strip_ansi "$DATA/cols_py.out" > "$DATA/cols_py.plain"
+tc_strip_ansi "$DATA/cols_asm.out" > "$DATA/cols_asm.plain"
+tc_strip_ansi "$DATA/cols_py.out" > "$DATA/cols_py.plain"
 first_frame "$DATA/cols_asm.plain" > "$DATA/cols_asm.frame"
 first_frame "$DATA/cols_py.plain" > "$DATA/cols_py.frame"
 if diff -u "$DATA/cols_py.frame" "$DATA/cols_asm.frame" > "$DATA/cols_frame.diff"; then
@@ -758,10 +727,4 @@ check "ASCII case fold still matches the rule" "255;111;111" "$(row_tints "$DATA
 reset_log
 
 # ---------------------------------------------------------------------------
-echo
-echo "=========================================="
-echo "test-tc-watch.sh: $PASS passed, $FAIL failed"
-if [ ${#FAILED_TESTS[@]} -gt 0 ]; then
-    printf 'failed: %s\n' "${FAILED_TESTS[@]}"
-fi
-[ $FAIL -eq 0 ]
+tc_summary

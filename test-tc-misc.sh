@@ -43,35 +43,17 @@
 # after mktemp) -- covering both flavours and never touching the real
 # ~/.cache/twitch-counts/rollup.db or ~/.config/twitch-counts.toml.
 set -u
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
-# absolute directory of this script (captured before any cd)
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 2
-cd "$script_dir" || exit 2
-
-# --- oracle sanity check ------------------------------------------------------
-command -v python3 >/dev/null 2>&1 || {
-    echo "FAIL: python3 not found on PATH"
-    exit 2
-}
-python3 -c 'import tomllib' >/dev/null 2>&1 || {
-    echo "FAIL: python3 >= 3.11 required (tomllib module not found); got: $(python3 --version 2>&1)"
-    exit 2
-}
-PY="python3 $script_dir/twitch-counts.py"
+tc_require_python_tomllib
+PY="python3 $TC_HERE/twitch-counts.py"
 
 # --- driver under test --------------------------------------------------------
-BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-BIN="$script_dir/$BUILD/tc-misc-test"
-[ -x "$BIN" ] || {
-    echo "FAIL: driver not found: $BIN (run: make drivers)"
-    exit 2
-}
+tc_build_dir
+BIN=$(tc_driver tc-misc-test)
 
-tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-misc-test.XXXXXX") || {
-    echo "FAIL: cannot create temp directory"
-    exit 2
-}
-trap 'rm -rf "$tmpdir"' EXIT INT TERM
+tmpdir=$(tc_sandbox tc-misc-test)
 
 # --- isolation: never touch the real HOME's config/cache ---------------------
 HOME="$tmpdir/home"
@@ -82,18 +64,6 @@ mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer" "$channels/OtherChan" "$channels/EMPTYDIR"
-
-pass=0
-fail=0
-ok_or_fail() { # ok_or_fail <name> <ok: 1=pass, 0=fail>
-    if [ "$2" -ne 0 ]; then
-        echo "PASS: $1"
-        pass=$((pass + 1))
-    else
-        echo "FAIL: $1"
-        fail=$((fail + 1))
-    fi
-}
 
 # --- synthetic channel logs (inside any 7-day window ending "now") ----------
 cd "$channels/chroniccmposer" || exit 2
@@ -306,6 +276,4 @@ grep -q "error: config file not found" "$tmpdir/c.err" || ok=0
 cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
 ok_or_fail "documented divergence: missing explicit config" "$ok"
 
-echo
-echo "tc-misc: $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+tc_summary

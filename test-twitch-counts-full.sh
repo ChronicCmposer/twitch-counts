@@ -28,39 +28,22 @@
 #
 # Prints PASS/FAIL per check and exits nonzero on any failure.
 set -u
-
-HERE=$(cd "$(dirname "$0")" && pwd) || exit 2
-cd "$HERE" || exit 2
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
 # ---------------------------------------------------------------------------
 # python3 >= 3.11 (needed for the --json / json.tool check; tomllib is the
 # version probe every harness in this tree uses).
 # ---------------------------------------------------------------------------
-if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
-    echo "FAIL: python3 (from PATH) must be >= 3.11 with tomllib available" >&2
-    exit 2
-fi
+tc_require_python_tomllib
 
 # ---------------------------------------------------------------------------
 # resolve the driver: $BUILD/twitch-counts-full, no in-script build.
 # ---------------------------------------------------------------------------
-BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-case $BUILD in
-    /*) : ;;
-    *) BUILD="$HERE/$BUILD" ;;
-esac
-BIN="$BUILD/twitch-counts-full"
+tc_build_dir
+BIN=$(tc_driver twitch-counts-full)
 
-if [ ! -x "$BIN" ]; then
-    echo "FAIL: $BIN not found or not executable - run: make twitch-counts-full" >&2
-    exit 2
-fi
-
-tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-full-test.XXXXXX") || {
-    echo "FAIL: cannot create temp directory"
-    exit 2
-}
-trap 'rm -rf "$tmpdir"' EXIT INT TERM
+tmpdir=$(tc_sandbox tc-full-test)
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer"
@@ -89,19 +72,6 @@ export HOME="$tmpdir/home"
 export XDG_CONFIG_HOME="$tmpdir/xdg-config"
 export XDG_CACHE_HOME="$tmpdir/xdg-cache"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
-
-pass=0
-fail=0
-
-ok_or_fail() { # ok_or_fail <name> <ok: 1=pass, 0=fail>
-    if [ "$2" -ne 0 ]; then
-        echo "PASS: $1"
-        pass=$((pass + 1))
-    else
-        echo "FAIL: $1"
-        fail=$((fail + 1))
-    fi
-}
 
 # --- Check 1: --manual -------------------------------------------------------
 "$BIN" --manual >"$tmpdir/manual.out" 2>"$tmpdir/manual.err"
@@ -188,6 +158,4 @@ ok=0
 ok_or_fail "--watch on a non-tty errors and exits 1" "$ok"
 
 # --- Summary ----------------------------------------------------------------
-echo
-echo "Summary: $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+tc_summary

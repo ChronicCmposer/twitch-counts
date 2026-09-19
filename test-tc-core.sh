@@ -32,9 +32,8 @@
 # Python's macOS class ignores XDG and reads HOME directly, its Linux class
 # and the assembly honour XDG, so both are set to cover either platform.
 set -u
-
-cd "$(dirname "$0")" || exit 2
-SCRIPT_DIR=$(pwd)
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
 # --- python3 oracle: must be on PATH and >= 3.11 (tomllib), never a bare
 #     hard-coded interpreter path -------------------------------------------
@@ -42,55 +41,25 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "FAIL: python3 not found on PATH (needed to run the oracle, twitch-counts.py)" >&2
     exit 2
 fi
-if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
-    echo "FAIL: python3 ($(command -v python3), $(python3 --version 2>&1)) lacks tomllib; need >= 3.11" >&2
-    exit 2
-fi
-PY="$SCRIPT_DIR/twitch-counts.py"
+tc_require_python_tomllib
+PY="$TC_HERE/twitch-counts.py"
 [ -f "$PY" ] || { echo "FAIL: oracle not found: $PY" >&2; exit 2; }
 
 # --- driver: built ahead of time by `make drivers`, never here -------------
-BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-case $BUILD in
-    /*) : ;;
-    *) BUILD="$SCRIPT_DIR/$BUILD" ;;
-esac
-BIN="$BUILD/tc-core-test"
-[ -x "$BIN" ] || {
-    echo "FAIL: driver not found: $BIN (run: make drivers)" >&2
-    exit 2
-}
+tc_build_dir
+BIN=$(tc_driver tc-core-test)
 
-tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-core-test.XXXXXX") || {
-    echo "FAIL: cannot create temp directory"
-    exit 2
-}
-trap 'rm -rf "$tmpdir"' EXIT INT TERM
+tmpdir=$(tc_sandbox tc-core-test)
 
 # Sandbox HOME/XDG so the driver and the python3 oracle can never reach the
 # real user's config/cache (see "Isolation" above).
 home_sandbox="$tmpdir/home"
+tc_isolate_home "$tmpdir"
 mkdir -p "$home_sandbox/.config" "$home_sandbox/.cache"
-HOME="$home_sandbox"
-XDG_CONFIG_HOME="$home_sandbox/.config"
-XDG_CACHE_HOME="$home_sandbox/.cache"
-export HOME XDG_CONFIG_HOME XDG_CACHE_HOME
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer" "$channels/sizer" "$channels/unkchan" \
          "$channels/latechan" "$channels/empty"
-
-pass=0
-fail=0
-ok_or_fail() { # ok_or_fail <name> <ok: 1=pass, 0=fail>
-    if [ "$2" -ne 0 ]; then
-        echo "PASS: $1"
-        pass=$((pass + 1))
-    else
-        echo "FAIL: $1"
-        fail=$((fail + 1))
-    fi
-}
 
 # --- synthetic channel logs --------------------------------------------------
 cd "$channels/chroniccmposer" || exit 2
@@ -547,7 +516,7 @@ PYEOF
 # (tc_platform_default_logs_dir / require_logs_dir) are exercised for real
 # instead of being short-circuited by an explicit -d.
 g_home=$(mktemp -d "${TMPDIR:-/tmp}/tc-core-default.XXXXXX") || {
-    echo "FAIL: cannot create temp directory"; fail=$((fail + 1))
+    echo "FAIL: cannot create temp directory"; FAIL=$((FAIL + 1))
 }
 if [ -d "$g_home" ]; then
     g_default_dir="$g_home/Library/Application Support/chatterino/Logs/Twitch/Channels"
@@ -586,12 +555,7 @@ EOF
     # g2b. same, against the real twitch-counts-full product binary when it
     # has been built (make twitch-counts-full); best-effort, not a hard
     # requirement of this script since it is built by a separate target.
-    FBUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-    case $FBUILD in
-        /*) : ;;
-        *) FBUILD="$SCRIPT_DIR/$FBUILD" ;;
-    esac
-    FBIN="$FBUILD/twitch-counts-full"
+    FBIN="$BUILD/twitch-counts-full"
     if [ -x "$FBIN" ]; then
         fout=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
                "$FBIN" -c defchan -e 2026-09-01 2>"$tmpdir/fe")
@@ -633,7 +597,7 @@ EOF
 
     rm -rf "$g_home"
 else
-    fail=$((fail + 1))
+    FAIL=$((FAIL + 1))
 fi
 
 # g3. Linux else-branch: TODO message + exit 1, and the --json {"error": ...}
@@ -656,7 +620,7 @@ except SystemExit as e:
     sys.exit(e.code)
 " 2>&1 >/dev/null)
     py_lin_rc=$?
-    driver_str=$(sed -n 's/^s_logs_dir_unsupported: *\.asciz "\(.*\)"$/\1/p' "$SCRIPT_DIR/tc_core.S")
+    driver_str=$(sed -n 's/^s_logs_dir_unsupported: *\.asciz "\(.*\)"$/\1/p' "$TC_HERE/tc_core.S")
     ok=0
     [ "$py_lin_rc" -eq 1 ] && \
     [ "$py_lin_err" = "error: $driver_str" ] && ok=1
@@ -682,7 +646,7 @@ except SystemExit as e:
 
     rm -rf "$lin_home"
 else
-    fail=$((fail + 1))
+    FAIL=$((FAIL + 1))
 fi
 
 # ============================================================================
@@ -764,7 +728,4 @@ ok=0
 [ "$ok" -eq 0 ] && echo "  detail: rc=$rc stderr=$(cat "$tmpdir/e") py='$py_out'"
 ok_or_fail "h1. explicit missing -d: 'logs directory not found' (driver + python3)" "$ok"
 
-# --- Summary ----------------------------------------------------------------
-echo
-echo "Summary: $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+tc_summary

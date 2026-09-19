@@ -12,11 +12,12 @@
 # `make test`), else build/<os> under this script's own directory, where
 # <os> is `uname -s` lowercased (build/darwin, build/linux). This script
 # does not build anything itself: if the driver is missing, run
-# `make drivers` first.
+# `make drivers` first. Layout, sandboxing and pass/fail bookkeeping come
+# from tc-test-lib.sh; see that file for the shared API.
 #
 # Isolation: every invocation of python3 twitch-counts.py AND of the driver
 # runs with HOME, XDG_CONFIG_HOME and XDG_CACHE_HOME pointed at a per-run
-# mktemp directory (exported once, below, so every subsequent call in this
+# sandbox directory (isolated once, below, so every subsequent call in this
 # script inherits it) — this keeps the test from ever touching the real
 # ~/.config/twitch-counts.toml or ~/.cache/twitch-counts/rollup.db (macOS's
 # Python Platform class honours only HOME; Linux's Python class and the
@@ -26,42 +27,20 @@
 # ============================================================================
 set -u
 
-HERE=$(cd "$(dirname "$0")" && pwd)
-cd "$HERE"
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
-BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
-BIN="$BUILD/tc-cli-test"
-
-if [ ! -x "$BIN" ]; then
-    echo "FAIL: driver not found or not executable: $BIN (run: make drivers)" >&2
-    exit 1
-fi
+tc_build_dir
+BIN=$(tc_driver tc-cli-test)
 
 # Isolated HOME/XDG so no oracle or driver call can ever reach the user's
-# real config or 355 MB rollup cache. Exported once, before any python3 or
+# real config or 355 MB rollup cache. Isolated once, before any python3 or
 # $BIN invocation in this script (including the version check right below),
 # so every one of them inherits it.
-ISO_HOME=$(mktemp -d "${TMPDIR:-/tmp}/tc-cli-test-home.XXXXXX") || {
-    echo "FAIL: cannot create isolated HOME" >&2
-    exit 2
-}
-trap 'rm -rf "$ISO_HOME"' EXIT INT TERM
-export HOME="$ISO_HOME"
-export XDG_CONFIG_HOME="$ISO_HOME/.config"
-export XDG_CACHE_HOME="$ISO_HOME/.cache"
-mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+ISO_HOME=$(tc_sandbox tc-cli-test-home)
+tc_isolate_home "$ISO_HOME"
 
-if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
-    echo "FAIL: python3 on PATH must be >= 3.11 (import tomllib failed);" \
-         "twitch-counts.py requires it" >&2
-    exit 2
-fi
-
-PASS=0
-FAIL=0
-
-ok()   { PASS=$((PASS+1)); }
-bad()  { FAIL=$((FAIL+1)); echo "FAIL: $1"; }
+tc_require_python_tomllib
 
 # run_case NAME ARG...  -> exit code in $RC, stdout in $OUT, stderr in $ERR
 run_case() {
@@ -77,7 +56,7 @@ run_case() {
 expect_exit() {
     local name=$1 want=$2; shift 2
     run_case "$name" "$@"
-    if [ "$RC" -eq "$want" ]; then ok; else
+    if [ "$RC" -eq "$want" ]; then ok "$name"; else
         bad "$name: exit $RC, want $want (args: $*)"
     fi
 }
@@ -86,7 +65,7 @@ expect_exit() {
 expect_error() {
     local name=$1; shift
     run_case "$name" "$@"
-    if [ "$RC" -eq 2 ]; then ok; else
+    if [ "$RC" -eq 2 ]; then ok "$name"; else
         bad "$name: expected exit 2, got $RC (args: $*)"
     fi
 }
@@ -95,7 +74,7 @@ expect_error() {
 expect_contains() {
     local name=$1 needle=$2; shift 2
     run_case "$name" "$@"
-    if printf '%s' "$OUT$ERR" | grep -qF -- "$needle"; then ok; else
+    if printf '%s' "$OUT$ERR" | grep -qF -- "$needle"; then ok "$name"; else
         bad "$name: output missing '$needle' (args: $*)"
     fi
 }
@@ -106,7 +85,7 @@ expect_begin() {
     run_case "$name" "$@"
     local got
     got=$(printf '%s\n' "$OUT" | sed -n 's/^begin=\([0-9]*\) .*/\1/p' | head -1)
-    if [ "$got" = "$want" ]; then ok; else
+    if [ "$got" = "$want" ]; then ok "$name"; else
         bad "$name: begin=$got, want $want (args: $*)"
     fi
 }
@@ -115,7 +94,7 @@ expect_begin() {
 expect_no_crash() {
     local name=$1; shift
     run_case "$name" "$@"
-    if [ "$RC" -eq 0 ]; then ok; else
+    if [ "$RC" -eq 0 ]; then ok "$name"; else
         bad "$name: expected exit 0, got $RC (args: $*)"
     fi
 }
@@ -131,7 +110,7 @@ expect_channel_empty() {
     run_case "$name" "$@"
     if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qx 'channel=' \
         && printf '%s\n' "$OUT" | grep -qx 'src=--channel'; then
-        ok
+        ok "$name"
     else
         bad "$name: expected channel=\"\" src=--channel exit 0, got RC=$RC (args: $*)"
     fi
@@ -358,14 +337,14 @@ cp twitch-counts.py "$USAGE_PY_DIR/tc-cli-test"
 for W in 40 60 80 100 120 200; do
     got=$(COLUMNS=$W "$BIN" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
     want=$(COLUMNS=$W python3 "$USAGE_PY_DIR/tc-cli-test" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
-    if [ "$got" = "$want" ]; then ok; else
+    if [ "$got" = "$want" ]; then ok "usage-width-$W"; else
         bad "usage-width-$W: usage block differs from argparse at COLUMNS=$W"
         diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -6
     fi
 done
 got=$(COLUMNS=" 90 " "$BIN" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
 want=$(COLUMNS=" 90 " python3 "$USAGE_PY_DIR/tc-cli-test" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
-if [ "$got" = "$want" ]; then ok; else bad "usage-width-int: COLUMNS=' 90 ' is int()-parsed like Python"; fi
+if [ "$got" = "$want" ]; then ok "usage-width-int"; else bad "usage-width-int: COLUMNS=' 90 ' is int()-parsed like Python"; fi
 rm -rf "$USAGE_PY_DIR"
 
 # ---------------------------------------------------------------------------
@@ -379,5 +358,4 @@ expect_contains "show-first-unknown" "unknown column 'share' (choose from: count
 expect_begin "begin-padded" 20260917 -c x -b " 2026-09-17 " -d /nonexistent
 expect_contains "users-label-digits" "src=--users 12" -c x --users 12 -d /nonexistent
 
-echo "Summary: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] && [ "$DIFF_FAIL" -eq 0 ]
+tc_summary "$DIFF_FAIL"

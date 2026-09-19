@@ -6,12 +6,9 @@
 #   (twitch-counts.py) across the flag matrix, plus a handful of structural
 #   checks (JSON validity, error path, piped/unlimited rows).
 #
-#   Driver:    $BUILD/tc-render-test, where BUILD defaults to
-#              build/<uname -s, lowercased> resolved relative to this
-#              script's own directory (override with TC_BUILD=...).  Build it
-#              first with `make drivers`; this script performs no builds of
-#              its own and fails fast with a clear message if the driver
-#              isn't there.
+#   Driver:    $BUILD/tc-render-test, resolved via the shared tc-test-lib.sh
+#              (override with TC_BUILD=...).  Build it first with
+#              `make drivers`; this script performs no builds of its own.
 #   Oracle:    `python3 twitch-counts.py` from PATH.  Checked once at the top
 #              to be >= 3.11 (i.e. it has the stdlib `tomllib` module) before
 #              anything else runs.
@@ -36,27 +33,16 @@
 #           problem (missing driver, missing/too-old python3, ...).
 # ============================================================================
 set -u
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR" || exit 2
+. "$(dirname "$0")/tc-test-lib.sh"
+tc_here
 
 # ---------------------------------------------------------------------------
 # driver + oracle resolution (no builds happen here — see `make drivers`)
 # ---------------------------------------------------------------------------
-BUILD=${TC_BUILD:-build/$(uname -s | tr 'A-Z' 'a-z')}
-case "$BUILD" in
-    /*) : ;;
-    *) BUILD="$SCRIPT_DIR/$BUILD" ;;
-esac
-BIN="$BUILD/tc-render-test"
+tc_build_dir
+BIN=$(tc_driver tc-render-test)
 
-if [ ! -x "$BIN" ]; then
-    echo "FAIL: driver not found or not executable: $BIN"
-    echo "      run: make drivers"
-    exit 2
-fi
-
-PYSCRIPT="$SCRIPT_DIR/twitch-counts.py"
+PYSCRIPT="$TC_HERE/twitch-counts.py"
 if [ ! -f "$PYSCRIPT" ]; then
     echo "FAIL: oracle script not found: $PYSCRIPT"
     exit 2
@@ -65,34 +51,21 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "FAIL: python3 not found on PATH"
     exit 2
 fi
-if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
-    echo "FAIL: python3 on PATH is too old (need >= 3.11, with stdlib tomllib);" \
-         "found: $(python3 -V 2>&1)"
-    exit 2
-fi
+tc_require_python_tomllib
 
 # ---------------------------------------------------------------------------
 # isolation: exported once, before any oracle/driver call — never touch the
 # user's real HOME / config / cache.
 # ---------------------------------------------------------------------------
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/tc-render-test.XXXXXX") || {
-    echo "FAIL: cannot create temp directory"
-    exit 2
-}
-trap 'rm -rf "$WORKDIR"' EXIT INT TERM
+WORKDIR=$(tc_sandbox tc-render-test)
 
 DATA="$WORKDIR/data"
-export HOME="$WORKDIR/home"
-export XDG_CONFIG_HOME="$HOME/.config"
-export XDG_CACHE_HOME="$HOME/.cache"
-mkdir -p "$DATA" "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+tc_isolate_home "$WORKDIR"
+mkdir -p "$DATA"
 
 LOGS="$DATA/Logs/Twitch/Channels"
 CH=chroniccmposer
 PC=powerchan
-PASS=0
-FAIL=0
-FAILED_TESTS=()
 SAW_NONEMPTY_TABLE=0
 
 # ---------------------------------------------------------------------------
@@ -171,7 +144,7 @@ diff_run() {
     a_out=$("$BIN" "$@" --no-config --no-cache 2>/dev/null); a_rc=$?
     p_out=$(python3 "$PYSCRIPT" "$@" --no-config --no-cache 2>/dev/null); p_rc=$?
     if [ "$a_rc" != "$p_rc" ]; then
-        echo "FAIL[$name]: rc asm=$a_rc py=$p_rc"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name"); return
+        bad "$name" "rc asm=$a_rc py=$p_rc"; return
     fi
     local an pn
     an=$(printf '%s' "$a_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
@@ -182,9 +155,9 @@ diff_run() {
         SAW_NONEMPTY_TABLE=1
     fi
     if [ "$an" = "$pn" ]; then
-        echo "PASS[$name]"; PASS=$((PASS+1))
+        ok "$name"
     else
-        echo "FAIL[$name]: output differs"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name")
+        bad "$name" "output differs"
         diff <(printf '%s' "$pn") <(printf '%s' "$an") | head -6
     fi
 }
@@ -229,13 +202,7 @@ chmod 644 "$LOGS/$CH/$CH-2026-09-02.log" 2>/dev/null
 #    must have compared a populated report table, not just empty output.
 # ---------------------------------------------------------------------------
 echo "== fixture sanity =="
-if [ "$SAW_NONEMPTY_TABLE" -eq 1 ]; then
-    echo "PASS[fixture sanity: at least one differential produced a non-empty report table]"
-    PASS=$((PASS+1))
-else
-    echo "FAIL[fixture sanity: no differential ever produced a populated report table (fixtures missing?)]"
-    FAIL=$((FAIL+1)); FAILED_TESTS+=("fixture sanity: non-empty table")
-fi
+ok_or_fail "fixture sanity: non-empty table" "$SAW_NONEMPTY_TABLE"
 
 # ---------------------------------------------------------------------------
 # 3. JSON differentials
@@ -247,26 +214,26 @@ json_diff() {
     a_out=$("$BIN" "$@" --no-config --no-cache 2>/dev/null); a_rc=$?
     p_out=$(python3 "$PYSCRIPT" "$@" --no-config --no-cache 2>/dev/null); p_rc=$?
     if [ "$a_rc" != "$p_rc" ]; then
-        echo "FAIL[$name]: rc asm=$a_rc py=$p_rc"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name"); return
+        bad "$name" "rc asm=$a_rc py=$p_rc"; return
     fi
     if [ "$a_rc" -eq 0 ]; then
         if ! printf '%s' "$a_out" | python3 -m json.tool >/dev/null 2>&1; then
-            echo "FAIL[$name]: invalid JSON"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name"); return
+            bad "$name" "invalid JSON"; return
         fi
         # schema-first key order check
         local first
         first=$(printf '%s' "$a_out" | sed -n '2p' | tr -d ' ')
         if [ "$first" != '"schema":{' ]; then
-            echo "FAIL[$name]: schema not first"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name"); return
+            bad "$name" "schema not first"; return
         fi
     fi
     local an pn
     an=$(printf '%s' "$a_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
     pn=$(printf '%s' "$p_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
     if [ "$an" = "$pn" ]; then
-        echo "PASS[$name]"; PASS=$((PASS+1))
+        ok "$name"
     else
-        echo "FAIL[$name]: output differs"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name")
+        bad "$name" "output differs"
         diff <(printf '%s' "$pn") <(printf '%s' "$an") | head -6
     fi
 }
@@ -285,9 +252,9 @@ echo "== piped output =="
 a_out=$(printf '' | "$BIN" -c "$CH" -d "$LOGS" -e 2026-09-03 -n 5 --no-config --no-cache 2>/dev/null)
 rows=$(printf '%s\n' "$a_out" | grep -cE '^[a-zA-Z_+0-9]+ +[0-9,]+$' || true)
 if [ "$rows" -ge 5 ]; then
-    echo "PASS[piped unlimited rows: $rows rows shown]"; PASS=$((PASS+1))
+    ok "piped unlimited rows: $rows rows shown"
 else
-    echo "FAIL[piped unlimited rows: only $rows rows]"; FAIL=$((FAIL+1)); FAILED_TESTS+=("piped unlimited rows")
+    bad "piped unlimited rows: only $rows rows"
 fi
 
 # ---------------------------------------------------------------------------
@@ -296,18 +263,12 @@ fi
 echo "== JSON error path =="
 err=$("$BIN" -c "$CH" -d "$LOGS" -e 2026-09-03 -L -B --json --no-config --no-cache 2>&1 >/dev/null)
 if printf '%s' "$err" | grep -q '{"error":'; then
-    echo "PASS[json error path]"; PASS=$((PASS+1))
+    ok "json error path"
 else
-    echo "FAIL[json error path]: got [$err]"; FAIL=$((FAIL+1)); FAILED_TESTS+=("json error path")
+    bad "json error path" "got [$err]"
 fi
 
 # ---------------------------------------------------------------------------
 # summary
 # ---------------------------------------------------------------------------
-echo
-echo "=========================================="
-echo "test-tc-render.sh: $PASS passed, $FAIL failed"
-if [ "$FAIL" -ne 0 ]; then
-    printf 'failed: %s\n' "${FAILED_TESTS[@]+"${FAILED_TESTS[@]}"}"
-fi
-[ "$FAIL" -eq 0 ]
+tc_summary
