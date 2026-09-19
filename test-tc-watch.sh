@@ -588,6 +588,124 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
+echo "== tint colours: hex parsing, ramp keys, launch replay, expiry vs Python =="
+# Every hex pair in these colours is asymmetric ("6f" is not "f6"), the down
+# ramp is off (tint_falling = false, so the highlight ramps sit past a
+# reserved key) and hold = 0 pins every tint to shade 0 of its ramp.  So the
+# escape a row wears is fully determined: fade_up for a rise, the rule's
+# colour for a rise whose message matched -- and both are checked against the
+# literal as well as against the Python, so a shared mistake cannot pass.
+cat > "$DATA/colour.toml" <<'EOF'
+[tail]
+notify = false
+[watch]
+hold = 0
+shades = 18
+fade_up = "#6fff6f"
+fade_down = "#f8f8f8"
+tint_falling = false
+fade_curve = "bias"
+fade_k = 3.0
+[[watch.highlight]]
+color = "#ff6f6f"
+match = ['(?i)keys']
+EOF
+CBASE=( -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/colour.toml" --no-cache --color always )
+
+# row_tints <transcript> <login>: the distinct ESC[38;2;R;G;Bm parameters
+# worn by the login's row anywhere in the transcript, sorted, one per line
+row_tints() {
+    python3 - "$1" "$2" <<'PYEOF'
+import re, sys
+raw = open(sys.argv[1], "rb").read().decode("utf-8", "replace")
+seen = set(m.group(1) for m in
+           re.finditer(r"\x1b\[38;2;([0-9;]+)m" + re.escape(sys.argv[2]) + r" ", raw))
+print("\n".join(sorted(seen)))
+PYEOF
+}
+# last_row <transcript> <login>: "tinted" or "plain" for the login's row as
+# it was last painted
+last_row() {
+    python3 - "$1" "$2" <<'PYEOF'
+import re, sys
+raw = open(sys.argv[1], "rb").read().decode("utf-8", "replace")
+rows = list(re.finditer(r"(\x1b\[38;2;[0-9;]+m)?" + re.escape(sys.argv[2]) + r" +[0-9,]+", raw))
+print("none" if not rows else ("tinted" if rows[-1].group(1) else "plain"))
+PYEOF
+}
+reset_log() {
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+}
+
+# a rise whose message matches a rule wears the rule's colour
+reset_log
+run_pty "$DATA/hl_asm.out" 4 3.0 1.0 "[10:00:05] alice: the keys" "$BIN" "${CBASE[@]}"
+reset_log
+run_pty "$DATA/hl_py.out" 4 3.0 1.0 "[10:00:05] alice: the keys" "$PY" "$PYSCRIPT" "${CBASE[@]}"
+check "highlight colour: asm paints #ff6f6f at shade 0" "255;111;111" "$(row_tints "$DATA/hl_asm.out" alice)"
+check "highlight colour: Python paints the same" "$(row_tints "$DATA/hl_py.out" alice)" "$(row_tints "$DATA/hl_asm.out" alice)"
+
+# a plain rise wears fade_up, not the first highlight ramp
+reset_log
+run_pty "$DATA/up_asm.out" 4 3.0 1.0 "[10:00:05] bob: hi again" "$BIN" "${CBASE[@]}"
+reset_log
+run_pty "$DATA/up_py.out" 4 3.0 1.0 "[10:00:05] bob: hi again" "$PY" "$PYSCRIPT" "${CBASE[@]}"
+check "rise colour: asm paints fade_up #6fff6f at shade 0" "111;255;111" "$(row_tints "$DATA/up_asm.out" bob)"
+check "rise colour: Python paints the same" "$(row_tints "$DATA/up_py.out" bob)" "$(row_tints "$DATA/up_asm.out" bob)"
+
+# launch replay: a rise inside the replay horizon (interval x replay_steps =
+# 40 s) is already tinted on the first frame
+RPCH=replaych
+mkdir -p "$LOGS/$RPCH"
+python3 - "$LOGS/$RPCH" <<'PYEOF'
+import datetime, os, sys
+base = sys.argv[1]; ch = base.rsplit("/", 1)[-1]
+now = datetime.datetime.now()
+by_day = {}
+def add(t, text):
+    by_day.setdefault(t.strftime("%Y-%m-%d"), []).append(f"[{t:%H:%M:%S}] {text}")
+add(now.replace(hour=0, minute=0, second=0), f"{ch} is live!")
+for i in range(3):   # well before the horizon: the rows exist, nothing moves
+    t = now - datetime.timedelta(seconds=300 - i)
+    add(t, f"alice: old {i}"); add(t, f"bob: old {i}")
+t = now - datetime.timedelta(seconds=8)   # inside it: a rise each
+add(t, "alice: got the keys"); add(t, "bob: plain")
+for day in sorted(by_day):
+    with open(os.path.join(base, f"{ch}-{day}.log"), "a") as f:
+        f.write("\n".join(by_day[day]) + "\n")
+PYEOF
+run_pty "$DATA/rp_asm.out" 4 1.0 -1 "" "$BIN" -c "$RPCH" -d "$LOGS" -w 0.2 --config "$DATA/colour.toml" --no-cache --color always
+run_pty "$DATA/rp_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" -c "$RPCH" -d "$LOGS" -w 0.2 --config "$DATA/colour.toml" --no-cache --color always
+check "launch replay: alice wears the rule colour on the first frame" "255;111;111" "$(row_tints "$DATA/rp_asm.out" alice)"
+check "launch replay: bob wears fade_up on the first frame" "111;255;111" "$(row_tints "$DATA/rp_asm.out" bob)"
+check "launch replay: Python paints alice the same" "$(row_tints "$DATA/rp_py.out" alice)" "$(row_tints "$DATA/rp_asm.out" alice)"
+check "launch replay: Python paints bob the same" "$(row_tints "$DATA/rp_py.out" bob)" "$(row_tints "$DATA/rp_asm.out" bob)"
+rm -rf "$LOGS/$RPCH"
+
+# expiry: a tint ages on the frame clock and the row goes plain after hold
+cat > "$DATA/expire.toml" <<'EOF'
+[tail]
+notify = false
+[watch]
+hold = 1
+shades = 1
+fade_up = "#6fff6f"
+EOF
+reset_log
+run_pty "$DATA/ex_asm.out" 5 4.0 1.0 "[10:00:05] alice: hello again" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/expire.toml" --no-cache --color always
+reset_log
+run_pty "$DATA/ex_py.out" 5 4.0 1.0 "[10:00:05] alice: hello again" "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/expire.toml" --no-cache --color always
+check "expiry: asm tinted the rise" "111;255;111" "$(row_tints "$DATA/ex_asm.out" alice)"
+check "expiry: asm repainted the row plain after hold" "plain" "$(last_row "$DATA/ex_asm.out" alice)"
+check "expiry: Python tinted the rise" "111;255;111" "$(row_tints "$DATA/ex_py.out" alice)"
+check "expiry: Python repainted the row plain after hold" "plain" "$(last_row "$DATA/ex_py.out" alice)"
+reset_log
+
+# ---------------------------------------------------------------------------
 echo
 echo "=========================================="
 echo "test-tc-watch.sh: $PASS passed, $FAIL failed"

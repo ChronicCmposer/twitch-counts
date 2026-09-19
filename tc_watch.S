@@ -508,6 +508,7 @@ tc_watch_dirpath:    .skip 704
 tc_watch_fpath:      .skip 704
 tc_watch_scratch:    .skip 2048
 tc_watch_scratch2:   .skip 8192
+tc_watch_replay_map: .skip PREV_MAX * PV_SZ  // launch replay: this step's counts, tc_watch_prev's layout
 tc_watch_tintbuf:    .skip 4096
 tc_watch_clipbuf:    .skip 4096
 tc_watch_status:     .skip 256
@@ -793,6 +794,27 @@ tc_watch_run:
     add x1, x1, LO12(tc_watch_frame_cap)
     ldr x1, [x1]
     bl tc_frame_begin
+    // Frame(now=started): the clock the colorizer ages tints by.  The slot
+    // doubles as scratch for the sleep computation, so it is set per frame.
+    adrp x9, PAGE(tc_watch_started)
+    add x9, x9, LO12(tc_watch_started)
+    ldr d0, [x9]
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
+    str d0, [x9]
+    // palette_chooser(readers, highlights, datetime.now(), hold): a match
+    // counts while it lies within [now - hold, now] by the wall clock
+    bl watch_local_now               // x0 = ymd, x1 = sod
+    bl watch_ymd_sod_to_epoch
+    adrp x9, PAGE(tc_watch_choose_wall)
+    add x9, x9, LO12(tc_watch_choose_wall)
+    str x0, [x9]
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
+    ldr d0, [x9]
+    adrp x9, PAGE(tc_watch_choose_hold)
+    add x9, x9, LO12(tc_watch_choose_hold)
+    str d0, [x9]
     bl watch_filter_tints            // expire carried tints (now)
     bl tc_render_text
     bl tc_frame_end
@@ -6699,19 +6721,30 @@ watch_build_ramps:
     mov x2, #0                         // key "up"
     bl watch_build_one_ramp            // x0 = ramp base
     add x22, x22, #1
-    // ramp 1: down when tint_falling
+    // ramp 1: down when tint_falling.  Key RAMP_DOWN stays reserved either
+    // way, so highlight i is always key 2 + i -- the key watch_choose
+    // returns and watch_ramp_key_str names ("highlight{i}").
     adrp x9, PAGE(tc_watch_tint_falling)
     add x9, x9, LO12(tc_watch_tint_falling)
     ldr x9, [x9]
-    cbz x9, .Lwbr_highlights
+    cbz x9, .Lwbr_no_down
     adrp x0, PAGE(tc_opts)
     add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_FADE_DOWN_RGB
     mov x1, x20
-    mov x2, #1
+    mov x2, #RAMP_DOWN
     bl watch_build_one_ramp
-    add x22, x22, #1
+    b .Lwbr_highlights
+.Lwbr_no_down:
+    // no "down" ramp (Python: "down" not in ramps): an empty descriptor at
+    // the reserved key, so a reload that turned tint_falling off leaves
+    // nothing readable behind
+    adrp x9, PAGE(tc_watch_ramps)
+    add x9, x9, LO12(tc_watch_ramps)
+    str xzr, [x9, #(RAMP_DOWN * 16)]
+    str xzr, [x9, #(RAMP_DOWN * 16 + 8)]
 .Lwbr_highlights:
+    mov x22, #2                        // highlight i -> key 2 + i
     // highlight rules
     adrp x9, PAGE(tc_opts)
     add x9, x9, LO12(tc_opts)
@@ -7233,6 +7266,7 @@ s_collapse_mid2:    .asciz " with fade_k "
 tc_watch_dtmp2:     .skip 8
 tc_watch_dtmp3:     .skip 8
 tc_watch_dtmp4:     .skip 8
+tc_watch_wait:      .skip 8             // double: interval - elapsed (watch_next_wait)
     .text
 
 // ============================================================================
@@ -7902,12 +7936,13 @@ watch_launch_tints:
     adrp x28, PAGE(tc_watch_readers)
     add x28, x28, LO12(tc_watch_readers)
     ldr x28, [x28]
-    // replay counts map: use tc_watch_scratch2 as {login[26], n u64} records
-    adrp x9, PAGE(tc_watch_scratch2)
-    add x9, x9, LO12(tc_watch_scratch2)
+    // counts = Counter(): the replay map, {login[26], n u64} records in
+    // tc_watch_prev's layout so it can become `previous` by a straight copy
+    adrp x9, PAGE(tc_watch_replay_map)
+    add x9, x9, LO12(tc_watch_replay_map)
     mov x0, x9
     mov x1, #0
-    mov x2, #1024
+    mov x2, #(PREV_MAX * PV_SZ)
     bl memset
     mov x9, #0                         // replay map count (x9 = caller-saved...
     // reader loop counter: x19 (callee-saved; x19 is dead after mov x24,x19)
@@ -7984,24 +8019,18 @@ watch_launch_tints:
     add x0, x0, LO12(tc_watch_dtmp3)
     str d0, [x0]                       // replay now
     bl watch_colorize_step
-    // previous = the replay map (copy it into tc_watch_prev)
-    adrp x0, PAGE(tc_watch_scratch2)
-    add x0, x0, LO12(tc_watch_scratch2)
-    adrp x1, PAGE(tc_watch_prev)
-    add x1, x1, LO12(tc_watch_prev)
-    mov x2, #1024
-    bl memcpy_copy
-    // prev_n = number of {login, n} records in the replay map
-    adrp x0, PAGE(tc_watch_scratch2)
-    add x0, x0, LO12(tc_watch_scratch2)
+    // previous = counts: count the replay map's records, then copy exactly
+    // those into tc_watch_prev (same record layout)
+    adrp x0, PAGE(tc_watch_replay_map)
+    add x0, x0, LO12(tc_watch_replay_map)
     mov x9, #0                         // count
 .Lwlt_cnt:
-    cmp x9, #128
+    cmp x9, #PREV_MAX
     b.ge .Lwlt_cnt_done
-    mov x10, #34
+    mov x10, #PV_SZ
     mul x10, x9, x10
     add x10, x0, x10
-    ldrb w11, [x10]
+    ldrb w11, [x10, #PV_LOGIN]
     cbz w11, .Lwlt_cnt_done
     add x9, x9, #1
     b .Lwlt_cnt
@@ -8009,6 +8038,13 @@ watch_launch_tints:
     adrp x10, PAGE(tc_watch_prev_n)
     add x10, x10, LO12(tc_watch_prev_n)
     str x9, [x10]
+    mov x2, #PV_SZ
+    mul x2, x9, x2                     // bytes: count * PV_SZ
+    adrp x0, PAGE(tc_watch_prev)
+    add x0, x0, LO12(tc_watch_prev)
+    adrp x1, PAGE(tc_watch_replay_map)
+    add x1, x1, LO12(tc_watch_replay_map)
+    bl memcpy_copy                     // (dst, src, len)
     sub x24, x24, #1
     b .Lwlt_step
 .Lwlt_done:
@@ -8021,8 +8057,9 @@ watch_launch_tints:
     ret
 
 // ============================================================================
-// watch_replay_add(login, n) — add n to {login, n} in the replay map
-//   (tc_watch_scratch2 records of {login[26], n u64}).
+// watch_replay_add(n, login) — counts[login] += n in the replay map
+//   (tc_watch_replay_map: PREV_MAX records of {login[26], n u64 at
+//   PV_COUNT}, tc_watch_prev's layout).
 // ============================================================================
     .p2align 2
 watch_replay_add:
@@ -8033,16 +8070,16 @@ watch_replay_add:
     stp x16, x17, [sp, #-16]!
     mov x19, x0                        // n
     mov x20, x1                        // login
-    adrp x21, PAGE(tc_watch_scratch2)
-    add x21, x21, LO12(tc_watch_scratch2)
+    adrp x21, PAGE(tc_watch_replay_map)
+    add x21, x21, LO12(tc_watch_replay_map)
     mov x22, #0
 .Lwra_loop:
-    cmp x22, #128
-    b.ge .Lwra_append
-    mov x9, #34
+    cmp x22, #PREV_MAX
+    b.ge .Lwra_done                    // map full: drop (PREV_MAX users)
+    mov x9, #PV_SZ
     mul x9, x22, x9
     add x9, x21, x9
-    ldrb w10, [x9]
+    ldrb w10, [x9, #PV_LOGIN]
     cbz w10, .Lwra_append
     mov x10, #0
 .Lwra_cmp:
@@ -8054,17 +8091,15 @@ watch_replay_add:
     add x10, x10, #1
     b .Lwra_cmp
 .Lwra_found:
-    ldr x10, [x9, #32]
+    ldr x10, [x9, #PV_COUNT]
     add x10, x10, x19
-    str x10, [x9, #32]
+    str x10, [x9, #PV_COUNT]
     b .Lwra_done
 .Lwra_next:
     add x22, x22, #1
     b .Lwra_loop
 .Lwra_append:
-    mov x9, #34
-    mul x9, x22, x9
-    add x9, x21, x9
+    // x9 = the empty slot found above (index x22 < PREV_MAX)
     mov x10, #0
 .Lwra_copy:
     ldrb w11, [x20, x10]
@@ -8077,7 +8112,7 @@ watch_replay_add:
 .Lwra_copy_done:
     mov w11, #0
     strb w11, [x9, x10]
-    str x19, [x9, #32]
+    str x19, [x9, #PV_COUNT]
 .Lwra_done:
     ldp x16, x17, [sp], #16
     ldp x14, x15, [sp], #16
@@ -8090,7 +8125,7 @@ watch_replay_add:
 // watch_colorize_step — the colorizer for one replay step: filter carried
 //   tints by expiry, then for every (login, n) in the replay map run the
 //   tint logic (Python colorizer + tinting.tint("", login, count)).
-//   The replay map lives in tc_watch_scratch2 (records {login[26], n}).
+//   The replay map is tc_watch_replay_map (records {login[26], n u64}).
 // ============================================================================
     .p2align 2
 watch_colorize_step:
@@ -8149,18 +8184,18 @@ watch_colorize_step:
     str x21, [x9]
 .Lwcs_keep_all:
     // walk the replay map
-    adrp x19, PAGE(tc_watch_scratch2)
-    add x19, x19, LO12(tc_watch_scratch2)
+    adrp x19, PAGE(tc_watch_replay_map)
+    add x19, x19, LO12(tc_watch_replay_map)
     mov x20, #0                        // i
 .Lwcs_loop:
-    cmp x20, #128
+    cmp x20, #PREV_MAX
     b.ge .Lwcs_done
-    mov x9, #34
+    mov x9, #PV_SZ
     mul x9, x20, x9
     add x19, x19, x9                   // record
-    ldrb w10, [x19]
+    ldrb w10, [x19, #PV_LOGIN]
     cbz w10, .Lwcs_done
-    ldr x10, [x19, #32]                // n
+    ldr x10, [x19, #PV_COUNT]          // n
     add x0, x19, #0                    // login ptr
     mov x1, x10                        // count
     adrp x2, PAGE(tc_watch_scratch)          // text ptr ("" — unused)
@@ -8170,10 +8205,9 @@ watch_colorize_step:
     strb w4, [x3]                      // text = ""
     bl watch_tint_apply                // tints only; text is ignored
     add x20, x20, #1
-    mov x19, #0                        // reset (loop recomputes below)
-    // recompute the base
-    adrp x19, PAGE(tc_watch_scratch2)
-    add x19, x19, LO12(tc_watch_scratch2)
+    // recompute the base (x19 was advanced to the record)
+    adrp x19, PAGE(tc_watch_replay_map)
+    add x19, x19, LO12(tc_watch_replay_map)
     b .Lwcs_loop
 .Lwcs_done:
     ldp x25, x26, [sp], #16
@@ -8556,6 +8590,7 @@ watch_fade_color:
     ldr d0, [x9]
     fcmp d0, d1                        // age >= hold?
     b.lt .Lwfc_index
+.Lwfc_expired:
     mov x0, #0                         // expired
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -8569,6 +8604,7 @@ watch_fade_color:
     add x9, x9, x10
     ldr x11, [x9]                      // base
     ldr x12, [x9, #8]                  // len
+    cbz x12, .Lwfc_expired             // no such ramp: nothing to wear
     // step = hold / len
     scvtf d1, x12
     adrp x9, PAGE(tc_watch_hold)
@@ -8817,6 +8853,7 @@ watch_tint_apply:
     cmp x24, #0
     b.ge .Lwta_palette_ok
     ldrb w24, [x23, #TT_DIR]           // 1 = up, 2 = down
+    sub x24, x24, #1                   // -> ramp key RAMP_UP / RAMP_DOWN
 .Lwta_palette_ok:
     // color = fade_color(palette, now - when, hold)
     adrp x9, PAGE(tc_watch_dtmp4)
@@ -8920,16 +8957,23 @@ watch_next_wait:
     adrp x9, PAGE(tc_watch_elapsed)
     add x9, x9, LO12(tc_watch_elapsed)
     str d0, [x9]
-    // wait = interval - elapsed
+    // wait = interval - elapsed (kept in memory: the d-regs die on the calls)
     adrp x9, PAGE(tc_watch_interval)
     add x9, x9, LO12(tc_watch_interval)
     ldr d1, [x9]
     fsub d2, d1, d0
-    // due = next_tint_change(now)
+    adrp x9, PAGE(tc_watch_wait)
+    add x9, x9, LO12(tc_watch_wait)
+    str d2, [x9]
+    // due = next_tint_change(carried, hold, shades, clock.monotonic())
+    bl watch_monotonic
     adrp x9, PAGE(tc_watch_now)
     add x9, x9, LO12(tc_watch_now)
-    ldr d0, [x9]
+    str d0, [x9]
     bl watch_next_tint_change          // d0 = due or -1 (none)
+    adrp x9, PAGE(tc_watch_wait)
+    add x9, x9, LO12(tc_watch_wait)
+    ldr d2, [x9]                       // wait
     fcmp d0, #0.0
     b.lt .Lwnw_sleep
     adrp x9, PAGE(tc_watch_now)
