@@ -25,6 +25,7 @@
 #   make all                  + the Linux-only syscall programs on Linux
 #   make drivers              the per-module test drivers (build/<os>/tc-*-test)
 #   make test                 every harness for this platform
+#   make check-<harness>      one harness, e.g. check-tc-watch
 #   make third-party          just the vendored libraries
 #   make gen-inc              force-regenerate the committed .inc blobs
 #   make clean                remove build/ and the root binaries
@@ -89,7 +90,7 @@ TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 # deliverable); regenerated only by an explicit `make gen-inc`.
 GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
 
-.PHONY: all run test clean third-party gen-inc drivers $(TARGET3)
+.PHONY: all run test clean third-party gen-inc drivers $(TARGET3) $(addprefix check-,$(HARNESSES))
 
 ifeq ($(OS),Linux)
 LINUX_ONLY  := $(TARGET) $(TARGET2)
@@ -206,30 +207,39 @@ $(TARGET3): $(BUILD)/$(TARGET3)
 # ---------------------------------------------------------------------------
 # per-module test drivers (check_tc_*.S + the modules under test).  The
 # Makefile owns every driver link; the test-tc-*.sh harnesses only run
-# them (they find $(BUILD) through $TC_BUILD).  tc-cli-test uses the
+# them (they find $(BUILD) through $TC_BUILD).  One object list per driver
+# (the check_tc_<name>.o driver first, then the modules), one static
+# pattern rule for all of them.  tc-cli-test and tc-core-test use the
 # config stub instead of tc_config.o; every driver that links tc_cli.o
 # also links toml.o and libpcre2-8.a because tc_cli resolves
 # [[watch.highlight]] through them.
-# ---------------------------------------------------------------------------
-PRINTF_O := $(BUILD)/check_tc_printf.o
-
-$(BUILD)/tc-cli-test: $(addprefix $(BUILD)/,check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o) \
-		$(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
-	$(LINK) $@ $^
-
-$(BUILD)/tc-config-test: $(addprefix $(BUILD)/,check_tc_config.o tc_config.o tc_cli.o tc_util.o) \
-		$(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
-	$(LINK) $@ $^
-
+#
 # Every driver that links tc_core.o also links tc_json.o and tc_render.o:
 # the counting core's failure path emits the --json error shape through
 # tc_json_err, and tc_json needs the render module's plan.
-$(BUILD)/tc-core-test: $(addprefix $(BUILD)/,check_tc_core.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o tc_json.o tc_render.o) \
-		$(LIBS)
-	$(LINK) $@ $^
+# ---------------------------------------------------------------------------
+PRINTF_O := $(BUILD)/check_tc_printf.o
 
-$(BUILD)/tc-cache-test: $(addprefix $(BUILD)/,check_tc_cache.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o) \
-		$(LIBS)
+DRIVER_NAMES := cli config core cache cache-bump render misc watch
+
+cli_OBJS        := check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o
+config_OBJS     := check_tc_config.o tc_config.o tc_cli.o tc_util.o
+core_OBJS       := check_tc_core.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o tc_json.o tc_render.o
+cache_OBJS      := check_tc_cache.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
+cache-bump_OBJS := check_tc_cache.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
+render_OBJS     := check_tc_render.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_cache.o tc_util.o
+misc_OBJS       := check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_json.o tc_render.o
+watch_OBJS      := check_tc_watch.o tc_watch.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_misc.o
+
+# The two drivers without tc_core.o need no sqlite3.o but do need the
+# harness printf wrappers; the rest link the full vendored set.
+cli_LIBS        := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
+config_LIBS     := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
+
+DRIVERS := $(foreach n,$(DRIVER_NAMES),$(BUILD)/tc-$(n)-test)
+
+.SECONDEXPANSION:
+$(DRIVERS): $(BUILD)/tc-%-test: $$(addprefix $(BUILD)/,$$($$*_OBJS)) $$(or $$($$*_LIBS),$(LIBS))
 	$(LINK) $@ $^
 
 # tc-cache-bump-test: tc_cache.S with its fingerprint constant bumped, so
@@ -240,40 +250,21 @@ $(BUILD)/tc_cache_bump.S: tc_cache.S | $(BUILD)
 $(BUILD)/tc_cache_bump.o: $(BUILD)/tc_cache_bump.S tc_platform.h tc_layout.inc | $(TOOLCHAIN_DEP)
 	$(CC) -I. -c $< -o $@
 
-$(BUILD)/tc-cache-bump-test: $(addprefix $(BUILD)/,check_tc_cache.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o) \
-		$(LIBS)
-	$(LINK) $@ $^
-
-$(BUILD)/tc-render-test: $(addprefix $(BUILD)/,check_tc_render.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_cache.o tc_util.o) \
-		$(LIBS)
-	$(LINK) $@ $^
-
-$(BUILD)/tc-misc-test: $(addprefix $(BUILD)/,check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_json.o tc_render.o) \
-		$(LIBS)
-	$(LINK) $@ $^
-
-$(BUILD)/tc-watch-test: $(addprefix $(BUILD)/,check_tc_watch.o tc_watch.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_misc.o) \
-		$(LIBS)
-	$(LINK) $@ $^
-
-DRIVERS := $(addprefix $(BUILD)/,tc-cli-test tc-config-test tc-core-test tc-cache-test \
-           tc-cache-bump-test tc-render-test tc-misc-test tc-watch-test)
-
 drivers: $(DRIVERS)
+
+# `make check-<name>` runs one harness (check-watch, check-cli, ...);
+# `make test` runs them all in this order.
+HARNESSES := twitch-counts-full tc-cli tc-config tc-core tc-cache tc-render tc-misc tc-watch
+
+check-%: all drivers
+	./test-$*.sh
 
 # The full battery: every harness for this platform, fail on any failure.
 # (test-twitch-counts-full.sh exercises the REAL twitch-counts-full binary;
 # the Linux-only syscall programs' harnesses run only on Linux.)
 test: all drivers
 	$(if $(LINUX_TESTS),$(LINUX_TESTS),true)
-	./test-twitch-counts-full.sh
-	./test-tc-cli.sh
-	./test-tc-config.sh
-	./test-tc-core.sh
-	./test-tc-cache.sh
-	./test-tc-render.sh
-	./test-tc-misc.sh
-	./test-tc-watch.sh
+	$(foreach h,$(HARNESSES),./test-$(h).sh &&) true
 
 clean:
 	rm -rf build
