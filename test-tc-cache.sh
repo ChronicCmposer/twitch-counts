@@ -358,6 +358,46 @@ ok=0
 [ "$(sed -n 's/^cachestatus .*rebuilt=\([^ ]*\).*/\1/p' "$tmpdir/cold.out")" = "new" ] && ok=1
 ok_or_fail "i5. asm cold reason is 'new cache' (same vocabulary)" "$ok"
 
+# ============================================================================
+# (j) cache path pinning: does XDG_CACHE_HOME affect where rollup.db lands?
+#     macOS ignores it (always $HOME/.cache/twitch-counts/rollup.db); Linux
+#     honours it ($XDG_CACHE_HOME/twitch-counts/rollup.db). Checked for both
+#     the assembly driver and python3 twitch-counts.py, each on its own
+#     isolated home3/pyhome3.
+# ============================================================================
+home3="$tmpdir/home3"; pyhome3="$tmpdir/pyhome3"
+asm_xdgcache="$tmpdir/asm_xdgcache"; py_xdgcache="$tmpdir/py_xdgcache"
+mkdir -p "$home3" "$pyhome3" "$asm_xdgcache" "$py_xdgcache"
+
+XDG_CONFIG_HOME="" XDG_CACHE_HOME="$asm_xdgcache" HOME="$home3" "$BIN" -c chroniccmposer \
+    -d "$channels" -e 2026-09-03 > "$tmpdir/xdg.asm.out" 2>"$tmpdir/e"
+xdg_asm_path=$(sed -n 's/^cachestatus .*path=\([^ ]*\).*/\1/p' "$tmpdir/xdg.asm.out")
+
+XDG_CONFIG_HOME="" XDG_CACHE_HOME="$py_xdgcache" HOME="$pyhome3" python3 "$TC_PY" -c chroniccmposer \
+    -d "$channels" -e 2026-09-03 --no-config > "$tmpdir/xdg.py.out" 2>"$tmpdir/py.e"
+
+case $(uname -s) in
+Linux)
+    ok=0
+    [ -f "$asm_xdgcache/twitch-counts/rollup.db" ] && [ ! -e "$home3/.cache/twitch-counts" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: expected db at $asm_xdgcache/twitch-counts/rollup.db; got path=$xdg_asm_path"
+    ok_or_fail "j1. asm on Linux: XDG_CACHE_HOME redirects rollup.db" "$ok"
+    ok=0
+    [ -f "$py_xdgcache/twitch-counts/rollup.db" ] && [ ! -e "$pyhome3/.cache/twitch-counts" ] && ok=1
+    ok_or_fail "j2. python on Linux: XDG_CACHE_HOME redirects rollup.db" "$ok"
+    ;;
+*)
+    ok=0
+    [ -f "$home3/.cache/twitch-counts/rollup.db" ] && [ ! -e "$asm_xdgcache/twitch-counts" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: expected db at \$HOME/.cache/twitch-counts/rollup.db, asm_xdgcache untouched; got path=$xdg_asm_path"
+    ok_or_fail "j1. asm on macOS: XDG_CACHE_HOME is ignored, db stays at \$HOME/.cache" "$ok"
+    ok=0
+    [ -f "$pyhome3/.cache/twitch-counts/rollup.db" ] && [ ! -e "$py_xdgcache/twitch-counts" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: expected db at \$pyhome3/.cache/twitch-counts/rollup.db, py_xdgcache untouched"
+    ok_or_fail "j2. python on macOS: XDG_CACHE_HOME is ignored, db stays at \$HOME/.cache" "$ok"
+    ;;
+esac
+
 # --- Summary ----------------------------------------------------------------
 echo
 echo "Summary: $pass passed, $fail failed"

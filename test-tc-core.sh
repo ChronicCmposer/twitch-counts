@@ -537,6 +537,141 @@ PYEOF
         ok_or_fail "diff: --users $pol sizing" "$ok"
     done
 
+# ============================================================================
+# (g) default logs dir (no -d/TWITCH_LOGS_DIR/config logs_dir)
+# ============================================================================
+# These run in their own mktemp HOME so they can never see the channel tree
+# built above under $channels, and so the default-resolution code paths
+# (tc_platform_default_logs_dir / require_logs_dir) are exercised for real
+# instead of being short-circuited by an explicit -d.
+g_home=$(mktemp -d "${TMPDIR:-/tmp}/tc-core-default.XXXXXX") || {
+    echo "FAIL: cannot create temp directory"; fail=$((fail + 1))
+}
+if [ -d "$g_home" ]; then
+    g_default_dir="$g_home/Library/Application Support/chatterino/Logs/Twitch/Channels"
+    mkdir -p "$g_default_dir/defchan"
+    cat > "$g_default_dir/defchan/defchan-2026-09-01.log" << 'EOF'
+[12:00:00] defchan is live!
+[12:00:01] alice: hi
+[12:00:02] bob: hey
+EOF
+
+    # g1. macOS: no -d finds the synthetic tree under the built-in default,
+    #     and the driver's output matches the python3 oracle byte for byte
+    #     on the fields both dump (channel + per-user counts).
+    out=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
+          "$BIN" -c defchan -e 2026-09-01 2>"$tmpdir/e")
+    rc=$?
+    py=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
+         python3 "$PY" -c defchan -e 2026-09-01 --no-config --no-cache 2>"$tmpdir/pe")
+    prc=$?
+    ch=$(printf '%s\n' "$out" | sed -n 's/^channel=//p')
+    ok=0
+    [ "$rc" -eq 0 ] && [ "$prc" -eq 0 ] && [ "$ch" = "defchan" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: rc=$rc prc=$prc channel=$ch stderr=$(cat "$tmpdir/e") py-stderr=$(cat "$tmpdir/pe")"
+    ok_or_fail "g1. macOS built-in default logs dir found (driver)" "$ok"
+
+    py_hdr=$(printf '%s\n' "$py" | sed -n 's/^logs dir: *\(.*[^ ]\) *\[\(.*\)\]$/\1|\2/p')
+    py_path=${py_hdr%%|*}
+    py_src=${py_hdr##*|}
+    ok=0
+    [ "$py_path" = "~/Library/Application Support/chatterino/Logs/Twitch/Channels" ] && \
+    [ "$py_src" = "built-in default" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: py header logs-dir row='$py_hdr'"
+    ok_or_fail "g2. python3 header 'logs dir' row: shortened path + built-in default" "$ok"
+
+    # g2b. same, against the real twitch-counts-full product binary when it
+    # has been built (make twitch-counts-full); best-effort, not a hard
+    # requirement of this script since it is built by a separate target.
+    FBUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+    case $FBUILD in
+        /*) : ;;
+        *) FBUILD="$SCRIPT_DIR/$FBUILD" ;;
+    esac
+    FBIN="$FBUILD/twitch-counts-full"
+    if [ -x "$FBIN" ]; then
+        fout=$(HOME="$g_home" XDG_CONFIG_HOME="$g_home/.config" XDG_CACHE_HOME="$g_home/.cache" \
+               "$FBIN" -c defchan -e 2026-09-01 2>"$tmpdir/fe")
+        frc=$?
+        f_hdr=$(printf '%s\n' "$fout" | sed -n 's/^logs dir: *\(.*[^ ]\) *\[\(.*\)\]$/\1|\2/p')
+        f_path=${f_hdr%%|*}
+        f_src=${f_hdr##*|}
+        ok=0
+        [ "$frc" -eq 0 ] && [ "$f_path" = "$py_path" ] && [ "$f_src" = "$py_src" ] && ok=1
+        [ "$ok" -eq 0 ] && echo "  detail: full-binary header='$f_hdr' rc=$frc stderr=$(cat "$tmpdir/fe")"
+        ok_or_fail "g2b. twitch-counts-full header 'logs dir' row matches python3" "$ok"
+    else
+        echo "SKIP: g2b. twitch-counts-full not built ($FBIN); run: make twitch-counts-full"
+    fi
+
+    rm -rf "$g_home"
+else
+    fail=$((fail + 1))
+fi
+
+# g3. Linux else-branch: TODO message + exit 1, and the --json {"error": ...}
+# shape.  This host is macOS (the driver is compiled with __APPLE__ and can
+# never take the Linux branch at runtime here), so the "driver" side of this
+# check is the exact string tc_core.S embeds for that branch
+# (s_logs_dir_unsupported), compared byte for byte against what python3
+# produces with sys.platform monkeypatched to 'linux' (its Linux class,
+# still running its real code, only the platform selector is faked).
+lin_home=$(mktemp -d "${TMPDIR:-/tmp}/tc-core-linux.XXXXXX")
+if [ -n "$lin_home" ] && [ -d "$lin_home" ]; then
+    py_lin_err=$(HOME="$lin_home" XDG_CONFIG_HOME="$lin_home/.config" XDG_CACHE_HOME="$lin_home/.cache" \
+        python3 -c "
+import sys, runpy
+sys.platform = 'linux'
+sys.argv = ['twitch-counts.py', '-c', 'defchan', '--no-config', '--no-cache']
+try:
+    runpy.run_path('$PY', run_name='__main__')
+except SystemExit as e:
+    sys.exit(e.code)
+" 2>&1 >/dev/null)
+    py_lin_rc=$?
+    driver_str=$(sed -n 's/^s_logs_dir_unsupported: *\.asciz "\(.*\)"$/\1/p' "$SCRIPT_DIR/tc_core.S")
+    ok=0
+    [ "$py_lin_rc" -eq 1 ] && \
+    [ "$py_lin_err" = "error: $driver_str" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: py-rc=$py_lin_rc py-err='$py_lin_err' driver-str='error: $driver_str'"
+    ok_or_fail "g3. Linux TODO message matches tc_core.S string, exit 1" "$ok"
+
+    py_lin_json=$(HOME="$lin_home" XDG_CONFIG_HOME="$lin_home/.config" XDG_CACHE_HOME="$lin_home/.cache" \
+        python3 -c "
+import sys, runpy
+sys.platform = 'linux'
+sys.argv = ['twitch-counts.py', '-c', 'defchan', '--no-config', '--no-cache', '--json']
+try:
+    runpy.run_path('$PY', run_name='__main__')
+except SystemExit as e:
+    sys.exit(e.code)
+" 2>&1 >/dev/null)
+    ok=0
+    case $py_lin_json in
+        '{"error": "'"$driver_str"'"}') ok=1 ;;
+    esac
+    [ "$ok" -eq 0 ] && echo "  detail: py-json='$py_lin_json'"
+    ok_or_fail "g4. Linux --json {\"error\": ...} shape matches tc_core.S string" "$ok"
+
+    rm -rf "$lin_home"
+else
+    fail=$((fail + 1))
+fi
+
+# ============================================================================
+# (h) explicit missing -d
+# ============================================================================
+"$BIN" -c defchan -d /nonexistent -e 2026-09-01 >"$tmpdir/o" 2>"$tmpdir/e"
+rc=$?
+py_out=$(HOME="$home_sandbox" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+         python3 "$PY" -c defchan -d /nonexistent -e 2026-09-01 --no-config --no-cache 2>&1 >/dev/null)
+ok=0
+[ "$rc" -eq 1 ] && [ ! -s "$tmpdir/o" ] && \
+    [ "$(cat "$tmpdir/e")" = "error: logs directory not found: /nonexistent" ] && \
+    [ "$py_out" = "error: logs directory not found: /nonexistent" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: rc=$rc stderr=$(cat "$tmpdir/e") py='$py_out'"
+ok_or_fail "h1. explicit missing -d: 'logs directory not found' (driver + python3)" "$ok"
+
 # --- Summary ----------------------------------------------------------------
 echo
 echo "Summary: $pass passed, $fail failed"

@@ -232,12 +232,33 @@ check "non-tty error text" "error: --watch needs a terminal (it repaints in plac
 check "non-tty exit code" "1" "$RC"
 
 # ---------------------------------------------------------------------------
-echo "== notify=true (default) under a pty =="
-run_pty "$DATA/notify.out" 4 -1 -1 "" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
-NRC=$(cat "$DATA/notify.out.rc")
-NERR=$(strip_ansi "$DATA/notify.out" | head -1)
-check "notify exit code" "1" "$NRC"
-check "notify error text" "error: TODO - not implemented: change notification on Linux. set [tail] notify = false to poll on the interval instead" "$NERR"
+UNAME_S=$(uname -s)
+if [ "$UNAME_S" = "Darwin" ]; then
+    echo "== notify=true (default) under a pty, macOS: first frame vs Python =="
+    run_pty "$DATA/notify.out" 4 1.0 -1 "" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
+    NRC=$(cat "$DATA/notify.out.rc")
+    check "notify (macOS) SIGINT exit code" "130" "$NRC"
+    strip_ansi "$DATA/notify.out" > "$DATA/notify.plain"
+    first_frame "$DATA/notify.plain" > "$DATA/notify.frame"
+
+    run_pty "$DATA/notify_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
+    strip_ansi "$DATA/notify_py.out" > "$DATA/notify_py.plain"
+    first_frame "$DATA/notify_py.plain" > "$DATA/notify_py.frame"
+
+    if diff -u "$DATA/notify_py.frame" "$DATA/notify.frame" > "$DATA/notify_frame.diff"; then
+        ok "notify=true (macOS) first frame matches Python byte-for-byte"
+    else
+        bad "notify=true (macOS) first frame matches Python byte-for-byte"
+        sed 's/^/    /' "$DATA/notify_frame.diff" | head -20
+    fi
+else
+    echo "== notify=true (default) under a pty =="
+    run_pty "$DATA/notify.out" 4 -1 -1 "" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
+    NRC=$(cat "$DATA/notify.out.rc")
+    NERR=$(strip_ansi "$DATA/notify.out" | head -1)
+    check "notify exit code" "1" "$NRC"
+    check "notify error text" "error: TODO - not implemented: change notification on Linux. set [tail] notify = false to poll on the interval instead" "$NERR"
+fi
 
 # ---------------------------------------------------------------------------
 echo "== differential: first frame vs Python =="
@@ -381,6 +402,148 @@ else
     bad "empty-range frame paints"
 fi
 rm -rf "$LOGS/$VCH"
+
+# ---------------------------------------------------------------------------
+if [ "$UNAME_S" = "Darwin" ]; then
+    echo "== event-driven wake: -w 5, notify=true shows an append within 1.5s =="
+    # The "append updates the frame" test above (and this block's own later
+    # sub-tests) mutate $TCWATCH_LOG in place, so reset it to the known
+    # 3-line fixture before each sub-test that depends on a fixed line/user
+    # count instead of trusting whatever state earlier tests left behind.
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    cat > "$DATA/notify_true.toml" <<'EOF'
+[tail]
+notify = true
+EOF
+    run_pty "$DATA/wake.out" 3 -1 1.0 "[10:00:05] alice: wake test" \
+        "$BIN" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/notify_true.toml" --no-cache
+    strip_ansi "$DATA/wake.out" > "$DATA/wake.plain"
+    if grep -q "alice                     2" "$DATA/wake.plain" && grep -q "3 of 3 message" "$DATA/wake.plain"; then
+        ok "notify=true wakes on write before the 5s tick"
+    else
+        bad "notify=true wakes on write before the 5s tick"
+    fi
+
+    echo "== event-driven wake: -w 5, notify=false does NOT show an append before the tick =="
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    run_pty "$DATA/nowake.out" 3 -1 1.0 "[10:00:05] alice: wake test" \
+        "$BIN" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/cfg.toml" --no-cache
+    strip_ansi "$DATA/nowake.out" > "$DATA/nowake.plain"
+    if grep -q "alice                     2" "$DATA/nowake.plain"; then
+        bad "notify=false does not wake on write before the tick"
+    else
+        ok "notify=false does not wake on write before the tick"
+    fi
+
+    # -------------------------------------------------------------------
+    echo "== show_timing: status line wake source, asm vs Python (cumulative quirk) =="
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    cat > "$DATA/timing.toml" <<'EOF'
+[tail]
+notify = true
+
+[watch]
+show_timing = true
+EOF
+    run_pty "$DATA/timing_asm.out" 3 -1 1.0 "[10:00:05] alice: timing test" \
+        "$BIN" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/timing.toml" --no-cache
+    strip_ansi "$DATA/timing_asm.out" > "$DATA/timing_asm.plain"
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    run_pty "$DATA/timing_py.out" 3 -1 1.0 "[10:00:05] alice: timing test" \
+        "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 5 --config "$DATA/timing.toml" --no-cache
+    strip_ansi "$DATA/timing_py.out" > "$DATA/timing_py.plain"
+
+    # first frame (before the append lands) must show "woke on timer" -- do
+    # not hardcode this: derive the expectation from what python3 actually
+    # prints in this scenario, since the wake-source counter is cumulative
+    # (Python's woke_on_write is an incrementing counter, never reset, so
+    # once ANY write wakes the loop every later frame also reads "write").
+    PY_FIRST_WOKE=$(grep -o "woke on [a-z]*" "$DATA/timing_py.plain" | head -1)
+    ASM_FIRST_WOKE=$(grep -o "woke on [a-z]*" "$DATA/timing_asm.plain" | head -1)
+    check "show_timing first frame wake source matches Python" "$PY_FIRST_WOKE" "$ASM_FIRST_WOKE"
+
+    PY_LAST_WOKE=$(grep -o "woke on [a-z]*" "$DATA/timing_py.plain" | tail -1)
+    ASM_LAST_WOKE=$(grep -o "woke on [a-z]*" "$DATA/timing_asm.plain" | tail -1)
+    check "show_timing post-append frame wake source matches Python" "$PY_LAST_WOKE" "$ASM_LAST_WOKE"
+
+    # -------------------------------------------------------------------
+    echo "== NO_COLOR / --color: presence of ESC[38;2; tint sequences =="
+    # colorizer() only tints a row once a count has RISEN relative to the
+    # previous rendered frame (see twitch-counts.py colorizer(): the first
+    # frame has previous=None so nothing is tinted, and a row with no count
+    # change never enters the tints dict). So a still fixture never produces
+    # a tint regardless of --color, and asserting "always yields some" needs
+    # an actual mid-run append to bump a count across two frames. Reset the
+    # shared fixture log first since earlier sub-tests in this block append
+    # to it.
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    NO_COLOR=1 run_pty "$DATA/nocolor_asm.out" 3 2.0 1.0 "[10:00:05] alice: color test" \
+        "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache --color never
+    if grep -q $'\x1b\[38;2;' "$DATA/nocolor_asm.out"; then
+        bad "NO_COLOR + --color never: asm has no tint sequences"
+    else
+        ok "NO_COLOR + --color never: asm has no tint sequences"
+    fi
+
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    NO_COLOR=1 run_pty "$DATA/nocolor_py.out" 3 2.0 1.0 "[10:00:05] alice: color test" \
+        "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache --color never
+    if grep -q $'\x1b\[38;2;' "$DATA/nocolor_py.out"; then
+        bad "NO_COLOR + --color never: Python has no tint sequences"
+    else
+        ok "NO_COLOR + --color never: Python has no tint sequences"
+    fi
+
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    NO_COLOR=1 run_pty "$DATA/color_asm.out" 3 2.0 1.0 "[10:00:05] alice: color test" \
+        "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache --color always
+    if grep -q $'\x1b\[38;2;' "$DATA/color_asm.out"; then
+        ok "NO_COLOR + --color always: asm still has tint sequences"
+    else
+        bad "NO_COLOR + --color always: asm still has tint sequences"
+    fi
+
+    cat > "$LOGS/$CH/$CH-2026-09-18.log" <<'EOF'
+[10:00:00] Chron is live!
+[10:00:01] alice: hello
+[10:00:02] bob: hi
+EOF
+    NO_COLOR=1 run_pty "$DATA/color_py.out" 3 2.0 1.0 "[10:00:05] alice: color test" \
+        "$PY" "$PYSCRIPT" -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache --color always
+    if grep -q $'\x1b\[38;2;' "$DATA/color_py.out"; then
+        ok "NO_COLOR + --color always: Python still has tint sequences"
+    else
+        bad "NO_COLOR + --color always: Python still has tint sequences"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 echo

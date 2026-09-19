@@ -308,6 +308,108 @@ echo "$OUT" | grep -q '^excl_sources=$'             && ok || bad "e9 sources"
 expect_driver "e10-alias-broadcaster" --config "$CFG" -c short -e 2026-09-01 -b 2026-09-01 --exclude-broadcaster
 echo "$OUT" | grep -q '^excl=realchan|src=--exclude-broadcaster$' && ok || bad "e10 aliased bcast"
 
+# ---- h. platform config path resolution ------------------------------------
+# macOS (uname -s = Darwin): the default config path is always
+# $HOME/.config/twitch-counts.toml -- XDG_CONFIG_HOME is ignored entirely
+# (unlike the Linux/else branch, which must honour it). HOME="" and an
+# unset HOME both fall back the same way Python's os.path.expanduser does:
+# HOME="" is treated as unset by expanduser and (like an unset HOME) falls
+# through to the passwd entry -- except CPython's fallback keeps the
+# computed "" prefix, landing on "/.config/twitch-counts.toml", while an
+# actually-unset HOME lands on the passwd home's "~/.config/...". Both
+# scenarios below stay read-only (default-path config resolution only,
+# no log dir / cache access) precisely because an unset or empty HOME
+# would otherwise resolve straight to the real account, defeating the
+# isolation this script relies on elsewhere -- see the ISOLATION note.
+echo "-- (h) platform config path resolution (Darwin) --"
+
+is_darwin() { [ "$(uname -s)" = "Darwin" ]; }
+
+# LOGS must exist, with a real log for channel "c" on the queried date,
+# before h1/h2 run python3 --json: python3 errors out before ever reaching
+# query.sources (the thing h1/h2 pin) if the logs dir has no matching log
+# file, regardless of which config won. The full log fixtures used by
+# section (g) are for a different channel/dir layout and are populated
+# later; this h-local fixture is deliberately separate from that one.
+LOGS="$TMP/logs"
+mkdir -p "$LOGS/c"
+cat > "$LOGS/c/c-2026-09-01.log" <<'EOF'
+[12:00:00] alice: hello world
+EOF
+
+if is_darwin; then
+    # h1: a config at $XDG_CONFIG_HOME must NOT be loaded when there is no
+    # config at $HOME/.config -- the driver and python3 must both fall back
+    # to their built-in defaults (config not found), never the XDG file.
+    mkdir -p "$TMP/xdgcfg"
+    cat > "$TMP/xdgcfg/twitch-counts.toml" <<'EOF'
+channel = "c"
+min_count = 99
+EOF
+    rm -f "$HOME/.config/twitch-counts.toml" 2>/dev/null
+    H1=$(XDG_CONFIG_HOME="$TMP/xdgcfg" "$HERE/$BIN" -c c -e 2026-09-01 -b 2026-09-01 2>&1)
+    echo "$H1" | grep -q '^config_loaded=0$'   && ok || bad "h1 asm: XDG config must not load (config_loaded)"
+    echo "$H1" | grep -q '^min_count=1$'       && ok || bad "h1 asm: XDG config must not load (min_count default)"
+    PYH1=$(XDG_CONFIG_HOME="$TMP/xdgcfg" "$PY" twitch-counts.py --json -c c -d "$LOGS" -e 2026-09-01 -b 2026-09-01 2>&1)
+    printf '%s\n' "$PYH1" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(d['query']['sources']['min_count'])
+" 2>/dev/null | grep -q '^built-in default$' && ok || bad "h1 py: XDG config must not load (sources.min_count)"
+
+    # h2: a config at BOTH $XDG_CONFIG_HOME and $HOME/.config -- the
+    # HOME/.config one must win; XDG is ignored, not merely lower priority.
+    mkdir -p "$HOME/.config"
+    cat > "$HOME/.config/twitch-counts.toml" <<'EOF'
+channel = "c"
+min_count = 5
+EOF
+    H2=$(XDG_CONFIG_HOME="$TMP/xdgcfg" "$HERE/$BIN" -c c -e 2026-09-01 -b 2026-09-01 2>&1)
+    echo "$H2" | grep -q '^config_loaded=1$'   && ok || bad "h2 asm: HOME/.config must load"
+    echo "$H2" | grep -q '^min_count=5$'       && ok || bad "h2 asm: HOME/.config value must win over XDG"
+    PYH2=$(XDG_CONFIG_HOME="$TMP/xdgcfg" "$PY" twitch-counts.py --json -c c -d "$LOGS" -e 2026-09-01 -b 2026-09-01 2>&1)
+    printf '%s\n' "$PYH2" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(d['query']['sources']['min_count'])
+" 2>/dev/null | grep -q '^config$' && ok || bad "h2 py: HOME/.config value must win over XDG"
+    rm -f "$HOME/.config/twitch-counts.toml"
+
+    # h3/h4: HOME="" and an unset HOME must resolve to the SAME default
+    # config path on both sides (no execution beyond path resolution / the
+    # help text, so the real account is never touched). HOME="" keeps the
+    # empty prefix ("/.config/..."); an unset HOME falls to the passwd
+    # home ("~/.config/..." once shortened, since it prefixes the real
+    # home). We only check that asm and python3 agree with EACH OTHER,
+    # not a hardcoded path, since the passwd home varies by machine.
+    # default_path_from_help TEXT -- pulls the "(default: ...)" value out of
+    # a --help dump, tolerating the wrap onto a continuation line.
+    default_path_from_help() {
+        printf '%s' "$1" | tr -s ' \t\n' ' ' | \
+            sed -n 's/.*--config CONFIG[^(]*(default: \([^)]*\)).*/\1/p'
+    }
+
+    ASM_EMPTY=$(default_path_from_help "$(HOME="" XDG_CONFIG_HOME= "$HERE/$BIN" --help 2>&1)")
+    PY_EMPTY=$(default_path_from_help "$(HOME="" XDG_CONFIG_HOME= "$PY" twitch-counts.py --help 2>&1)")
+    if [ -n "$ASM_EMPTY" ] && [ -n "$PY_EMPTY" ]; then
+        [ "$ASM_EMPTY" = "$PY_EMPTY" ] && ok || \
+            bad "h3 HOME='' default path mismatch: asm=[$ASM_EMPTY] py=[$PY_EMPTY]"
+    else
+        bad "h3 could not extract default-path text (asm=[$ASM_EMPTY] py=[$PY_EMPTY])"
+    fi
+
+    ASM_UNSET=$(default_path_from_help "$(env -u HOME XDG_CONFIG_HOME= "$HERE/$BIN" --help 2>&1)")
+    PY_UNSET=$(default_path_from_help "$(env -u HOME XDG_CONFIG_HOME= "$PY" twitch-counts.py --help 2>&1)")
+    if [ -n "$ASM_UNSET" ] && [ -n "$PY_UNSET" ]; then
+        [ "$ASM_UNSET" = "$PY_UNSET" ] && ok || \
+            bad "h4 HOME-unset default path mismatch: asm=[$ASM_UNSET] py=[$PY_UNSET]"
+    else
+        bad "h4 could not extract default-path text (asm=[$ASM_UNSET] py=[$PY_UNSET])"
+    fi
+else
+    echo "(skipped -- Linux else-branch behaviour cannot run here; covered by review of the bash syntax only)"
+fi
+
 # ---- g. differential vs python3 -------------------------------------------
 echo "-- (g) differential vs python3 twitch-counts.py --"
 LOGS="$TMP/logs"

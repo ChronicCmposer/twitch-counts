@@ -120,6 +120,23 @@ expect_no_crash() {
     fi
 }
 
+# expect_channel_empty NAME ARG... — parses to channel="" with source
+# --channel (an empty explicit value, not a missing one): "channel=" on its
+# own line followed by "src=--channel". This is the parse-only driver, so
+# it exits 0 here even though python3 twitch-counts.py goes on to fail at
+# the logs-directory stage (exit 1) for the same args — see the skipped
+# py_rc!=0/asm_rc==0 case in the differential loop below.
+expect_channel_empty() {
+    local name=$1; shift
+    run_case "$name" "$@"
+    if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qx 'channel=' \
+        && printf '%s\n' "$OUT" | grep -qx 'src=--channel'; then
+        ok
+    else
+        bad "$name: expected channel=\"\" src=--channel exit 0, got RC=$RC (args: $*)"
+    fi
+}
+
 echo "driver: $BIN"
 
 # ---------------------------------------------------------------------------
@@ -216,6 +233,29 @@ expect_no_crash "since-long"  --since 30d
 expect_no_crash "begin-eq"    --begin=2026-01-01
 expect_no_crash "end-date"    -e 2026-09-01
 
+echo "-- empty explicit/separate values (argparse pre-pass edge cases) --"
+# '-x=' / '-x ""' / '--x=' / '--x ""' with an EMPTY value: Python's argparse
+# accepts it as the empty string, distinct from no value at all. See the
+# tc_pp_short "-c="/"-c \"\"" fixes (.Lps_eq_empty / .Lps_no_attached_empty)
+# and tc_pp_build_long_val, which spell these through getopt_long's native
+# "--long=value" form so an explicit "" isn't mistaken for "no value
+# attached" (which would consume the NEXT argv as the value instead).
+expect_channel_empty "c-eq-empty"        -c=
+expect_channel_empty "c-space-empty"     -c ""
+expect_channel_empty "channel-eq-empty"  --channel=
+expect_channel_empty "channel-space-empty" --channel ""
+expect_exit "c-eq-empty-then-extra" 2 -c= foo
+expect_exit "w-eq-empty"    2 -w=
+expect_exit "w-space-empty" 2 -w ""
+expect_contains "w-eq-empty-msg" "is not a number of seconds" -w=
+expect_contains "w-space-empty-msg" "is not a number of seconds" -w ""
+
+echo "-- '--' end-of-options token itself is unrecognized (matches argparse) --"
+expect_exit "dashdash-alone" 2 --
+expect_contains "dashdash-alone-msg" "unrecognized arguments: --" --
+expect_exit "dashdash-with-extra" 2 --json -- extra
+expect_contains "dashdash-with-extra-msg" "unrecognized arguments: -- extra" --json -- extra
+
 echo "-- help --"
 expect_contains "help-short" "usage:" -h
 expect_contains "help-channel" "--channel" --help
@@ -293,6 +333,12 @@ done <<'CASES'
 -x
 --include
 --watch-hold
+--
+--json -- extra
+-c=
+-c= foo
+-w=
+--channel=
 CASES
 if [ "$DIFF_FAIL" -eq 0 ]; then
     echo "  differential: all matched"

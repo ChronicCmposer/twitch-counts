@@ -212,6 +212,83 @@ run_diff "empty state: no channel dir" --config "$CFG" --logs-dir "$LOGS" \
 run_diff "empty state: unknown group" --config "$CFG" --logs-dir "$LOGS" \
     --complete includes -g nosuchgroup
 
+# --- --emit-fish-completions across HOME variations --------------------------
+# fish_completions() only walks the argparse parser -- it never touches HOME
+# or the config -- so the output must stay byte-identical no matter how HOME
+# is set, unset, or emptied. These exercise that robustness directly.
+home_variant_dir=$(mktemp -d "${TMPDIR:-/tmp}/tc-misc-home.XXXXXX") || exit 2
+mkdir -p "$home_variant_dir/home"
+
+# (1) HOME points at a fresh, empty, otherwise-unrelated temp directory
+HOME="$home_variant_dir/home" $PY --emit-fish-completions \
+    > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+py_rc=$?
+HOME="$home_variant_dir/home" "$BIN" --emit-fish-completions \
+    > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+c_rc=$?
+ok=1
+cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
+cmp -s "$tmpdir/py.err" "$tmpdir/c.err" || ok=0
+[ "$py_rc" -eq "$c_rc" ] || ok=0
+ok_or_fail "emit-fish-completions: HOME=<mktemp>/home" "$ok"
+
+# (2) HOME set to the empty string
+HOME="" $PY --emit-fish-completions > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+py_rc=$?
+HOME="" "$BIN" --emit-fish-completions > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+c_rc=$?
+ok=1
+cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
+cmp -s "$tmpdir/py.err" "$tmpdir/c.err" || ok=0
+[ "$py_rc" -eq "$c_rc" ] || ok=0
+ok_or_fail "emit-fish-completions: HOME=\"\"" "$ok"
+
+# (3) HOME entirely unset (env -u HOME, on both sides)
+env -u HOME $PY --emit-fish-completions > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+py_rc=$?
+env -u HOME "$BIN" --emit-fish-completions > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+c_rc=$?
+ok=1
+cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
+cmp -s "$tmpdir/py.err" "$tmpdir/c.err" || ok=0
+[ "$py_rc" -eq "$c_rc" ] || ok=0
+ok_or_fail "emit-fish-completions: HOME unset (env -u HOME)" "$ok"
+
+# (4) Linux only: same check again with XDG_CONFIG_HOME set explicitly, since
+# the Linux Platform class (unlike MacOS) honours XDG_CONFIG_HOME for its own
+# paths -- fish_completions() still must not care.
+if [ "$(uname -s)" = "Linux" ]; then
+    HOME="$home_variant_dir/home" XDG_CONFIG_HOME="$home_variant_dir/home/.config" \
+        $PY --emit-fish-completions > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+    py_rc=$?
+    HOME="$home_variant_dir/home" XDG_CONFIG_HOME="$home_variant_dir/home/.config" \
+        "$BIN" --emit-fish-completions > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+    c_rc=$?
+    ok=1
+    cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
+    cmp -s "$tmpdir/py.err" "$tmpdir/c.err" || ok=0
+    [ "$py_rc" -eq "$c_rc" ] || ok=0
+    ok_or_fail "emit-fish-completions: Linux, XDG_CONFIG_HOME set" "$ok"
+fi
+
+# --- --complete channels with no --logs-dir: platform default ----------------
+# Without --logs-dir/TWITCH_LOGS_DIR/config logs_dir, both sides fall back to
+# the platform default: on macOS, "~/Library/Application Support/chatterino/
+# Logs/Twitch/Channels" under the isolated HOME (a channel dir placed there
+# must be listed); on Linux, Platform.logs_dir() is None, so no channel
+# directories are contributed (only configured aliases, if any).
+# NOTE: this assumes deterministic output ordering and a pristine isolated
+# HOME (fresh mktemp dir) with no other stray Logs/Twitch/Channels entries.
+if [ "$(uname -s)" = "Darwin" ]; then
+    default_logs_dir="$HOME/Library/Application Support/chatterino/Logs/Twitch/Channels"
+    mkdir -p "$default_logs_dir/DefaultChan"
+    run_diff "complete channels: no --logs-dir (macOS Library default)" \
+        --config "$CFG" --complete channels
+else
+    run_diff "complete channels: no --logs-dir (Linux: none)" \
+        --config "$CFG" --complete channels
+fi
+
 # --- documented divergences (assert the current C contract) ------------------
 # explicit missing config: Python prints "completion failed:" + exit 0;
 # the C tc_cli_parse exits 1 first (eager config load).  Both are asserted.
