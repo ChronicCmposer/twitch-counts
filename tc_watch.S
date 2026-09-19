@@ -2649,11 +2649,18 @@ watch_reader_refresh:
     ldr x26, [x19, #RD_INO]
     cmp x24, x26
     b.ne .Lwrrf_reset
+    // TailReader.refresh also resets when the entering state changed
+    ldr x26, [x19, #RD_ENTER]
+    cmp x21, x26
+    b.ne .Lwrrf_reset
     b .Lwrrf_id_ok
 .Lwrrf_reset:
+    // reset(enter_state): the new entering state is stored FIRST, because
+    // the reset seeds the exit state from it (folding starts there; a file
+    // without a marker keeps the previous file's state, as in the Python).
+    str x21, [x19, #RD_ENTER]
     mov x0, x19
     bl watch_reader_reset
-    str x21, [x19, #RD_ENTER]
 .Lwrrf_id_ok:
     str x23, [x19, #RD_DEV]
     str x24, [x19, #RD_INO]

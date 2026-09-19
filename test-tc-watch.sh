@@ -361,6 +361,37 @@ else
     bad "--since window reaches the recent messages"
 fi
 
+# ---------------------------------------------------------------------------
+# marker-less day: the entering stream state of a file with no live/offline
+# marker is the previous file's exit state (TailReader.reset seeds exit from
+# enter).  Day 1 ends live, day 2 has no marker, day 3 starts offline: the
+# Python counts a, b, c live and d offline.
+# ---------------------------------------------------------------------------
+echo "== marker-less day carries the previous file's state =="
+SCH=seedch
+mkdir -p "$LOGS/$SCH"
+printf '[10:00:00] seedch is live!\n[10:00:01] a: one\n' > "$LOGS/$SCH/$SCH-2026-09-01.log"
+printf '[11:00:00] b: two\n[11:00:01] c: three\n' > "$LOGS/$SCH/$SCH-2026-09-02.log"
+printf '[12:00:00] seedch is now offline.\n[12:00:01] d: four\n' > "$LOGS/$SCH/$SCH-2026-09-03.log"
+SBASE=( -c "$SCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache -b 2026-09-01 -e 2026-09-04 )
+run_pty "$DATA/seed_asm.out" 4 1.0 -1 "" "$BIN" "${SBASE[@]}"
+strip_ansi "$DATA/seed_asm.out" > "$DATA/seed_asm.plain"
+first_frame "$DATA/seed_asm.plain" > "$DATA/seed_asm.frame"
+run_pty "$DATA/seed_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${SBASE[@]}"
+strip_ansi "$DATA/seed_py.out" > "$DATA/seed_py.plain"
+first_frame "$DATA/seed_py.plain" > "$DATA/seed_py.frame"
+if diff -u "$DATA/seed_py.frame" "$DATA/seed_asm.frame" > "$DATA/seed_frame.diff"; then
+    ok "marker-less day first frame matches Python byte-for-byte"
+else
+    bad "marker-less day first frame matches Python byte-for-byte"
+    sed 's/^/    /' "$DATA/seed_frame.diff" | head -20
+fi
+if grep -q "live 3 offline 1" "$DATA/seed_asm.plain"; then
+    ok "marker-less day counted live (3) / offline (1), no unknown"
+else
+    bad "marker-less day counted live (3) / offline (1), no unknown"
+fi
+
 echo "== differential: --users first frame vs Python =="
 run_pty "$DATA/u_asm.out" 4 1.0 -1 "" "$BIN" "${RBASE[@]}" --users 2
 strip_ansi "$DATA/u_asm.out" > "$DATA/u_asm.plain"
