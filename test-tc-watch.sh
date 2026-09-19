@@ -91,7 +91,7 @@ ok()   { PASS=$((PASS+1)); echo "PASS[$1]"; }
 bad()  { FAIL=$((FAIL+1)); FAILED_TESTS+=("$1"); echo "FAIL[$1]"; }
 
 check() { # check <name> <expected> <actual>
-    if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; fi
+    if [ "$2" = "$3" ]; then ok "$1"; else bad "$1"; echo "    expected: $2"; echo "    got:      $3"; fi
 }
 
 # run_pty <outfile> <timeout> <sigint_after> <append_after> <append_line> -- args...

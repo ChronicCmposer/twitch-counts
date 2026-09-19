@@ -74,6 +74,7 @@
 #define free                    _free
 #define getenv                  _getenv
 #define getopt_long             _getopt_long
+#define getpwnam                _getpwnam
 #define getpwuid                _getpwuid
 #define getuid                  _getuid
 #define ioctl                   _ioctl
@@ -204,6 +205,27 @@
 // while the machine sleeps.  Darwin's CLOCK_MONOTONIC is 6 and keeps
 // counting through sleep; clock id 1 is not a Darwin clock at all.
 #define CLOCK_MONOTONIC 8
+// struct passwd (getpwuid/getpwnam): pw_dir is the home directory
+#define PW_DIR_OFF      48
+// kqueue(2)/kevent(2) for the watch loop's change notification (the
+// Python's KqueueWatcher).  struct kevent is 32 bytes:
+//   ident u64 @0, filter i16 @8, flags u16 @10, fflags u32 @12,
+//   data i64 @16, udata ptr @24
+#define KEVENT_SZ       32
+#define KE_IDENT        0
+#define KE_FILTER       8
+#define KE_FLAGS        10
+#define KE_FFLAGS       12
+#define KE_DATA         16
+#define KE_UDATA        24
+#define EVFILT_VNODE    -4
+#define EV_ADD          0x1
+#define EV_ENABLE       0x4
+#define EV_CLEAR        0x20
+#define NOTE_DELETE     0x1
+#define NOTE_WRITE      0x2
+#define NOTE_EXTEND     0x4
+#define NOTE_RENAME     0x20
 #else
 // struct stat (sizeof 128, musl aarch64): st_dev 8 bytes, st_mode 4 bytes.
 #define ST_DEV          0
@@ -218,6 +240,9 @@
 #define D_NAME_OFF      19
 #define TIOCGWINSZ      0x5413
 #define CLOCK_MONOTONIC 1
+// struct passwd (musl): pw_name 0, pw_passwd 8, pw_uid 16, pw_gid 20,
+// pw_gecos 24, pw_dir 32, pw_shell 40
+#define PW_DIR_OFF      32
 #endif
 #define EINTR           4
 #define ENOENT          2
