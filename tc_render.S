@@ -361,21 +361,21 @@ tc_report_fail:
 // line_zero() / compact_zero() — clear a render buffer so strlen-based padding
 // never reads stale bytes from the previous line.
 line_zero:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_render_line
     mov x1, #0
     mov x2, #LINE_SZ
     bl memset
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 compact_zero:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_render_compact
     mov x1, #0
     mov x2, #LINE_SZ
     bl memset
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // line_puts(s) — print s to stdout followed by a newline (every rendered line
@@ -449,7 +449,7 @@ line_blank:
     .global tc_frame_begin
     FUNC_TYPE(tc_frame_begin)
 tc_frame_begin:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x9, tc_frame_lines
     str x0, [x9]
     LEA x9, tc_frame_max
@@ -459,39 +459,39 @@ tc_frame_begin:
     LEA x9, tc_frame_capture
     mov x10, #1
     str x10, [x9]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
     .p2align 2
     .global tc_frame_end
     FUNC_TYPE(tc_frame_end)
 tc_frame_end:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x9, tc_frame_capture
     str xzr, [x9]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
     .p2align 2
     .global tc_frame_set_pin
     FUNC_TYPE(tc_frame_set_pin)
 tc_frame_set_pin:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x9, tc_frame_pin_width
     str x0, [x9]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
     .p2align 2
     .global tc_frame_set_tint
     FUNC_TYPE(tc_frame_set_tint)
 tc_frame_set_tint:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x9, tc_frame_tint_fn
     str x0, [x9]
     LEA x9, tc_frame_tint_ctx
     str x1, [x9]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -504,9 +504,7 @@ tc_frame_set_tint:
 // ============================================================================
     .p2align 2
 pin_cell:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // dst
     mov x20, x1                        // src
     mov x21, x2                        // width
@@ -528,9 +526,7 @@ pin_cell:
     strb w3, [x0], #1
     mov w3, #0xA6
     strb w3, [x0], #1
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 .Lpc_pad:
     mov x0, x19
@@ -539,9 +535,7 @@ pin_cell:
     mov x0, x19
     mov x1, x21
     bl pad_left_to
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // str_cat(dst, src) -> dst after the copied NUL
@@ -573,7 +567,7 @@ str_cat_n:
 // fmt_u64_plain(dst, v) -> dst after digits (no NUL)
     .p2align 2
 fmt_u64_plain:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     sub sp, sp, #32
     add x2, sp, #20
     cmp x1, #0
@@ -600,13 +594,13 @@ fmt_u64_plain:
     b .Lfup_copy_loop
 .Lfup_done:
     add sp, sp, #32
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // fmt_u64_commas(dst, v) -> dst after digits (no NUL), thousands commas
     .p2align 2
 fmt_u64_commas:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     sub sp, sp, #40
     add x2, sp, #28
     cmp x1, #0
@@ -645,7 +639,7 @@ fmt_u64_commas:
     b .Lfuc_copy_loop
 .Lfuc_done:
     add sp, sp, #40
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // fmt2(dst, w1=0..99) -> dst+2 zero-padded
@@ -685,9 +679,7 @@ fmt4:
 // fmt_datetime(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
     .p2align 2
 fmt_datetime:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -739,16 +731,13 @@ fmt_datetime:
     msub x6, x6, x2, x9
     mov w1, w6
     bl fmt2
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // fmt_hhmm(dst, sod) -> dst+5, "HH:MM"  (sod survives the fmt2 calls)
     .p2align 2
 fmt_hhmm:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x1                        // sod
     mov x2, #3600
     udiv x3, x19, x2
@@ -763,16 +752,13 @@ fmt_hhmm:
     udiv x4, x4, x2
     mov w1, w4
     bl fmt2                            // minute
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // fmt_mmdd_hhmm(dst, ymd, sod) -> dst+11, "MM-DD HH:MM"
     .p2align 2
 fmt_mmdd_hhmm:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // dst
     mov x20, x1                        // ymd
     mov x21, x2                        // sod
@@ -794,16 +780,13 @@ fmt_mmdd_hhmm:
     strb w3, [x0], #1
     mov x1, x21
     bl fmt_hhmm
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // fmt_ymd(dst, ymd) -> dst+10, "YYYY-MM-DD"  (ymd survives the fmt calls)
     .p2align 2
 fmt_ymd:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // dst
     mov x20, x1                        // ymd
     mov x2, #10000
@@ -826,15 +809,13 @@ fmt_ymd:
     msub x3, x3, x2, x20
     mov w1, w3
     bl fmt2                            // day
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // fmt_human_duration(dst, seconds) -> dst after NUL (Python human_duration)
     .p2align 2
 fmt_human_duration:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x1
     cbnz x20, .Lfhd_units
@@ -896,15 +877,13 @@ fmt_human_duration:
     strb w2, [x19], #1
 .Lfhd_done:
     mov x0, x19
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // fmt_share_cell(dst, state, total) -> dst + chars; "%.1f%%" of 100*state/total
     .p2align 2
 fmt_share_cell:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x2
     cbnz x20, .Lfsc_div
@@ -923,8 +902,7 @@ fmt_share_cell:
     LEA x2, s_share_fmt
     bl tc_snprintf_d
     add x0, x19, x0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -989,7 +967,7 @@ src_str:
     .global tc_plan_presentation
     FUNC_TYPE(tc_plan_presentation)
 tc_plan_presentation:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     // reset the plan
     LEA x0, tc_plan_arena_cur
     str xzr, [x0]
@@ -1014,7 +992,7 @@ tc_plan_presentation:
     bl build_header_rows
     bl choose_limit
     bl plan_split_display
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1022,11 +1000,7 @@ tc_plan_presentation:
 // ============================================================================
     .p2align 2
 plan_degeneracy_check:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_STATE_FILTER]
     cbz x20, .Lpdeg_done
@@ -1067,11 +1041,7 @@ plan_degeneracy_check:
     LEA x0, tc_render_errbuf
     bl tc_report_fail
 .Lpdeg_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -1079,12 +1049,7 @@ plan_degeneracy_check:
 // ============================================================================
     .p2align 2
 plan_columns:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_COLUMN_COUNT]
     LEA x21, tc_plan_columns
@@ -1126,12 +1091,7 @@ plan_columns:
     mov x25, #1
 .Lpc_ss_done:
     str x25, [x21, #80]              // plan_shares_shown
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1141,12 +1101,7 @@ plan_columns:
 // ============================================================================
     .p2align 2
 plan_rank:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // pass 1: counts
     LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]
@@ -1424,12 +1379,7 @@ plan_rank:
     add x25, x25, #1
     str x25, [x24]
 .Lpr_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lpr_oom:
     LEA x0, s_oom
@@ -1440,10 +1390,7 @@ plan_rank:
 // ============================================================================
     .p2align 2
 plan_exclusions:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x19, tc_excl_set
     ldr x20, [x19]                   // exclusion count
     LEA x21, tc_plan_excl_names_n
@@ -1531,10 +1478,7 @@ plan_exclusions:
     LEA x0, tc_plan_src_join
     str x21, [x0]
 .Lpex_join_skip:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lpex_oom:
     LEA x0, s_oom
@@ -1543,9 +1487,9 @@ plan_exclusions:
 // excl_name_cmp — qsort comparator for 26-byte login records
     .p2align 2
 excl_name_cmp:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl strcmp
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1553,9 +1497,7 @@ excl_name_cmp:
 // ============================================================================
     .p2align 2
 tc_render_cmp:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1
     LEA x21, tc_plan_sort
@@ -1618,9 +1560,7 @@ tc_render_cmp:
 .Lcmp_pos:
     mov x0, #1
 .Lcmp_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1628,10 +1568,7 @@ tc_render_cmp:
 // ============================================================================
     .p2align 2
 plan_cache_snapshot:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CACHE
@@ -1660,10 +1597,7 @@ plan_cache_snapshot:
     str xzr, [x1, #32]
     str xzr, [x1, #40]
 .Lpcs_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1671,12 +1605,7 @@ plan_cache_snapshot:
 // ============================================================================
     .p2align 2
 build_header_rows:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
 
     // ---- channel ---------------------------------------------------------
     LEA x19, s_label_channel
@@ -2482,12 +2411,7 @@ build_header_rows:
     mov x3, x23
     bl hdr_add
 .Lbhr_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -2497,9 +2421,7 @@ build_header_rows:
 // ============================================================================
     .p2align 2
 fmt_window_span:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                       // dst
     mov x20, x1                       // begin ymd
     mov x21, x2                       // begin sod
@@ -2546,9 +2468,7 @@ fmt_window_span:
     bl str_cat
     sub x0, x0, #1
 .Lfws_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2557,10 +2477,7 @@ fmt_window_span:
 // ============================================================================
     .p2align 2
 choose_limit:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // top given?
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_SRC + TC_SET_TOP*8]
@@ -2637,10 +2554,7 @@ choose_limit:
     LEA x0, s_terminal_height
     str x0, [x22]
 .Lcl_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -2648,12 +2562,7 @@ choose_limit:
 // ============================================================================
     .p2align 2
 plan_split_display:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_plan_reported_n
     ldr x20, [x19]                     // reported_n
     LEA x21, tc_plan_limit
@@ -2713,12 +2622,7 @@ plan_split_display:
     cbz x20, .Lpsd_done
     bl build_top_row
 .Lpsd_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -2727,11 +2631,7 @@ plan_split_display:
 // ============================================================================
     .p2align 2
 build_top_row:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     LEA x19, tc_plan_limit
     ldr x19, [x19]                     // limit
     LEA x20, tc_plan_hidden_n
@@ -2787,11 +2687,7 @@ build_top_row:
     mov x2, x24
     mov x3, x25
     bl hdr_add
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -2801,9 +2697,7 @@ build_top_row:
     .global tc_render_text
     FUNC_TYPE(tc_render_text)
 tc_render_text:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_HEADER_MODE]
     // Wave E fix: --header none used to jump straight to the table, skipping
@@ -2849,9 +2743,7 @@ tc_render_text:
 .Lrt_table:
     bl render_table
 .Lrt_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2859,11 +2751,7 @@ tc_render_text:
 // ============================================================================
     .p2align 2
 render_full_header:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     // pass 1: widths
     LEA x19, tc_plan_hdr_count
     ldr x20, [x19]                     // row count
@@ -2927,21 +2815,13 @@ render_full_header:
     bl emit_files_line
     // blank line
     bl line_blank
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // emit_header_line(label, value, source, w0, w1) — "label:  value  [source]"
     .p2align 2
 emit_header_line:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // label
     mov x20, x1                        // value
     mov x21, x2                        // source
@@ -3017,21 +2897,14 @@ emit_header_line:
     strb w1, [x0]
     mov x0, x24
     bl line_puts
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // emit_files_line(label, count, w0, w1) — "files:  N log file(s) in range"
 // (the value is unpadded: align_row rstrips the trailing padding)
     .p2align 2
 emit_files_line:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // "files"
     mov x20, x1                        // count
     mov x21, x2                        // w0
@@ -3067,10 +2940,7 @@ emit_files_line:
     bl str_cat
     mov x0, x22
     bl line_puts
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -3078,11 +2948,7 @@ emit_files_line:
 // ============================================================================
     .p2align 2
 render_compact_header:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     bl compact_zero
     LEA x19, tc_plan_hdr_count
     ldr x20, [x19]
@@ -3120,11 +2986,7 @@ render_compact_header:
     mov x0, x21
     bl line_puts
     bl line_blank
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -3135,12 +2997,7 @@ render_compact_header:
 // ============================================================================
     .p2align 2
 others_widths:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x22                       // widths base
     mov x20, x26                       // hidden_n
     // zero the shared cell buffer
@@ -3270,12 +3127,7 @@ others_widths:
     add x23, x23, #1
     b .Low_loop
 .Low_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3283,12 +3135,7 @@ others_widths:
 // ============================================================================
     .p2align 2
 render_table:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_plan_col_count
     ldr x20, [x19]                     // n metric columns
     add x21, x20, #2                   // total cells: user + count + metrics
@@ -3421,20 +3268,13 @@ render_table:
 .Lrt_end:
     // footer
     bl emit_footer
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // cell_len(rec, col_id) -> x0 = rendered cell length (renders into cell buf)
     .p2align 2
 cell_len:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // rec
     mov x20, x1                        // col
     LEA x0, tc_render_cell
@@ -3480,20 +3320,13 @@ cell_len:
 .Lcl_len:
     LEA x0, tc_render_cell
     bl tc_strlen
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // emit_table_header(buf, ncols, flag) — header cells aligned "lr"
     .p2align 2
 emit_table_header:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // buf
     mov x20, x1                        // ncols
     mov x21, x0                        // cursor
@@ -3556,22 +3389,13 @@ emit_table_header:
     strb w1, [x21]
     mov x0, x19
     bl line_puts
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // emit_rule(buf, ncols) — dashes per width, joined "  "
     .p2align 2
 emit_rule:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0
     mov x20, x1
     mov x21, x0
@@ -3607,21 +3431,13 @@ emit_rule:
     strb w1, [x21]
     mov x0, x19
     bl line_puts
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // emit_table_row(buf, rec, ncols) — login ljust, metric cells rjust
     .p2align 2
 emit_table_row:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // buf
     mov x20, x1                        // rec
     mov x21, x2                        // ncols
@@ -3693,19 +3509,13 @@ emit_table_row:
 .Letr_puts:
     mov x0, x19
     bl line_puts
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // cell_render(rec, col_id) -> renders into tc_render_cell, returns end
     .p2align 2
 cell_render:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1
     LEA x0, tc_render_cell
@@ -3748,19 +3558,13 @@ cell_render:
     ldr x1, [x19, #ROW_UNKNOWN]
     bl fmt_u64_commas
 .Lcr_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // emit_others_row(buf, hidden_n, ncols) — the pooled "+ N others" row
     .p2align 2
 emit_others_row:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // buf
     mov x20, x1                        // hidden_n
     mov x21, x2                        // ncols
@@ -3894,11 +3698,7 @@ emit_others_row:
     strb w1, [x22]
     mov x0, x19
     bl line_puts
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -3908,9 +3708,7 @@ emit_others_row:
 // ============================================================================
     .p2align 2
 pad_left_to:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1
     bl tc_strlen
@@ -3925,19 +3723,14 @@ pad_left_to:
     b .Lplt_loop
 .Lplt_done:
     add x0, x19, x21
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // rjust_copy(dst, src, width) -> dst + width; writes leading spaces then the
 // NUL-terminated src (which must be <= width) into dst.  No NUL is written.
     .p2align 2
 rjust_copy:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // dst
     mov x20, x1                        // src
     mov x21, x2                        // width
@@ -3959,10 +3752,7 @@ rjust_copy:
     mov x2, x22
     bl str_cat_n
     add x0, x19, x21
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -3970,11 +3760,7 @@ rjust_copy:
 // ============================================================================
     .p2align 2
 emit_footer:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     bl line_zero
     LEA x19, tc_render_line
     mov x20, x19                       // cursor
@@ -4069,18 +3855,13 @@ emit_footer:
     cbz x22, .Lef_done
     bl emit_excluded_line
 .Lef_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // emit_excluded_line — "excluded E user(s), M message(s) not counted"
     .p2align 2
 emit_excluded_line:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     bl line_zero
     LEA x19, tc_render_line
     mov x0, x19
@@ -4100,8 +3881,7 @@ emit_excluded_line:
     bl str_cat
     mov x0, x19
     bl line_puts
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -4111,7 +3891,7 @@ emit_excluded_line:
     .global tc_render_report
     FUNC_TYPE(tc_render_report)
 tc_render_report:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl tc_plan_presentation
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
@@ -4123,7 +3903,7 @@ tc_render_report:
     bl tc_json_emit
 .Lrr_done:
     mov x0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // read-only message data

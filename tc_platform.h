@@ -193,6 +193,55 @@
 
 
 // ============================================================================
+// Function frames
+// ============================================================================
+//  PROLOGUE n   pushes the frame record {x29, x30}, points x29 at it (so a
+//               debugger can walk the chain), then pushes n callee-saved
+//               pairs in order: x19/x20, x21/x22, ... up to x27/x28 (n <= 5).
+//  EPILOGUE n   pops the same n pairs in reverse, then the frame record.
+//  Both keep sp 16-byte aligned; a function that needs stack locals still
+//  does its own `sub sp, sp, #N` after PROLOGUE and `add` before EPILOGUE.
+//  The register sets and stack layout are exactly what the hand-written
+//  stp/ldp chains produced before the macros existed.
+    .macro PROLOGUE n=0
+    stp x29, x30, [sp, #-16]!
+    .if \n >= 1
+    stp x19, x20, [sp, #-16]!
+    .endif
+    .if \n >= 2
+    stp x21, x22, [sp, #-16]!
+    .endif
+    .if \n >= 3
+    stp x23, x24, [sp, #-16]!
+    .endif
+    .if \n >= 4
+    stp x25, x26, [sp, #-16]!
+    .endif
+    .if \n >= 5
+    stp x27, x28, [sp, #-16]!
+    .endif
+    .endm
+    .macro EPILOGUE n=0
+    .if \n >= 5
+    ldp x27, x28, [sp], #16
+    .endif
+    .if \n >= 4
+    ldp x25, x26, [sp], #16
+    .endif
+    .if \n >= 3
+    ldp x23, x24, [sp], #16
+    .endif
+    .if \n >= 2
+    ldp x21, x22, [sp], #16
+    .endif
+    .if \n >= 1
+    ldp x19, x20, [sp], #16
+    .endif
+    ldp x29, x30, [sp], #16
+    .endm
+
+
+// ============================================================================
 // libc struct layouts and OS constants
 // ============================================================================
 //  Every value below was derived by compiling a probe against the platform's

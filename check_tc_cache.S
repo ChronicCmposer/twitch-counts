@@ -49,7 +49,7 @@
 // ----------------------------------------------------------------------------
     .p2align 2
 main:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl tc_cli_parse
     bl tc_build_exclusions
     bl tc_cache_open
@@ -60,7 +60,7 @@ main:
     bl tc_cache_debug_dump
     bl tc_cache_close
     mov w0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -69,12 +69,7 @@ main:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_dump:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // ---- channel ----
     LEA x0, s_channel
     bl tc_puts
@@ -253,12 +248,7 @@ tc_dump:
     add x22, x22, #1
     b .Ldump_unr
 .Ldump_unr_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -267,10 +257,7 @@ tc_dump:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_dump_cache_status:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // used
     mov x20, x1                         // reused
     mov x21, x2                         // parsed
@@ -321,10 +308,7 @@ tc_dump_cache_status:
 .Ldcs_path_done:
     LEA x0, s_newline
     bl tc_puts
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
     RODATA

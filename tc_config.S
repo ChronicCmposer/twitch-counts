@@ -162,8 +162,7 @@ tc_excl_tmp_cur:    .skip 8
     .global tc_env_get
     FUNC_TYPE(tc_env_get)
 tc_env_get:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                     // name (survives ensure_config_loaded)
     bl ensure_config_loaded
     mov x0, x19
@@ -178,8 +177,7 @@ tc_env_get:
     mov x0, #0
     mov x1, #0
 .Lenv_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -192,10 +190,7 @@ tc_env_get:
     .global tc_config_get
     FUNC_TYPE(tc_config_get)
 tc_config_get:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // key
     mov x20, x1                     // section id
     bl ensure_config_loaded
@@ -249,10 +244,7 @@ tc_config_get:
     mov x1, #0
     mov x2, #0
 .Lcg_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -266,11 +258,7 @@ tc_config_get:
     .global tc_aliases_apply
     FUNC_TYPE(tc_aliases_apply)
 tc_aliases_apply:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     bl ensure_config_loaded
     // "no channel given" guard — fires when the channel was never resolved
     // (source id still TC_SRC_DEFAULT), NOT when it resolved to "".
@@ -363,11 +351,7 @@ tc_aliases_apply:
     b .Laa_key_loop
 .Laa_ok:
     mov x0, #0
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
@@ -378,10 +362,7 @@ tc_aliases_apply:
     .global tc_excl_contains
     FUNC_TYPE(tc_excl_contains)
 tc_excl_contains:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // login ptr
     mov x20, x1                     // login len
     LEA x21, tc_excl_set
@@ -406,10 +387,7 @@ tc_excl_contains:
 .Lec_no:
     mov x0, #0
 .Lec_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -427,12 +405,7 @@ tc_excl_contains:
     .global tc_build_exclusions
     FUNC_TYPE(tc_build_exclusions)
 tc_build_exclusions:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     bl ensure_config_loaded
     // ---- reset the merged set + sources --------------------------------
     LEA x0, tc_excl_set
@@ -822,12 +795,7 @@ tc_build_exclusions:
     mov x0, x2
     mov x1, x1
     LEA x0, tc_cfg_scratch2
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -840,8 +808,7 @@ tc_build_exclusions:
     .global tc_config_identity
     FUNC_TYPE(tc_config_identity)
 tc_config_identity:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
@@ -878,8 +845,7 @@ tc_config_identity:
     mov x1, #0
     mov x2, #0
 .Lci_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -891,8 +857,7 @@ tc_config_identity:
     .global tc_config_changed
     FUNC_TYPE(tc_config_changed)
 tc_config_changed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x0, tc_cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
@@ -928,8 +893,7 @@ tc_config_changed:
 .Lcc_no:
     mov x0, #0
 .Lcc_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -939,7 +903,7 @@ tc_config_changed:
     .global tc_config_reload
     FUNC_TYPE(tc_config_reload)
 tc_config_reload:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
@@ -957,7 +921,7 @@ tc_config_reload:
     bl ensure_config_loaded
 .Lcr_noop:
     mov x0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -981,7 +945,7 @@ tc_config_reload:
 // ----------------------------------------------------------------------------
     .p2align 2
 ensure_config_loaded:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     // keep TC_O_CONFIG_PATH in step with the resolved path: tc_resolve_settings
     // clobbers it with the literal default after the first load, so restore it
     // whenever a path has been resolved.
@@ -1012,7 +976,7 @@ ensure_config_loaded:
 .Lel_do_load:
     bl config_do_load
 .Lel_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -1022,10 +986,7 @@ ensure_config_loaded:
 // ----------------------------------------------------------------------------
     .p2align 2
 config_resolve_path:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_CONFIG_GIVEN
@@ -1077,10 +1038,7 @@ config_resolve_path:
     bl tc_copy_str_cap
     LEA x0, tc_cfg_explicit
     str x20, [x0]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -1089,11 +1047,7 @@ config_resolve_path:
 // ----------------------------------------------------------------------------
     .p2align 2
 config_do_load:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     // ---- stat -----------------------------------------------------------
     LEA x19, tc_cfg_path
     LEA x20, tc_cfg_statbuf
@@ -1277,11 +1231,7 @@ config_do_load:
     bl tc_fail
 
 .Ldl_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
@@ -1290,9 +1240,7 @@ config_do_load:
 // ----------------------------------------------------------------------------
     .p2align 2
 section_must_be_table_check:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // key
     LEA x20, tc_cfg_root
     ldr x20, [x20]                  // root
@@ -1324,9 +1272,7 @@ section_must_be_table_check:
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lsm_ok:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -1335,8 +1281,7 @@ section_must_be_table_check:
 // ----------------------------------------------------------------------------
     .p2align 2
 aliases_scalar_ok:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     ldrb w1, [x19]
     cmp w1, #'"'
@@ -1368,8 +1313,7 @@ aliases_scalar_ok:
 .Las_no:
     mov x0, #0
 .Las_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -1378,9 +1322,7 @@ aliases_scalar_ok:
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_errno_message:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     // capture errno first
     bl __errno_location
     ldr w20, [x0]                   // errno (int; w-load zero-extends into x20)
@@ -1430,9 +1372,7 @@ cfg_errno_message:
     bl cat_cstr
     LEA x1, tc_cfg_scratch2
     bl cat_cstr
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -1444,15 +1384,13 @@ cfg_errno_message:
 // ----------------------------------------------------------------------------
     .p2align 2
 toml_value_to_string:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     ldrb w1, [x0]
     cmp w1, #'"'
     b.eq .Lvs_quote
     cmp w1, #'\''
     b.eq .Lvs_quote
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lvs_quote:
     mov x19, x0
@@ -1462,8 +1400,7 @@ toml_value_to_string:
     mov x1, x19
     bl toml_unquote_into
     mov x0, x20
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -1472,8 +1409,7 @@ toml_value_to_string:
 // ----------------------------------------------------------------------------
     .p2align 2
 toml_unquote_into:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     sub sp, sp, #32                 // [sp] = char* slot (toml_rtos ret)
     mov x19, x0                     // dst
     mov x20, x1                     // raw
@@ -1492,8 +1428,7 @@ toml_unquote_into:
     bl free
 .Ltu_skip:
     add sp, sp, #32
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -1517,8 +1452,7 @@ cfg_value_buf:
 // ----------------------------------------------------------------------------
     .p2align 2
 toml_table_total:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     bl toml_table_nkval
     mov x20, x0
@@ -1528,8 +1462,7 @@ toml_table_total:
     mov x0, x19
     bl toml_table_ntab
     add x0, x20, x0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -1539,11 +1472,7 @@ toml_table_total:
 // ----------------------------------------------------------------------------
     .p2align 2
 build_groups:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     LEA x0, tc_cfg_root
     ldr x19, [x0]                   // root (may be 0: config not loaded)
     cbz x19, .Lbg_done
@@ -1736,11 +1665,7 @@ build_groups:
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
@@ -1748,9 +1673,7 @@ build_groups:
 // ----------------------------------------------------------------------------
     .p2align 2
 always_name_store:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // name
     bl tc_strlen
     mov x20, x0                     // len
@@ -1769,9 +1692,7 @@ always_name_store:
     add x1, x1, x20
     str x1, [x0]
     mov x0, x21
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -1780,9 +1701,7 @@ always_name_store:
 // ----------------------------------------------------------------------------
     .p2align 2
 copy_split_to_flat:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x0, tc_split_n
     ldr x19, [x0]
     LEA x0, tc_excl_flat_n
@@ -1806,9 +1725,7 @@ copy_split_to_flat:
     add x21, x21, #1
     b .Lcsf_loop
 .Lcsf_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -1816,7 +1733,7 @@ copy_split_to_flat:
 // ----------------------------------------------------------------------------
     .p2align 2
 has_token_char:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x1, x0
 .Lhtc_loop:
     ldrb w0, [x1], #1
@@ -1830,7 +1747,7 @@ has_token_char:
 .Lhtc_no:
     mov x0, #0
 .Lhtc_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -1840,9 +1757,7 @@ has_token_char:
 // ----------------------------------------------------------------------------
     .p2align 2
 split_names:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // src
     LEA x0, tc_split_buf
     mov x20, x0                     // dst
@@ -1894,9 +1809,7 @@ split_names:
     LEA x0, tc_split_n
     str x21, [x0]
     mov x0, x21
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -1905,10 +1818,7 @@ split_names:
 // ----------------------------------------------------------------------------
     .p2align 2
 split_toml_array:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // arr
     bl toml_array_nelem
     mov x20, x0                     // n
@@ -1950,10 +1860,7 @@ split_toml_array:
     LEA x0, tc_split_n
     str x21, [x0]
     mov x0, x21
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -1963,9 +1870,7 @@ split_toml_array:
 // ----------------------------------------------------------------------------
     .p2align 2
 strip_copy_lower:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // dst
     mov x20, x1                     // src
     mov x21, x2                     // len
@@ -2016,9 +1921,7 @@ strip_copy_lower:
     strb w0, [x19]
     mov x0, #0
 .Lscl_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -2061,8 +1964,7 @@ is_ws:
 // ----------------------------------------------------------------------------
     .p2align 2
 group_index_of:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                     // name
     LEA x0, tc_excl_group_n
     ldr x20, [x0]
@@ -2089,8 +1991,7 @@ group_index_of:
 .Lgio_no:
     mov x0, #-1
 .Lgio_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2111,8 +2012,7 @@ group_arr_at:
 // ----------------------------------------------------------------------------
     .p2align 2
 always_group_arr:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x1, tc_excl_always
     mov x2, #16
     mul x0, x0, x2
@@ -2127,8 +2027,7 @@ always_group_arr:
 .Laga_no:
     mov x0, #0
 .Laga_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2137,10 +2036,7 @@ always_group_arr:
 // ----------------------------------------------------------------------------
     .p2align 2
 sort_groups_join:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // dst
     LEA x0, tc_excl_group_n
     ldr x20, [x0]                   // n
@@ -2203,10 +2099,7 @@ sort_groups_join:
     LEA x1, s_none_defined
     bl cat_cstr
 .Lsgj_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -2225,15 +2118,13 @@ excl_src_buf_slot:
 // ----------------------------------------------------------------------------
     .p2align 2
 source_add_cstr:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     bl tc_strlen
     mov x1, x0
     mov x0, x19
     bl source_add
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2242,10 +2133,7 @@ source_add_cstr:
 // ----------------------------------------------------------------------------
     .p2align 2
 source_add:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // ptr
     mov x20, x1                     // len
     LEA x21, tc_excl_src_count
@@ -2286,10 +2174,7 @@ source_add:
 .Lsa_found:
     mov x0, x23
 .Lsa_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -2298,10 +2183,7 @@ source_add:
 // ----------------------------------------------------------------------------
     .p2align 2
 apply_flat_tokens:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x0, tc_excl_flat_n
     ldr x21, [x0]                   // count
     LEA x0, tc_excl_flat
@@ -2322,10 +2204,7 @@ apply_flat_tokens:
     add x23, x23, #1
     b .Laft_loop
 .Laft_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -2334,16 +2213,12 @@ apply_flat_tokens:
 // ----------------------------------------------------------------------------
     .p2align 2
 apply_split_tokens:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x0, tc_split_n
     ldr x1, [x0]
     mov x0, x20
     bl apply_split_tokens_n
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -2352,9 +2227,7 @@ apply_split_tokens:
 // ----------------------------------------------------------------------------
     .p2align 2
 apply_split_tokens_n:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x20, x0                     // src idx
     mov x21, x1                     // count
     mov x22, #0
@@ -2373,9 +2246,7 @@ apply_split_tokens_n:
     add x22, x22, #1
     b .Last_loop
 .Last_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -2384,10 +2255,7 @@ apply_split_tokens_n:
 // ----------------------------------------------------------------------------
     .p2align 2
 add_excl_login:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // login
     mov x20, x1                     // len
     mov x21, x2                     // source idx
@@ -2431,10 +2299,7 @@ add_excl_login:
     LEA x0, s_too_many
     bl tc_fail
 .Lael_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -2474,8 +2339,7 @@ copy_login_entry:
 // ----------------------------------------------------------------------------
     .p2align 2
 login_matches:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                     // stored base
     mov x20, x1                     // candidate base
     mov x3, #0
@@ -2509,8 +2373,7 @@ login_matches:
 .Llm_no:
     mov x0, #0
 .Llm_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2519,11 +2382,7 @@ login_matches:
 // ----------------------------------------------------------------------------
     .p2align 2
 excl_remove_if_present:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                     // login
     mov x20, x1                     // len
     LEA x21, tc_excl_set
@@ -2574,11 +2433,7 @@ excl_remove_if_present:
 .Ler_no:
     mov x0, #0
 .Ler_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
@@ -2618,12 +2473,12 @@ memeq:
 // ----------------------------------------------------------------------------
     .p2align 2
 cat_comma_if:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     cbz x1, .Lcci_done
     LEA x1, s_comma_space
     bl cat_cstr
 .Lcci_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -2642,7 +2497,7 @@ cat_cstr:
 // ----------------------------------------------------------------------------
     .p2align 2
 cat_n:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x3, x0
 .Lcatn_loop:
     cbz x2, .Lcatn_done
@@ -2654,7 +2509,7 @@ cat_n:
     mov w4, #0
     strb w4, [x3]
     mov x0, x3
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -2662,8 +2517,7 @@ cat_n:
 // ----------------------------------------------------------------------------
     .p2align 2
 cat_u64:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     sub sp, sp, #32
     mov x19, x0
     mov x20, x1
@@ -2692,8 +2546,7 @@ cat_u64:
     cbnz w3, .Lcu_copy
     sub x0, x0, #1
     add sp, sp, #32
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2769,7 +2622,7 @@ lowercase_copy:
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
     .p2align 2
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     sub sp, sp, #32
     mov x2, x0
     add x3, sp, #28
@@ -2795,7 +2648,7 @@ lowercase_copy:
     cbnz w5, 2b
     sub x0, x2, #1
     add sp, sp, #32
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================

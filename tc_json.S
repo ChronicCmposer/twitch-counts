@@ -157,22 +157,19 @@ s_j_not_filtered:   .asciz "not filtered"
 // jinit(fd) — reset the JSON buffer
     .p2align 2
 jinit:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     LEA x0, tc_json_fd
     str x19, [x0]
     LEA x0, tc_json_cur
     str xzr, [x0]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // jflush() — write the buffered bytes
     .p2align 2
 jflush:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x0, tc_json_cur
     ldr x19, [x0]
     cbz x19, .Ljfl_done
@@ -183,15 +180,13 @@ jflush:
     mov x2, x19
     bl write
 .Ljfl_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // jputc(c) — append one byte, flushing when full
     .p2align 2
 jputc:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov w19, w0
     LEA x0, tc_json_cur
     ldr x20, [x0]
@@ -205,16 +200,13 @@ jputc:
     add x20, x20, #1
     LEA x1, tc_json_cur
     str x20, [x1]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // jputraw(s, len) — append len raw bytes
     .p2align 2
 jputraw:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // src
     mov x20, x1                        // len
     mov x21, #0                        // i
@@ -227,31 +219,25 @@ jputraw:
     add x21, x21, #1
     b .Ljpr_loop
 .Ljpr_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // jputs(s) — append a NUL-terminated string (length via tc_strlen)
     .p2align 2
 jputs:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     bl tc_strlen
     mov x1, x0
     mov x0, x19
     bl jputraw
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // jquoted(s) — append the JSON-escaped, quoted form of a NUL-terminated string
     .p2align 2
 jquoted:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     mov w0, #'"'
     bl jputc
@@ -344,15 +330,13 @@ jquoted:
 .Ljq_done:
     mov w0, #'"'
     bl jputc
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // jhex(nibble) — append a lowercase hex digit
     .p2align 2
 jhex:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     cmp w0, #10
     b.lt .Ljh_digit
     sub w0, w0, #10
@@ -362,15 +346,13 @@ jhex:
     add w0, w0, #'0'
 .Ljh_go:
     bl jputc
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // jint(v) — append a decimal integer (no commas)
     .p2align 2
 jint:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     // digits into the buffer backward on the stack
     sub sp, sp, #32
@@ -400,15 +382,13 @@ jint:
     b .Lji_emit_loop
 .Lji_done:
     add sp, sp, #32
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // jbool(v) — "true"/"false"
     .p2align 2
 jbool:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     cbz x0, .Ljbo_false
     LEA x0, s_j_true
     bl jputs
@@ -417,16 +397,13 @@ jbool:
     LEA x0, s_j_false
     bl jputs
 .Ljbo_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // json_now_iso(buf) — "YYYY-MM-DDTHH:MM:SS" local time (generated_at)
     .p2align 2
 json_now_iso:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0
     mov x0, #CLOCK_REALTIME
     LEA x1, tc_json_ts
@@ -461,10 +438,7 @@ json_now_iso:
     bl json_fmt_dt
     mov w1, #0
     strb w1, [x0]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -509,9 +483,7 @@ fmt4:
 // json_fmt_dt(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
     .p2align 2
 json_fmt_dt:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1                        // ymd
     mov x21, x2                        // sod
@@ -563,9 +535,7 @@ json_fmt_dt:
     msub x6, x6, x2, x9
     mov w1, w6
     bl fmt2
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -575,12 +545,7 @@ json_fmt_dt:
     .global tc_json_emit
     FUNC_TYPE(tc_json_emit)
 tc_json_emit:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x0, #STDOUT
     bl jinit
     // { + schema blob
@@ -749,12 +714,7 @@ tc_json_emit:
     bl jputs
     bl jflush
     mov x0, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -762,9 +722,7 @@ tc_json_emit:
 // ============================================================================
     .p2align 2
 emit_excluded_array:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x19, tc_plan_excl_names_n
     ldr x20, [x19]                    // n
     cbz x20, .Ljea_empty
@@ -808,9 +766,7 @@ emit_excluded_array:
     mov w0, #']'
     bl jputc
 .Ljea_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -831,8 +787,7 @@ src_str:
 // src_entry(key, set_id) — emit `      "key": <source of set_id>,\n`
     .p2align 2
 src_entry:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // set id
     LEA x0, s_j_ind6
@@ -847,16 +802,14 @@ src_entry:
     bl jquoted
     LEA x0, s_j_comma_nl
     bl jputs
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // src_entry_ptr(key, value_ptr) — `      "key": "<value>",\n` (value is a
 // direct pointer, not a set id; same shape as src_entry)
     .p2align 2
 src_entry_ptr:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // value ptr
     LEA x0, s_j_ind6
@@ -870,15 +823,13 @@ src_entry_ptr:
     bl jquoted
     LEA x0, s_j_comma_nl
     bl jputs
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // src_entry_last(key, value_ptr) — `      "key": "<value>",\n` (last, no comma)
     .p2align 2
 src_entry_last:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // value ptr
     LEA x0, s_j_ind6
@@ -892,8 +843,7 @@ src_entry_last:
     bl jquoted
     mov w0, #'\n'
     bl jputc
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -901,8 +851,7 @@ src_entry_last:
 // ============================================================================
     .p2align 2
 emit_sources:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     // begin (value is a direct pointer, not a set id)
     LEA x0, s_js_begin
     LEA x1, tc_window
@@ -980,8 +929,7 @@ emit_sources:
     LEA x1, tc_plan_limit_src
     ldr x1, [x1]
     bl src_entry_last
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -989,10 +937,7 @@ emit_sources:
 // ============================================================================
     .p2align 2
 emit_totals:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // users_shown
     LEA x0, s_j_t_shown
     bl jputs
@@ -1138,20 +1083,13 @@ emit_totals:
     LEA x0, s_j_t_unreadable
     bl jputs
     bl emit_unreadable
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // emit_totals_states — the all-state split object (nonzero only)
     .p2align 2
 emit_totals_states:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_STATES + 0]
     ldr x21, [x19, #TC_T_STATES + 8]
@@ -1213,19 +1151,13 @@ emit_totals_states:
     mov w0, #'}'
     bl jputc
 .Ljts_out:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // emit_unreadable — the array of {file, problem}
     .p2align 2
 emit_unreadable:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_UNR_COUNT]
     cbz x20, .Ljun_empty
@@ -1295,9 +1227,7 @@ emit_unreadable:
     mov w0, #']'
     bl jputc
 .Ljun_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1305,10 +1235,7 @@ emit_unreadable:
 // ============================================================================
     .p2align 2
 emit_rows:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x19, tc_plan_displayed_n
     ldr x20, [x19]                    // n
     cbz x20, .Ljer_empty
@@ -1373,22 +1300,14 @@ emit_rows:
     mov w0, #']'
     bl jputc
 .Ljer_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // emit_row_states — the per-user states object (filtered, nonzero, name order)
 //   expects x23 = rec, x20 = displayed_n (unused here)
     .p2align 2
 emit_row_states:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x23                       // rec
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_STATE_FILTER]
@@ -1489,12 +1408,7 @@ emit_row_states:
     mov w0, #'}'
     bl jputc
 .Ljrs_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1505,8 +1419,7 @@ emit_row_states:
     .global tc_eputc
     FUNC_TYPE(tc_json_err)
 tc_json_err:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x0, #STDERR
     bl jinit

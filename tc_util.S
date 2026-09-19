@@ -292,10 +292,7 @@ pu_cat:
     .global tc_expanduser
     FUNC_TYPE(tc_expanduser)
 tc_expanduser:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // src
     mov x20, x1                     // dst
     mov x21, x2                     // cap
@@ -389,10 +386,7 @@ tc_expanduser:
     bl pu_copy_n
     mov x0, x24
 .Lxpu_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lxpu_too_long:
     LEA x0, pu_s_too_long
@@ -409,12 +403,12 @@ tc_expanduser:
     FUNC_TYPE(tc_platform_default_logs_dir)
 tc_platform_default_logs_dir:
 #ifdef __APPLE__
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x2, x1
     mov x1, x0
     LEA x0, pu_s_mac_logs_dir
     bl tc_expanduser
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 #else
     mov x0, #0
@@ -433,9 +427,7 @@ tc_platform_default_logs_dir:
     .global tc_default_config_path
     FUNC_TYPE(tc_default_config_path)
 tc_default_config_path:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // dst
     mov x20, x1                     // cap
 #ifndef __APPLE__
@@ -476,9 +468,7 @@ tc_default_config_path:
     mov x2, x20
     bl tc_expanduser
 .Ldcp_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -493,9 +483,7 @@ tc_default_config_path:
     .global tc_shorten_path
     FUNC_TYPE(tc_shorten_path)
 tc_shorten_path:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // path
     LEA x0, pu_s_tilde
     LEA x1, tc_path_scratch2
@@ -536,9 +524,7 @@ tc_shorten_path:
 .Lsp_orig:
     mov x0, x19
 .Lsp_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
     RODATA
@@ -580,9 +566,7 @@ err_newline_end:
     .global tc_env_int
     FUNC_TYPE(tc_env_int)
 tc_env_int:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     bl getenv
     cbz x0, .Lei_none
     mov x19, x0
@@ -646,9 +630,7 @@ tc_env_int:
 .Lei_none:
     mov x0, #0
 .Lei_ret:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ei_is_space(w0=byte) -> w0 = 1 for ASCII whitespace (space, \t\n\v\f\r)
@@ -677,7 +659,7 @@ ei_is_space:
     .global tc_term_columns
     FUNC_TYPE(tc_term_columns)
 tc_term_columns:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, ts_s_columns
     bl tc_env_int
     cbnz x0, .Ltc_ret
@@ -686,14 +668,14 @@ tc_term_columns:
     cbnz x0, .Ltc_ret
     mov x0, #80
 .Ltc_ret:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
     .p2align 2
     .global tc_term_lines
     FUNC_TYPE(tc_term_lines)
 tc_term_lines:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, ts_s_lines
     bl tc_env_int
     cbnz x0, .Ltl_ret
@@ -702,14 +684,13 @@ tc_term_lines:
     cbnz x0, .Ltl_ret
     mov x0, #24
 .Ltl_ret:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ts_winsize_field(x0=offset) -> x0 = that u16 of TIOCGWINSZ on fd 1, or 0
     .p2align 2
 ts_winsize_field:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     sub sp, sp, #16
     mov x19, x0
     mov x0, #1
@@ -724,8 +705,7 @@ ts_winsize_field:
     mov x0, #0
 .Ltw_ret:
     add sp, sp, #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
     RODATA

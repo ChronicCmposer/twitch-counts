@@ -245,12 +245,7 @@ tc_argv_saved:      .skip 8
     .global tc_cli_parse
     FUNC_TYPE(tc_cli_parse)
 tc_cli_parse:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // argc
     mov x20, x1                     // argv
 
@@ -387,12 +382,7 @@ tc_cli_parse:
     b.eq .Lgl_done_ret
     bl tc_aliases_apply
 .Lgl_done_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 .Ldo_help:
@@ -459,12 +449,7 @@ tc_prog_name:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_join_args_into:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -491,12 +476,7 @@ tc_join_args_into:
 .Lj_done:
     mov w5, #0
     strb w5, [x21]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -504,12 +484,7 @@ tc_join_args_into:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_arg_error:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x0, #STDERR
     bl tc_print_usage
@@ -536,12 +511,7 @@ tc_print_usage:
     // the continuation lines indented past "usage: <prog> ".  A part is
     // never split.  (Word-wrapping at a fixed 80 columns broke "[--sort
     // METRIC]" across lines and ignored $COLUMNS / the terminal.)
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // fd
     LEA x20, tc_opts
     ldr x21, [x20, #TC_O_PROG_PTR]
@@ -627,17 +597,12 @@ tc_print_usage:
     LEA x1, s_newline
     mov x2, #1
     bl tc_fd_write
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // .Lpu_spaces: write x28 spaces to fd x19 (clobbers x0-x2, x28)
 .Lpu_spaces:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
 .Lpu_spaces_loop:
     cbz x28, .Lpu_spaces_done
     mov x0, x19
@@ -647,7 +612,7 @@ tc_print_usage:
     sub x28, x28, #1
     b .Lpu_spaces_loop
 .Lpu_spaces_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
@@ -666,12 +631,7 @@ tc_fd_write:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_fd_puts:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x0, x20
@@ -680,12 +640,7 @@ tc_fd_puts:
     mov x0, x19
     mov x1, x20
     bl tc_fd_write
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -695,8 +650,7 @@ tc_fd_puts:
     .global tc_print_help
     FUNC_TYPE(tc_print_help)
 tc_print_help:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
@@ -860,12 +814,7 @@ help_is_word_char:
 // ============================================================================
     .p2align 2
 tc_handle_opt:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     cmp x19, #VAL_BY_STATE
@@ -1182,12 +1131,7 @@ tc_handle_opt:
     mov x1, x20                     // display
     bl tc_emit_typed_err
 .Lho_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1207,12 +1151,7 @@ tc_set_flag:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_win_conflict_check:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // current val
     LEA x20, tc_win_first
     ldr x2, [x20]
@@ -1232,12 +1171,7 @@ tc_win_conflict_check:
 .Lwc_first:
     LEA x2, tc_win_first
     str x19, [x2]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1264,12 +1198,7 @@ tc_val_canon:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_arg_not_allowed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     LEA x0, tc_scratch2
@@ -1278,12 +1207,7 @@ tc_arg_not_allowed:
     bl tc_build_not_allowed
     LEA x0, tc_scratch2
     bl tc_arg_error
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1291,12 +1215,7 @@ tc_arg_not_allowed:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_build_not_allowed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -1319,12 +1238,7 @@ tc_build_not_allowed:
     mov x0, x19
     mov w1, #0
     strb w1, [x0]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1345,12 +1259,7 @@ tc_cat_cstr:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_append_list:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -1380,12 +1289,7 @@ tc_append_list:
     LEA x0, tc_cli_given
     mov x1, #1
 .Lal_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1417,12 +1321,7 @@ tc_copy_str_cap:
 // ============================================================================
     .p2align 2
 tc_handle_typed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     LEA x21, tc_val_table
@@ -1505,12 +1404,7 @@ tc_handle_typed:
     mov x2, #512
     bl tc_copy_str_cap
 .Lht_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1620,12 +1514,7 @@ tc_parse_for_store:
 // ============================================================================
     .p2align 2
 tc_emit_typed_err:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -1638,12 +1527,7 @@ tc_emit_typed_err:
     bl tc_build_arg_msg
     LEA x0, tc_scratch
     bl tc_arg_error                // exit 2
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1651,12 +1535,7 @@ tc_emit_typed_err:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_build_arg_msg:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -1681,12 +1560,7 @@ tc_build_arg_msg:
     mov x3, x23
     bl tc_emit_msg_body
     mov w1, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1695,12 +1569,7 @@ tc_build_arg_msg:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_emit_msg_body:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -1809,12 +1678,7 @@ tc_emit_msg_body:
     bl tc_cat_cstr
     mov x19, x0
 .Lmb_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1822,12 +1686,7 @@ tc_emit_msg_body:
 // ============================================================================
     .p2align 2
 tc_prepass:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // argc
     mov x20, x1                     // argv
     LEA x0, tc_argc_saved
@@ -1883,12 +1742,7 @@ tc_prepass:
 .Lpp_done:
     // tc_pp_emit / tc_pp_extra already updated the memory counters; the
     // register copies (x22/x23) are stale, so do NOT store them here.
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -1942,12 +1796,7 @@ tc_opts_off:
 // ============================================================================
     .p2align 2
 tc_pp_long:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // token
     mov x20, x1                     // index
     // copy to the scratch slot first (we may modify it)
@@ -2138,12 +1987,7 @@ tc_pp_long:
     mov x0, x26
     bl tc_arg_missing_value
 .Lpl_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -2193,12 +2037,7 @@ tc_startswith:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_build_ambiguous:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x19
@@ -2249,12 +2088,7 @@ tc_build_ambiguous:
     add x24, x24, #32
     b .Lba
 .Lba_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -2262,12 +2096,7 @@ tc_build_ambiguous:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_build_ignored_explicit:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -2292,12 +2121,7 @@ tc_build_ignored_explicit:
     mov x22, x0
     mov x0, x22
     LEA x1, s_q
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -2305,12 +2129,7 @@ tc_build_ignored_explicit:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_arg_missing_value:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     ldr w0, [x19, #24]
     bl tc_val_canon
@@ -2324,12 +2143,7 @@ tc_arg_missing_value:
     bl tc_build_simple_arg_msg
     LEA x0, tc_scratch
     bl tc_arg_error
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -2337,12 +2151,7 @@ tc_arg_missing_value:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_build_simple_arg_msg:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -2365,12 +2174,7 @@ tc_build_simple_arg_msg:
     mov x0, x19
     mov w1, #0
     strb w1, [x0]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -2378,12 +2182,7 @@ tc_build_simple_arg_msg:
 // ============================================================================
     .p2align 2
 tc_pp_short:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // token
     mov x20, x1                     // index
     mov x21, x19                    // scan base
@@ -2550,12 +2349,7 @@ tc_pp_short:
     add x0, x20, #1
     b .Lps_ret
 .Lps_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -2567,9 +2361,7 @@ tc_pp_short:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_pp_build_long_val:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov w19, w0                     // short val
     mov x20, x1                     // index
     mov x0, x20
@@ -2611,9 +2403,7 @@ tc_pp_build_long_val:
 .Lpbv_done:
     mov x0, x21
     bl tc_pp_emit
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -2657,12 +2447,7 @@ tc_short_lookup:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_build_ignored_short_explicit:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -2687,12 +2472,7 @@ tc_build_ignored_short_explicit:
     mov x22, x0
     mov x0, x22
     LEA x1, s_q
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -2701,12 +2481,7 @@ tc_build_ignored_short_explicit:
 // ============================================================================
     .p2align 2
 tc_is_value_token:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     ldrb w0, [x19]
     cbz w0, .Liv_yes
@@ -2734,21 +2509,11 @@ tc_is_value_token:
 .Liv_yes:
     mov x0, #1
 .Liv_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 tc_resolve_settings:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, #0
 .Lrs:
     cmp x19, #TC_SET_COUNT
@@ -2947,12 +2712,7 @@ tc_resolve_settings:
 .Lrs_eg_none:
     str xzr, [x2, #TC_O_SRC + TC_SET_EXCLUDE_GROUP*8]
 .Lrs_eg_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -2960,12 +2720,7 @@ tc_resolve_settings:
 // ============================================================================
     .p2align 2
 tc_resolve_one:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x20, tc_spec_table
     mov x21, #SP_REC_SZ
@@ -3039,12 +2794,7 @@ tc_resolve_one:
     mov x1, x22
     bl tc_store_src
 .Lro_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -3065,12 +2815,7 @@ tc_store_src:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_store_from_raw:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -3149,12 +2894,7 @@ tc_store_from_raw:
     mov x2, x25
     bl tc_copy_str_cap
 .Lsfr_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3163,12 +2903,7 @@ tc_store_from_raw:
 // ============================================================================
     .p2align 2
 tc_resolve_err:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -3244,12 +2979,7 @@ tc_resolve_err:
 // ============================================================================
     .p2align 2
 tc_resolve_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // ---- end ---------------------------------------------------------------
     LEA x19, tc_opts
     ldrb w0, [x19, #TC_O_END_RAW]
@@ -3527,12 +3257,7 @@ tc_resolve_window:
     LEA x19, tc_opts
     LEA x20, tc_window
     ldr x21, [x19, #TC_O_MIN_COUNT]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -3553,12 +3278,7 @@ tc_win_set:
 // ============================================================================
     .p2align 2
 tc_choose_columns:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_opts
     // final = by-state base
     ldr x0, [x19, #TC_O_FLAGS]
@@ -3677,12 +3397,7 @@ tc_choose_columns:
     bl tc_opts_off
     str x20, [x0]
 .Lcc_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3737,12 +3452,7 @@ tc_hl_pat_free: .skip 8                // 0/1 free the current pattern string
     .text
     .p2align 2
 tc_resolve_highlights:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     sub sp, sp, #16                     // [sp] = the current rule table slot
     LEA x19, tc_opts
     str xzr, [x19, #TC_O_HL_COUNT]    // default: no rules
@@ -4136,12 +3846,7 @@ tc_resolve_highlights:
     str xzr, [x19, #TC_O_HL_COUNT]
 .Lrh_ret:
     add sp, sp, #16
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ---- per-rule error exits ---------------------------------------------------
@@ -4306,9 +4011,7 @@ tc_resolve_highlights:
 // ============================================================================
     .p2align 2
 tc_hl_begin:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // source id
     LEA x0, tc_scratch
     mov x20, x0
@@ -4332,16 +4035,12 @@ tc_hl_begin:
     mov x0, x20
     LEA x1, s_from_suffix
     bl tc_cat_cstr
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
     .p2align 2
 tc_hl_rule:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // cursor
     mov x20, x1                         // rule index
     mov x0, x19
@@ -4355,9 +4054,7 @@ tc_hl_rule:
     mov x0, x19
     LEA x1, s_hl_rule_mid
     bl tc_cat_cstr
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -4369,9 +4066,7 @@ tc_hl_rule:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_hl_fmt_u64:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     sub sp, sp, #32
     mov x19, x0                         // cursor
     mov x20, x1                         // value
@@ -4406,9 +4101,7 @@ tc_hl_fmt_u64:
 .Lhf_done:
     mov x0, x19                         // end cursor
     add sp, sp, #32
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
     .p2align 2
@@ -4420,8 +4113,7 @@ tc_hl_finish:
 
     .p2align 2
 tc_hl_err:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                         // source id
     mov x20, x1                         // message
     mov x0, x19
@@ -4436,9 +4128,7 @@ tc_hl_err:
 
     .p2align 2
 tc_hl_err_rule:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // source id
     mov x20, x1                         // rule index
     mov x21, x2                         // message
@@ -4461,12 +4151,7 @@ tc_hl_err_rule:
 // ============================================================================
     .p2align 2
 tc_now:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x0, #CLOCK_REALTIME
     LEA x1, tc_ts_buf
     bl clock_gettime
@@ -4496,12 +4181,7 @@ tc_now:
     add x21, x21, x22
     mov x0, x20                     // ymd
     mov x1, x21                     // sod
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -4509,12 +4189,7 @@ tc_now:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_format_u64:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     sub sp, sp, #32
@@ -4553,12 +4228,7 @@ tc_format_u64:
 .Lfu_done:
     mov x0, x3                      // cursor after the digits
     add sp, sp, #32
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -4566,12 +4236,7 @@ tc_format_u64:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_format_ymd_sod:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -4636,12 +4301,7 @@ tc_format_ymd_sod:
     mov x1, x24
     mov x2, #2
     bl tc_format_pad
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -4649,12 +4309,7 @@ tc_format_ymd_sod:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_format_pad:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -4699,12 +4354,7 @@ tc_format_pad:
 .Lfp_done:
     mov x0, x19
     add sp, sp, #32
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -4859,43 +4509,23 @@ tc_is_leap:
 // tc_days_in_month(x0=y, x1=m) -> x0 = days
     .p2align 2
 tc_days_in_month:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     cmp x1, #2
     b.eq .Ldim_feb
     LEA x2, month_days
     sub x3, x1, #1
     ldrb w0, [x2, x3]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Ldim_feb:
     bl tc_is_leap
     cbnz x0, .Ldim_29
     mov x0, #28
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Ldim_29:
     mov x0, #29
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_weekday(x0=days) -> x0 = 1..7 (Monday=1)
@@ -4911,12 +4541,7 @@ tc_weekday:
 // tc_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds
     .p2align 2
 tc_ymd_sod_to_epoch:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // ymd (YYYYMMDD)
     mov x20, x1                     // sod
     mov x2, #10000
@@ -4933,23 +4558,13 @@ tc_ymd_sod_to_epoch:
     ldr x3, =SECS_PER_DAY
     mul x0, x0, x3
     add x0, x0, x20
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_epoch_to_ymd_sod(x0=epoch) -> x0=ymd, x1=sod
     .p2align 2
 tc_epoch_to_ymd_sod:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     ldr x19, =SECS_PER_DAY
     udiv x20, x0, x19
     msub x5, x20, x19, x0
@@ -4964,24 +4579,14 @@ tc_epoch_to_ymd_sod:
     add x0, x0, x2
     ldr x5, [sp]
     add sp, sp, #16
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     mov x1, x5
     ret
 
 // tc_iso_week_monday(x0=y, x1=w) -> x0=ymd (Monday 00:00:00)
     .p2align 2
 tc_iso_week_monday:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x0, x19
@@ -5005,23 +4610,13 @@ tc_iso_week_monday:
     add x0, x0, x1
     add x0, x0, x2
 
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_iso_week_count(x0=y) -> x0 = 52 or 53
     .p2align 2
 tc_iso_week_count:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x0, x19
     mov x1, #1
@@ -5038,21 +4633,11 @@ tc_iso_week_count:
     cbz x0, .Liwc_52
 .Liwc_53:
     mov x0, #53
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Liwc_52:
     mov x0, #52
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -5063,12 +4648,7 @@ tc_iso_week_count:
     .global tc_parse_datetime
     FUNC_TYPE(tc_parse_datetime)
 tc_parse_datetime:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     LEA x0, tc_scratch
@@ -5187,12 +4767,7 @@ tc_parse_datetime:
     mov x3, x21
     b .Lpd_ret
 .Lpd_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -5200,12 +4775,7 @@ tc_parse_datetime:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_strip_copy:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
 .Lsc_lead:
@@ -5234,12 +4804,7 @@ tc_strip_copy:
     b .Lsc_trail
 .Lsc_done:
     mov x0, x19
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -5286,12 +4851,7 @@ tc_norm_T:
 // ============================================================================
     .p2align 2
 tc_match_week:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x0, x19
     mov x1, #4
@@ -5346,21 +4906,11 @@ tc_match_week:
     mov x2, x21                     // week
     mov x3, x22                     // weekday (0 = none)
     mov x0, #1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lmw_no:
     mov x0, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -5368,12 +4918,7 @@ tc_match_week:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_match_compact_week:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x0, x19
     mov x1, #4
@@ -5405,21 +4950,11 @@ tc_match_compact_week:
     mov x2, x21                     // week
     mov x3, x22                     // day
     mov x0, #1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lmcw_no:
     mov x0, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -5493,12 +5028,7 @@ tc_read_digits_range:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_parse_fixed_datetime:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x0, x19
@@ -5607,12 +5137,7 @@ tc_parse_fixed_datetime:
     mov x1, #0
     mov x2, #1
 .Lpfd_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -5622,12 +5147,7 @@ tc_parse_fixed_datetime:
     .global tc_parse_duration
     FUNC_TYPE(tc_parse_duration)
 tc_parse_duration:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -5709,12 +5229,7 @@ tc_parse_duration:
     mov x0, #0
     mov x1, #1
 .Lpdur_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
@@ -5745,12 +5260,7 @@ tc_lowercase:
 // tc_parse_int_core(x0=s) -> (x0=value, x1=ok)
     .p2align 2
 tc_parse_int_core:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x19
 .Lpic_lead:
@@ -5843,102 +5353,52 @@ tc_parse_int_core:
     mov x1, #0
     b .Lpic_ret
 .Lpic_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_positive_int(x0=s) -> (x0=value, x1=status)
 tc_parse_positive_int:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     bl tc_parse_int_core
     cbz x1, .Lppi_bad
     cmp x0, #1
     b.lt .Lppi_range
     mov x1, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lppi_bad:
     mov x0, #0
     mov x1, #1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lppi_range:
     mov x0, #0
     mov x1, #2
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 tc_parse_nonnegative_int:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     bl tc_parse_int_core
     cbz x1, .Lpni_bad
     cmp x0, #0
     b.lt .Lpni_range
     mov x1, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lpni_bad:
     mov x0, #0
     mov x1, #1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lpni_range:
     mov x0, #0
     mov x1, #2
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 tc_parse_float_core:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -5977,12 +5437,7 @@ tc_parse_float_core:
     mov x0, #0
     mov x1, #1
 .Lpfc_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_remove_underscores(x0=s)
@@ -6004,12 +5459,7 @@ tc_remove_underscores:
 // tc_parse_nonnegative_float(x0=s) -> (x0=bits, x1=status)
     .p2align 2
 tc_parse_nonnegative_float:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     bl tc_parse_float_core
     cbz x1, .Lpnnf_ok
@@ -6030,23 +5480,13 @@ tc_parse_nonnegative_float:
     mov x0, x20
     mov x1, #0
 .Lpnnf_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_positive_float(x0=s) -> (x0=bits, x1=status)
     .p2align 2
 tc_parse_positive_float:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     bl tc_parse_float_core
     cbz x1, .Lppf_ok
@@ -6067,12 +5507,7 @@ tc_parse_positive_float:
     mov x0, x20
     mov x1, #0
 .Lppf_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6084,12 +5519,7 @@ tc_parse_positive_float:
     .global tc_parse_state
     FUNC_TYPE(tc_parse_state)
 tc_parse_state:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6140,12 +5570,7 @@ tc_parse_state:
     mov x0, #TC_ST_NONE
     mov x1, #0
 .Lpst_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_header(x0=s) -> (x0=TC_HDR_*, x1=status)
@@ -6153,12 +5578,7 @@ tc_parse_state:
     .global tc_parse_header
     FUNC_TYPE(tc_parse_header)
 tc_parse_header:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6195,12 +5615,7 @@ tc_parse_header:
     mov x0, #TC_HDR_NONE
     mov x1, #0
 .Lph_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_sort(x0=s) -> (x0=TC_M_*, x1=status)
@@ -6208,12 +5623,7 @@ tc_parse_header:
     .global tc_parse_sort
     FUNC_TYPE(tc_parse_sort)
 tc_parse_sort:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6279,12 +5689,7 @@ tc_parse_sort:
 .Lpso_ls:     mov x0, #TC_M_LIVE_SHARE
     mov x1, #0
 .Lpso_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_curve(x0=s) -> (x0=TC_CURVE_*, x1=status)
@@ -6292,12 +5697,7 @@ tc_parse_sort:
     .global tc_parse_curve
     FUNC_TYPE(tc_parse_curve)
 tc_parse_curve:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6347,12 +5747,7 @@ tc_parse_curve:
 .Lpc_eio:    mov x0, #TC_CURVE_EASE_IN_OUT
     mov x1, #0
 .Lpc_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_users_policy(x0=s) -> (x0=id, x1=status)
@@ -6360,12 +5755,7 @@ tc_parse_curve:
     .global tc_parse_users_policy
     FUNC_TYPE(tc_parse_users_policy)
 tc_parse_users_policy:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6399,12 +5789,7 @@ tc_parse_users_policy:
 .Lpp_nearest:  mov x0, #TC_POLICY_NEAREST
     mov x1, #0
 .Lpp_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_bool(x0=s) -> (x0=0/1, x1=status)
@@ -6412,12 +5797,7 @@ tc_parse_users_policy:
     .global tc_parse_bool
     FUNC_TYPE(tc_parse_bool)
 tc_parse_bool:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6470,12 +5850,7 @@ tc_parse_bool:
     mov x0, #0
     mov x1, #0
 .Lpb_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_hex_colour(x0=s) -> (x0=rgb packed, x1=status)
@@ -6483,12 +5858,7 @@ tc_parse_bool:
     .global tc_parse_hex_colour
     FUNC_TYPE(tc_parse_hex_colour)
 tc_parse_hex_colour:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6567,12 +5937,7 @@ tc_parse_hex_colour:
     mov x0, #0
     mov x1, #1
 .Lphx_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_is_hexdigit(x0=char) -> x0 = 1/0
@@ -6621,12 +5986,7 @@ tc_hexval:
 // tc_parse_color_choice(x0=s) -> (x0=id, x1=status)
     .p2align 2
 tc_parse_color_choice:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6660,23 +6020,13 @@ tc_parse_color_choice:
 .Lpcol_never:  mov x0, #TC_COLOR_NEVER
     mov x1, #0
 .Lpcol_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_parse_complete_choice(x0=s) -> (x0=id, x1=status)
     .p2align 2
 tc_parse_complete_choice:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6742,12 +6092,7 @@ tc_parse_complete_choice:
 .Lpcom_includes: mov x0, #TC_COMPLETE_INCLUDES
     mov x1, #0
 .Lpcom_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6757,12 +6102,7 @@ tc_parse_complete_choice:
     .global tc_parse_metrics
     FUNC_TYPE(tc_parse_metrics)
 tc_parse_metrics:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x0, tc_scratch2
     mov x1, x19
@@ -6843,23 +6183,13 @@ tc_parse_metrics:
     mov x1, #0
     mov x2, #0
 .Lpm_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // tc_metric_id(x0=s) -> x0 = metric id or -1
     .p2align 2
 tc_metric_id:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     LEA x20, s_metric_count
     mov x0, x19
@@ -6905,12 +6235,7 @@ tc_metric_id:
     b .Lmi_ret
 .Lmi_ls:    mov x0, #TC_M_LIVE_SHARE
 .Lmi_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6920,12 +6245,7 @@ tc_metric_id:
     .global tc_source_str
     FUNC_TYPE(tc_source_str)
 tc_source_str:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     cmp x19, #TC_SRC_DYN_SINCE
     b.eq .Lss_dyn_win
@@ -6968,12 +6288,7 @@ tc_source_str:
     mov x0, #0
     mov x1, #0
 .Lss_ret:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================

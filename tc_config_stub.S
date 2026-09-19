@@ -61,10 +61,7 @@ tc_aliases_apply:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_excl_contains:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // login ptr
     mov x20, x1                         // login len
     LEA x21, tc_opts
@@ -129,17 +126,11 @@ tc_excl_contains:
     b .Lstc_loop
 .Lstc_yes:
     mov x0, #1
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lstc_no:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------

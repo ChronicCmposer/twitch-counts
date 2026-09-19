@@ -157,11 +157,11 @@ tc_misc_errbuf:     .skip MISC_ERRBUF_SZ    // toml_parse_file error buffer
     .global tc_misc_manual
     FUNC_TYPE(tc_misc_manual)
 tc_misc_manual:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_manual_text
     bl tc_puts
     mov x0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -171,7 +171,7 @@ tc_misc_manual:
     .global tc_misc_fish
     FUNC_TYPE(tc_misc_fish)
 tc_misc_fish:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     // The blob is split where fish_completions() embeds
     // shorten_path(DEFAULT_CONFIG_PATH) (twitch-counts.py:3954), which the
     // Python computes at runtime for the machine it runs on.
@@ -186,7 +186,7 @@ tc_misc_fish:
     LEA x0, tc_fish_text_b
     bl tc_puts
     mov x0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -198,9 +198,7 @@ tc_misc_fish:
     .global tc_misc_now_utc
     FUNC_TYPE(tc_misc_now_utc)
 tc_misc_now_utc:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x0, #CLOCK_REALTIME
     LEA x1, tc_misc_ts
     bl clock_gettime
@@ -217,9 +215,7 @@ tc_misc_now_utc:
     madd x0, x1, x19, x0
     add x0, x0, x2                      // ymd
     mov x1, x20                         // sod
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -229,9 +225,7 @@ tc_misc_now_utc:
     .global tc_misc_complete
     FUNC_TYPE(tc_misc_complete)
 tc_misc_complete:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // kind
     bl misc_arena_reset
     // ---- step 1: the config layer (Python load_config_layer) --------------
@@ -290,18 +284,14 @@ tc_misc_complete:
     bl toml_free
 .Lmc_out:
     mov x0, #0
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
 // complete_channels(x0=tab) — sorted(aliases keys + logs-root subdirs).
 // ============================================================================
 complete_channels:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // tab
     bl misc_names_reset
     cbz x19, .Lcc_dirs
@@ -327,19 +317,14 @@ complete_channels:
     bl misc_names_sort
     bl misc_names_print
     mov x0, #0
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
 // complete_groups(x0=tab) — sorted [exclude] group names (config_exclusions).
 // ============================================================================
 complete_groups:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // tab
     bl misc_cfg_exclusions              // x0 = status
     cmp x0, #0
@@ -364,18 +349,12 @@ complete_groups:
     bl misc_names_print
 .Lcg_done:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret// ============================================================================
 // complete_dates() — every dated log file's date, ascending, one per line.
 // ============================================================================
 complete_dates:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     bl misc_set_all_window
     bl tc_count_run                     // fills tc_listing
     LEA x19, tc_listing
@@ -398,20 +377,14 @@ complete_dates:
     b .Lcd_loop
 .Lcd_done:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
 // complete_weeks() — ISO weeks of the dated logs, deduped, in date order.
 // ============================================================================
 complete_weeks:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     bl misc_set_all_window
     bl tc_count_run
     bl misc_names_reset
@@ -439,20 +412,14 @@ complete_weeks:
     bl misc_names_sort
     bl misc_names_print
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
 // complete_periods() — weeks then dates (Python: weeks + dates).
 // ============================================================================
 complete_periods:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     bl misc_set_all_window
     bl tc_count_run
     bl misc_names_reset
@@ -499,22 +466,14 @@ complete_periods:
     b .Lcp_dates_loop
 .Lcp_dates_done:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
 // complete_users(x0=tab) — 7-day counting pass, then sorted config-known.
 // ============================================================================
 complete_users:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                         // tab
     // config exclusions -> flat + group members (the "known" set)
     mov x0, x19
@@ -632,22 +591,12 @@ complete_users:
 .Lcu_known_done:
     mov x0, #0
 .Lcu_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret// ============================================================================
 // complete_includes(x0=tab) — sorted merged exclusion logins (build_exclusions).
 // ============================================================================
 complete_includes:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                         // tab
     // ---- --no-exclude: conflict check, then empty (Python build_exclusions)
     LEA x0, tc_opts
@@ -868,21 +817,13 @@ complete_includes:
     bl misc_names_print
 .Lci_done:
     mov x0, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret// ============================================================================
 // misc_require_channel() -> x0: 0 ok (tc_misc_cdir filled), 1 no channel,
 //   2 error printed.  Python resolve() + resolve_channel_dir().
 // ============================================================================
 misc_require_channel:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // channel resolved?  (Python: if not channel: return [])
     LEA x0, tc_opts
     ldrb w1, [x0, #TC_O_CHANNEL]
@@ -985,10 +926,7 @@ misc_require_channel:
 .Lrc_empty:
     mov x0, #1
 .Lrc_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -998,12 +936,7 @@ misc_require_channel:
 //   reference so a broken config reports instead of exiting.
 // ============================================================================
 misc_cfg_exclusions:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                         // tab
     // reset outputs
     LEA x0, tc_misc_group_n
@@ -1238,12 +1171,7 @@ misc_cfg_exclusions:
 .Lce_ok_empty:
     mov x0, #0
 .Lce_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1253,24 +1181,20 @@ misc_cfg_exclusions:
 //   misc_always_unknown_failed (part 6).
 // ============================================================================
 misc_unknown_group_failed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                         // group name
     LEA x0, tc_misc_buf2
     LEA x1, s_unknown_group_pre
     bl misc_cat
     mov x0, x19                         // restore the name for .Lugf_append
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     b .Lugf_append                      // x0 = name
 
 // .Lugf_append(x0=name) — buf2 already ends with "group '"; append the name,
 //   "'; defined groups: <sorted|(none defined)>", then report.
     .p2align 2
 .Lugf_append:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // group name
     LEA x0, tc_misc_buf2
     bl tc_strlen
@@ -1340,9 +1264,7 @@ misc_unknown_group_failed:
     strb w1, [x19]
     LEA x0, tc_misc_buf2
     bl misc_failed
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1352,9 +1274,7 @@ misc_unknown_group_failed:
 // path -> ConfigError, TOML errors -> ConfigError.
 // ============================================================================
 misc_config_open:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, #0                         // explicit flag
     // --no-config -> {}
     LEA x0, tc_opts
@@ -1439,9 +1359,7 @@ misc_config_open:
     mov x0, #0
     mov x1, #0
 .Lco_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1449,10 +1367,7 @@ misc_config_open:
 //   on stderr.  Python: print(f"completion failed: {exc!r}", file=sys.stderr).
 // ============================================================================
 misc_failed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // The raw message usually lives in tc_misc_buf2 (built by the caller) and
     // the escaped copy must NOT overwrite its source, so stage the raw text
     // in tc_misc_buf first, then escape into tc_misc_buf2.
@@ -1562,10 +1477,7 @@ misc_failed:
     bl misc_cat
     mov x0, x20
     bl tc_eputs
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1578,7 +1490,7 @@ misc_arena_reset:
 
 // misc_alloc(x0=size) -> x0 = 8-aligned arena pointer.
 misc_alloc:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     add x0, x0, #7
     and x0, x0, #~7
     mov x1, x0                          // rounded size
@@ -1598,14 +1510,12 @@ misc_alloc:
 .Lal_ok:
     LEA x2, tc_misc_cur
     str x3, [x2]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // misc_arena_str(x0=src) -> x0 = NUL-terminated arena copy.
 misc_arena_str:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // src
     bl tc_strlen
     add x0, x0, #1
@@ -1617,18 +1527,14 @@ misc_arena_str:
     strb w1, [x20], #1
     cbnz w1, .Las_copy
     mov x0, x21
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_arena_str_lower_strip(x0=src) -> x0 = arena copy of the lowercased,
 //   whitespace-stripped string, or 0 when the result would be empty
 //   (Python split_names: str(item).strip().lower(), drop empties).
 misc_arena_str_lower_strip:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // scan pointer
 .Lasls_lead:
     ldrb w1, [x19]
@@ -1677,15 +1583,11 @@ misc_arena_str_lower_strip:
     mov w3, #0
     strb w3, [x19]
     sub x0, x19, x22                    // dst base
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 .Lasls_empty:
     mov x0, #0
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1698,9 +1600,7 @@ misc_names_reset:
 
 // misc_names_add(x0=name) -> x0 = 0 added, 1 duplicate.
 misc_names_add:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // name
     LEA x20, tc_misc_n
     LEA x21, tc_misc_names
@@ -1731,17 +1631,12 @@ misc_names_add:
 .Lna_dup:
     mov x0, #1
 .Lna_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_names_remove(x0=name) — drop every matching entry (Python dict pop).
 misc_names_remove:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // name
     LEA x20, tc_misc_n
     ldr x21, [x20]                      // count
@@ -1774,18 +1669,12 @@ misc_names_remove:
     // continue scanning from the same index (the next entry slid into i)
     b .Lnr_loop
 .Lnr_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // misc_sort_names(x0=array, x1=n) — insertion sort ascending (stable).
 misc_sort_names:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // array
     mov x20, x1                         // n
     cmp x20, #2
@@ -1815,29 +1704,24 @@ misc_sort_names:
     add x21, x21, #1
     b .Lsn_outer
 .Lsn_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // misc_names_sort() — sort the global name list ascending (stable).
 
 misc_names_sort:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_misc_names
     LEA x1, tc_misc_n
     ldr x1, [x1]
     bl misc_sort_names
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 
 // misc_names_print() — print every name in the list, one per line.
 misc_names_print:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x19, tc_misc_n
     ldr x20, [x19]                      // n
     LEA x21, tc_misc_names
@@ -1850,19 +1734,13 @@ misc_names_print:
     add x22, x22, #1
     b .Lnp_loop
 .Lnp_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_sort_users(x0=idx array, x1=val array, x2=n) — stable sort by val
 //   descending (Python Counter.most_common order: count desc, first-seen ties).
 misc_sort_users:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                         // idx
     mov x20, x1                         // val
     mov x21, x2                         // n
@@ -1897,19 +1775,12 @@ misc_sort_users:
     add x22, x22, #1
     b .Lsu_outer
 .Lsu_out:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // misc_group_index(x0=name) -> x0 = record index, or -1 when unknown.
 misc_group_index:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // name
     LEA x20, tc_misc_group_n
     ldr x21, [x20]                      // count
@@ -1933,18 +1804,12 @@ misc_group_index:
 .Lgi_missing:
     mov x0, #-1
 .Lgi_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret// ============================================================================
 // misc_in_users(x0=login) -> x0 = 1 when the login is in the counted set.
 // ============================================================================
 misc_in_users:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // login
     LEA x20, tc_users
     ldr x21, [x20, #TC_US_COUNT]
@@ -1968,10 +1833,7 @@ misc_in_users:
 .Liu_missing:
     mov x0, #0
 .Liu_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1980,9 +1842,7 @@ misc_in_users:
 
 // misc_split_add(x0=value) — split and add each token to the name list.
 misc_split_add:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // scan pointer
 .Lsa_next:
     ldrb w1, [x19]
@@ -2040,16 +1900,12 @@ misc_split_add:
 .Lsa_continue:
     b .Lsa_next                         // x19 sits on the separator or NUL
 .Lsa_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_split_remove(x0=value) — split and remove each token.
 misc_split_remove:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0
 .Lsr_next:
     ldrb w1, [x19]
@@ -2106,19 +1962,17 @@ misc_split_remove:
 .Lsr_continue:
     b .Lsr_next
 .Lsr_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_lower_add(x0=name) — lowercase copy added to the name list.
 misc_lower_add:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
     cbz x0, .Lla_done
     bl misc_names_add
 .Lla_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -2127,8 +1981,7 @@ misc_lower_add:
 // getenv directly so a broken config can never exit 1 during completion.
 // ============================================================================
 misc_env_get:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     bl getenv
     cbz x0, .Lenv_missing
@@ -2141,8 +1994,7 @@ misc_env_get:
     mov x0, #0
     mov x1, #0
 .Lenv_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -2157,7 +2009,7 @@ misc_expanduser:
 
 // misc_expand_root() — expand TC_O_LOGS_DIR into tc_misc_root.
 misc_expand_root:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     ldrb w1, [x0]
     cbnz w1, .Lxr_expand
@@ -2167,14 +2019,13 @@ misc_expand_root:
 .Lxr_expand:
     LEA x1, tc_misc_root
     bl misc_expanduser
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // misc_shorten_path(x0=src, x1=dst) — Python shorten_path (tc_shorten_path
 //   in tc_config.S, CPython semantics), copied into dst.
 misc_shorten_path:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x20, x1                         // dst
     bl tc_shorten_path                  // x0 = shortened (scratch or src)
     mov x1, x0
@@ -2182,16 +2033,13 @@ misc_shorten_path:
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // misc_list_dirs(x0=path) -> x0 = 1 ok (subdir names added, list sorted),
 //   0 when the directory cannot be opened.  Skips "." and "..".
 misc_list_dirs:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // path
     bl opendir
     cbz x0, .Lld_fail
@@ -2226,9 +2074,7 @@ misc_list_dirs:
 .Lld_fail:
     mov x0, #0
 .Lld_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2237,7 +2083,7 @@ misc_list_dirs:
 
 // misc_cat(x0=dst, x1=src) -> x0 = cursor past the copied bytes (no NUL).
 misc_cat:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x2, x0                          // dst
     mov x3, x1                          // src
 .Lcat_loop:
@@ -2247,7 +2093,7 @@ misc_cat:
     b .Lcat_loop
 .Lcat_done:
     mov x0, x2
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // misc_cat_comma_if(x0=end, x1=wrote_any) -> x0 = end (writes ", " when set).
@@ -2262,7 +2108,7 @@ misc_cat_comma_if:
 
 // misc_casecmp(x0=a, x1=b) -> x0 = 0 when equal ignoring ASCII case.
 misc_casecmp:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x2, x0
     mov x3, x1
 .Lcc_loop:
@@ -2289,24 +2135,22 @@ misc_casecmp:
 .Lcc_ne:
     mov x0, #1
 .Lcc_out:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // misc_streq(x0=a, x1=b) -> x0 = 1 when equal.
 misc_streq:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl strcmp
     cmp x0, #0
     cset x0, eq
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // misc_fmt_dec_pad(x0=dst, x1=value, x2=width) -> x0 = cursor past the
 //   zero-padded decimal digits (value < 10^width).
 misc_fmt_dec_pad:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // dst
     mov x20, x1                         // value
     mov x21, x2                         // width
@@ -2330,16 +2174,12 @@ misc_fmt_dec_pad:
     b .Lfdp_emit
 .Lfdp_done:
     mov x0, x19
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_fmt_ymd(x0=ymd, x1=dst) -> x0 = cursor past "YYYY-MM-DD".
 misc_fmt_ymd:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // ymd
     mov x20, x1                         // dst
     mov x21, #10000
@@ -2365,16 +2205,12 @@ misc_fmt_ymd:
     mov x0, x20
     mov x2, #2
     bl misc_fmt_dec_pad
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_fmt_week(x0=iso_year, x1=iso_week, x2=dst) -> x0 = cursor past "YYYY-WNN".
 misc_fmt_week:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // iso_year
     mov x20, x1                         // iso_week
     mov x21, x2                         // dst
@@ -2391,23 +2227,19 @@ misc_fmt_week:
     mov x1, x20
     mov x2, #2
     bl misc_fmt_dec_pad
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_print_line(x0=line) — print the line plus a newline to stdout.
 misc_print_line:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     bl tc_puts
     mov x0, #STDOUT
     LEA x1, s_newline
     mov x2, #1
     bl write
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -2417,12 +2249,7 @@ misc_print_line:
 
 // misc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01.
 misc_days_from_civil:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                         // y
     mov x20, x1                         // m
     mov x21, x2                         // d
@@ -2466,18 +2293,12 @@ misc_days_from_civil:
     add x0, x0, x1
     ldr x28, =719468
     sub x0, x0, x28
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // misc_ymd_to_days(x0=ymd) -> x0 = days since 1970-01-01.
 misc_ymd_to_days:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                         // ymd
     mov x0, #10000
     udiv x1, x19, x0                    // y
@@ -2489,33 +2310,24 @@ misc_ymd_to_days:
     mov x0, x1
     mov x1, x3
     bl misc_days_from_civil
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // misc_days_to_ymd(x0=days) -> x0 = ymd.
 misc_days_to_ymd:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     bl tc_civil_from_days               // x0=y, x1=m, x2=d
     mov x19, #10000
     mul x0, x0, x19
     mov x19, #100
     madd x0, x1, x19, x0
     add x0, x0, x2
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // misc_iso_week(x0=ymd) -> (x0=iso_year, x1=iso_week).
 misc_iso_week:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                         // ymd
     bl misc_ymd_to_days
     mov x20, x0                         // epoch
@@ -2560,11 +2372,7 @@ misc_iso_week:
     sdiv x1, x0, x1
     add x1, x1, #1
     mov x0, x23
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -2574,7 +2382,7 @@ misc_iso_week:
 // misc_set_all_window() — an all-covering fixed window so tc_complete_window
 //   never fails on an empty listing (dates/weeks/periods only read tc_listing).
 misc_set_all_window:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_window
     mov x1, #10101                      // 0001-01-01
     str x1, [x0, #TC_W_BEGIN_YMD]
@@ -2585,14 +2393,12 @@ misc_set_all_window:
     str x1, [x0, #TC_W_END_SOD]
     str xzr, [x0, #TC_W_KIND]           // TC_WIN_BEGIN
     str xzr, [x0, #TC_W_BEGIN_ROLLS]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // misc_set_users_window() — end = now UTC, begin = end - 7 days.
 misc_set_users_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     bl tc_misc_now_utc                  // x0=ymd, x1=sod
     mov x19, x0                         // end ymd
     mov x20, x1                         // sod
@@ -2609,9 +2415,7 @@ misc_set_users_window:
     str x20, [x0, #TC_W_END_SOD]
     str xzr, [x0, #TC_W_KIND]           // TC_WIN_BEGIN
     str xzr, [x0, #TC_W_BEGIN_ROLLS]
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2621,8 +2425,7 @@ misc_set_users_window:
 //   misc_unknown_group_failed).
 // ============================================================================
 misc_always_unknown_failed:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                         // name
     LEA x0, tc_misc_buf2
     LEA x1, s_always_unknown_pre
@@ -2632,8 +2435,7 @@ misc_always_unknown_failed:
     LEA x1, s_names_unknown_group
     bl misc_cat
     mov x0, x19
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     b .Lugf_append
 
 // ============================================================================

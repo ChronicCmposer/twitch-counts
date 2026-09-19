@@ -18,8 +18,7 @@
     .globl main
     FUNC_TYPE(main)
 main:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                     // argc
     mov x20, x1                     // argv
     mov x0, x19
@@ -31,8 +30,7 @@ main:
     bl tc_render_report
     bl tc_cache_close
     mov w0, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
     .end

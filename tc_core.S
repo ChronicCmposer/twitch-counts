@@ -204,15 +204,13 @@ month_days:         .byte 31,28,31,30,31,30,31,31,30,31,30,31
     .global tc_count_run
     FUNC_TYPE(tc_count_run)
 tc_count_run:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     bl tc_resolve_channel
     bl tc_build_listing
     bl tc_complete_window
     bl tc_count_final
     mov x0, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -237,8 +235,7 @@ tc_channel_name:
     .global tc_count_column
     FUNC_TYPE(tc_count_column)
 tc_count_column:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x1, tc_users
     ldr x2, [x1, #TC_US_ENTRIES]
     mov x3, #TC_US_ENTRY_SZ
@@ -257,23 +254,19 @@ tc_count_column:
     add x0, x0, x5
     ldr x5, [x2, #TC_US_UNKNOWN]
     add x0, x0, x5
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lcc_live:
     ldr x0, [x2, #TC_US_LIVE]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lcc_off:
     ldr x0, [x2, #TC_US_OFFLINE]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lcc_unk:
     ldr x0, [x2, #TC_US_UNKNOWN]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -353,12 +346,7 @@ tc_eff_threshold:
     .global tc_resolve_channel
     FUNC_TYPE(tc_resolve_channel)
 tc_resolve_channel:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // os.path.expanduser(logs_dir): the Python expands the setting when it
     // resolves it, whatever its source, so "~/..." works from the command
     // line, the environment and the config, and the header and every error
@@ -484,12 +472,7 @@ tc_resolve_channel:
     LEA x1, tc_core_name
     mov x0, x23
     bl tc_cat_cstr
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 .Lrc_dir_oserror:
@@ -518,12 +501,7 @@ tc_resolve_channel:
     bl .Lrc_emit_fail
 .Lrc_dir_defaulted:
     // start over with the default in place (expanduser + isdir + opendir)
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     b tc_resolve_channel
 .Lrc_dir_notfound_set:
     // "logs directory not found: <dir>"
@@ -547,7 +525,7 @@ tc_resolve_channel:
 // ----------------------------------------------------------------------------
     .p2align 2
 .Lrc_emit_fail:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x1, x0
     LEA x0, tc_opts
     ldr x0, [x0, #TC_O_FLAGS]
@@ -620,12 +598,7 @@ tc_resolve_channel:
 // ============================================================================
     .p2align 2
 tc_build_listing:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_listing
     str xzr, [x19, #TC_L_COUNT]
     str xzr, [x19, #TC_L_CAP]
@@ -697,12 +670,7 @@ tc_build_listing:
     mov x0, x20
     bl closedir
     bl sort_listing
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 .Lbl_cant_open:
@@ -723,10 +691,7 @@ tc_build_listing:
 // ============================================================================
     .p2align 2
 parse_log_filename:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // name
     mov x0, x19
     bl tc_strlen
@@ -837,17 +802,11 @@ parse_log_filename:
     add x3, x3, x7
     add x3, x3, x8
     mov x0, x3
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lplf_fail:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -890,12 +849,7 @@ days_in_month:
 // ============================================================================
     .p2align 2
 tc_complete_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_KIND]
     cmp x20, #TC_WIN_EARLIEST
@@ -936,12 +890,7 @@ tc_complete_window:
     str x21, [x19, #TC_W_THRESHOLD]
     ldr x21, [x20, #TC_O_STATE_FILTER]
     str x21, [x19, #TC_W_STATE_FILTER]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -950,10 +899,7 @@ tc_complete_window:
 // ============================================================================
     .p2align 2
 tc_window_begin_after_end_check:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x19, tc_window
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
@@ -994,10 +940,7 @@ tc_window_begin_after_end_check:
     LEA x0, tc_core_scratch
     bl tc_fail
 .Lwae_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1006,12 +949,7 @@ tc_window_begin_after_end_check:
 // ============================================================================
     .p2align 2
 tc_size_users:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // end_epoch
     LEA x9, tc_window
     ldr x0, [x9, #TC_W_END_YMD]
@@ -1147,12 +1085,7 @@ tc_size_users:
     LEA x9, tc_window  // reload: the call clobbered x9
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1164,12 +1097,7 @@ tc_size_users:
 // ============================================================================
     .p2align 2
 tc_reported_width:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // seconds
     LEA x20, tc_window
     ldr x0, [x20, #TC_W_END_YMD]
@@ -1209,12 +1137,7 @@ tc_reported_width:
     b .Lrw_loop
 .Lrw_done:
     mov x0, x25
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1224,12 +1147,7 @@ tc_reported_width:
 // ============================================================================
     .p2align 2
 tc_count_final:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     sub sp, sp, #CF_FRAME_SZ
     bl tc_reset_count
     bl tc_seed_state                    // x0 = 0/1/2
@@ -1390,12 +1308,7 @@ tc_count_final:
 .Lcf_done:
     add sp, sp, #CF_FRAME_SZ
     bl tc_finish_tally
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1404,7 +1317,7 @@ tc_count_final:
 // ============================================================================
     .p2align 2
 tc_reset_count:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_core_g_live
     mov x1, #0
     str x1, [x0]
@@ -1419,7 +1332,7 @@ tc_reset_count:
     LEA x1, tc_users
     str x1, [x0, #TC_T_USERS_PTR]
     str xzr, [x1, #TC_US_COUNT]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1429,12 +1342,7 @@ tc_reset_count:
 // ============================================================================
     .p2align 2
 tc_finish_tally:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_tally
     LEA x20, tc_core_g_live
     ldr x21, [x20]
@@ -1495,12 +1403,7 @@ tc_finish_tally:
     add x27, x27, #1
     b .Lft_loop
 .Lft_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1524,20 +1427,19 @@ tc_finish_tally:
     .global tc_capture_errno
     FUNC_TYPE(tc_capture_errno)
 tc_capture_errno:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl __errno_location
     ldr w0, [x0]
     LEA x9, tc_last_errno
     str x0, [x9]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
     .p2align 2
     .global tc_errno_reason
     FUNC_TYPE(tc_errno_reason)
 tc_errno_reason:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     LEA x9, tc_last_errno
     ldr x20, [x9]
@@ -1555,17 +1457,14 @@ tc_errno_reason:
     ldr x0, [sp], #16
     bl tc_cat_cstr
     mov x0, x19                        // dst (before x19 is restored)
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
     .p2align 2
     .global tc_oserror_text
     FUNC_TYPE(tc_oserror_text)
 tc_oserror_text:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // dst (kept for the return)
     mov x21, x1                        // path
     LEA x9, tc_last_errno
@@ -1597,9 +1496,7 @@ tc_oserror_text:
     strb w1, [x0], #1
     strb wzr, [x0]
     mov x0, x19
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // errno_exc_name(x0=errno) -> x0 = the OSError subclass Python raises for it
@@ -1738,12 +1635,7 @@ record_unreadable:
 // ============================================================================
     .p2align 2
 tc_seed_state:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
@@ -1816,12 +1708,7 @@ tc_seed_state:
 .Lss_none2:
     mov x0, #0
 .Lss_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1830,10 +1717,7 @@ tc_seed_state:
 // ============================================================================
     .p2align 2
 tc_read_file:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // path
     mov x0, x19
     mov x1, #O_RDONLY
@@ -1899,10 +1783,7 @@ tc_read_file:
     mov x0, #0
     mov x1, x21
     mov x2, x23
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lrf_large:
     mov x0, x20
@@ -1910,10 +1791,7 @@ tc_read_file:
     mov x0, #1
     mov x1, x21
     mov x2, x23
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lrf_read_err:
     mov x0, x20
@@ -1923,20 +1801,14 @@ tc_read_file:
     mov x0, #2
     mov x1, #0
     mov x2, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lrf_open_fail:
     bl tc_capture_errno                 // open() failed: the reason
     mov x0, #2
     mov x1, #0
     mov x2, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lrf_alloc_fail:
     mov x0, x20
@@ -1944,10 +1816,7 @@ tc_read_file:
     mov x0, #2
     mov x1, #0
     mov x2, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lrf_alloc_fail2:
     mov x0, x20
@@ -1957,10 +1826,7 @@ tc_read_file:
     mov x0, #2
     mov x1, #0
     mov x2, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1991,11 +1857,7 @@ tc_has_newline:
 // ============================================================================
     .p2align 2
 scan_markers:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                         // buf
     add x20, x19, x1                    // end
     mov x21, #0                         // state
@@ -2029,11 +1891,7 @@ scan_markers:
     b .Lsm_loop
 .Lsm_done:
     mov x0, x21
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -2041,8 +1899,7 @@ scan_markers:
 // ============================================================================
     .p2align 2
 line_is_marker:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x1
     cmp x1, #11
@@ -2100,18 +1957,15 @@ line_is_marker:
     cbnz x0, .Llim_off
 .Llim_no:
     mov x0, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Llim_live:
     mov x0, #1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Llim_off:
     mov x0, #2
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -2170,12 +2024,7 @@ marker_match:
 // ============================================================================
     .p2align 2
 process_lines:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                         // buf
     add x20, x19, x1                    // end
     mov x21, x2                         // lo
@@ -2235,12 +2084,7 @@ process_lines:
 .Lpl_done:
     LEA x9, tc_core_cur_state
     str x23, [x9]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -2250,11 +2094,7 @@ process_lines:
 // ============================================================================
     .p2align 2
 process_message:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                         // line
     mov x20, x1                         // len
     mov x21, x2                         // lo
@@ -2430,11 +2270,7 @@ process_message:
 .Lpm_skip:
     mov x0, #0
 .Lpm_out:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -2444,7 +2280,7 @@ process_message:
 // ============================================================================
     .p2align 2
 speaker_login:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     // LOGIN_RE: ^[A-Za-z0-9_]{1,25}$
     cmp x1, #1
     b.lt .Lsl_fail
@@ -2480,7 +2316,7 @@ speaker_login:
     mov w3, #0
     strb w3, [x4, x2]
     mov x0, x4
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 .Lsl_localized:
     // LOCALIZED_RE: ^(\S+) ([a-z0-9_]{1,25})$ with a non-ASCII display
@@ -2554,11 +2390,11 @@ speaker_login:
     mov w7, #0
     strb w7, [x8, x4]
     mov x0, x8
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 .Lsl_fail:
     mov x0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // is_login_char — sets EQ iff w3 is in [A-Za-z0-9_] (used as a predicate)
@@ -2653,10 +2489,7 @@ find_user:
     .global add_user
     FUNC_TYPE(add_user)
 add_user:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                         // login
     mov x20, x1                         // len
     mov x21, x2                         // table base
@@ -2708,10 +2541,7 @@ add_user:
     add x3, x3, #1
     str x3, [x21, #TC_US_COUNT]
     sub x0, x3, #1
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lau_oom:
     LEA x0, s_oom
@@ -2728,9 +2558,7 @@ add_user:
     .global tc_reuse_apply
     FUNC_TYPE(tc_reuse_apply)
 tc_reuse_apply:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                         // login
     mov x20, x1                         // len
     mov x21, x2                         // state
@@ -2785,9 +2613,7 @@ tc_reuse_apply:
     str x13, [x12]
 .Lrua_done:
     mov x0, #0
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2795,10 +2621,7 @@ tc_reuse_apply:
 // ============================================================================
     .p2align 2
 sort_dnames:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x19, tc_core_dnames
     LEA x20, tc_core_dname_count
     ldr x20, [x20]
@@ -2825,10 +2648,7 @@ sort_dnames:
     add x21, x21, #1
     b .Lsd_outer
 .Lsd_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -2837,11 +2657,7 @@ sort_dnames:
 // ============================================================================
     .p2align 2
 sort_listing:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
@@ -2916,11 +2732,7 @@ sort_listing:
     add x22, x22, #1
     b .Lsl_outer
 .Lsl_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -3026,12 +2838,7 @@ tc_memzero_own:
 // ============================================================================
     .p2align 2
 tc_ymd_sod_to_epoch:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x2, #10000
@@ -3048,12 +2855,7 @@ tc_ymd_sod_to_epoch:
     ldr x3, =SECS_PER_DAY
     mul x0, x0, x3
     add x0, x0, x20
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3061,12 +2863,7 @@ tc_ymd_sod_to_epoch:
 // ============================================================================
     .p2align 2
 tc_epoch_to_ymd_sod:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     ldr x19, =SECS_PER_DAY
     udiv x20, x0, x19
     msub x21, x20, x19, x0             // sod (callee-saved: survives the call)
@@ -3079,12 +2876,7 @@ tc_epoch_to_ymd_sod:
     add x0, x0, x1
     add x0, x0, x2
     mov x1, x21
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3142,12 +2934,7 @@ tc_days_from_civil:
 // ============================================================================
     .p2align 2
 fmt_pad:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -3192,12 +2979,7 @@ fmt_pad:
 .Lfp_done:
     mov x0, x19
     add sp, sp, #32
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3206,12 +2988,7 @@ fmt_pad:
 // ============================================================================
     .p2align 2
 fmt_ymd_sod:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                         // ymd
     mov x20, x1                         // sod
     mov x21, x2                         // out
@@ -3276,12 +3053,7 @@ fmt_ymd_sod:
     bl fmt_pad
     mov x21, x0
     mov x0, x21
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
     .end

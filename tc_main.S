@@ -246,10 +246,7 @@
     .global main
     FUNC_TYPE(main)
 main:
-    stp x29, x30, [sp, #-16]!        // frame record (sp stays 16-aligned)
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3  // frame record (sp stays 16-aligned)
 
     mov x19, x0                      // argc
     mov x20, x1                      // argv
@@ -341,10 +338,7 @@ main:
     b .Lmain_ret
 
 .Lmain_ret:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -360,7 +354,7 @@ main:
     .p2align 2
     FUNC_TYPE(tc_main_sigint_handler)
 tc_main_sigint_handler:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x0, #STDERR
     LEA x1, s_interrupted
     LEA x2, s_interrupted_end

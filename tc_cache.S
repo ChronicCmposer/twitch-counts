@@ -332,12 +332,7 @@ s_fp_parts:
     .global tc_cache_open
     FUNC_TYPE(tc_cache_open)
 tc_cache_open:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // ---- reset session state ----
     LEA x9, tc_cache_db
     str xzr, [x9]
@@ -439,28 +434,13 @@ tc_cache_open:
     bl db_exec
     cbnz w0, .Lco_fail_commit
 .Lco_open_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lco_no_cache:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lco_no_path:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lco_fail_connect:
     LEA x0, s_step_connect
@@ -485,7 +465,7 @@ tc_cache_open:
     .global tc_cache_close
     FUNC_TYPE(tc_cache_close)
 tc_cache_close:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_cache_db
     ldr x1, [x0]
     cbz x1, .Lcc_done
@@ -493,7 +473,7 @@ tc_cache_close:
     mov x0, x1
     bl sqlite3_close
 .Lcc_done:
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -540,12 +520,7 @@ tc_cache_status:
     .global tc_cache_day
     FUNC_TYPE(tc_cache_day)
 tc_cache_day:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // fpath
     mov x20, x1                     // lo
     mov x21, x2                     // hi
@@ -611,12 +586,7 @@ tc_cache_day:
 .Lcd_nocache:
     mov x0, #0
 .Lcd_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -627,12 +597,7 @@ tc_cache_day:
     .global tc_cache_put_day
     FUNC_TYPE(tc_cache_put_day)
 tc_cache_put_day:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // exit_state
     LEA x9, tc_cache_stash
     ldr x9, [x9]
@@ -855,12 +820,7 @@ tc_cache_put_day:
 .Lcp_discard:
     bl cache_drop_stash
 .Lcp_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -871,9 +831,9 @@ tc_cache_put_day:
     .global tc_cache_discard_day
     FUNC_TYPE(tc_cache_discard_day)
 tc_cache_discard_day:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl cache_drop_stash
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -883,12 +843,7 @@ tc_cache_discard_day:
     .global tc_cache_debug_dump
     FUNC_TYPE(tc_cache_debug_dump)
 tc_cache_debug_dump:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x9, tc_cache_db
     ldr x9, [x9]
     cbz x9, .Lcdd_done
@@ -1059,12 +1014,7 @@ tc_cache_debug_dump:
     mov x0, x19
     bl sqlite3_finalize
 .Lcdd_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1072,8 +1022,7 @@ tc_cache_debug_dump:
 // ============================================================================
     .p2align 2
 dump_count:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     bl prepare_stmt
     cbz x0, .Ldc_done
@@ -1090,8 +1039,7 @@ dump_count:
     mov x0, x20
     bl sqlite3_finalize
 .Ldc_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1100,9 +1048,7 @@ dump_count:
 // ============================================================================
     .p2align 2
 migrate_step:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // existed
     // stored = SELECT value FROM meta WHERE key='schema'
     LEA x0, s_sql_sel_schema
@@ -1177,9 +1123,7 @@ migrate_step:
     bl cache_fail_sqlite
     mov x0, #1
 .Lms_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1188,10 +1132,7 @@ migrate_step:
 // ============================================================================
     .p2align 2
 register_step:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // known = { SELECT fingerprint FROM generation }
     LEA x0, s_sql_sel_gen
     bl prepare_stmt
@@ -1259,10 +1200,7 @@ register_step:
     bl cache_fail_sqlite
     mov x0, #1
 .Lrs_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1271,10 +1209,7 @@ register_step:
 // ============================================================================
     .p2align 2
 sweep_step:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // now
     mov x0, #0
     bl time
@@ -1360,10 +1295,7 @@ sweep_step:
     bl cache_fail_sqlite
     mov x0, #1
 .Lsw_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1372,8 +1304,7 @@ sweep_step:
 // ============================================================================
     .p2align 2
 purge_step:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x0, s_sql_del_counts_chan
     bl prepare_stmt
     cbz x0, .Lpg_fail
@@ -1407,8 +1338,7 @@ purge_step:
     bl cache_fail_sqlite
     mov x0, #1
 .Lpg_out:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1419,12 +1349,7 @@ purge_step:
 // ============================================================================
     .p2align 2
 cache_get_day:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                     // ymd
     mov x20, x1                     // enter_state
     // date string
@@ -1562,12 +1487,7 @@ cache_get_day:
 .Lcg_miss:
     mov x0, #0
 .Lcg_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1576,10 +1496,7 @@ cache_get_day:
 // ============================================================================
     .p2align 2
 snapshot_users:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]    // n
     ldr x21, [x19, #TC_US_ENTRIES]  // entries
@@ -1617,10 +1534,7 @@ snapshot_users:
     LEA x9, tc_cache_snap
     str xzr, [x9]
 .Lsu_out:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1628,7 +1542,7 @@ snapshot_users:
 // ============================================================================
     .p2align 2
 cache_drop_stash:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x9, tc_cache_snap
     ldr x0, [x9]
     cbz x0, .Lcds_done
@@ -1637,7 +1551,7 @@ cache_drop_stash:
 .Lcds_done:
     LEA x9, tc_cache_stash
     str xzr, [x9]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1668,8 +1582,7 @@ state_str:
 // ============================================================================
     .p2align 2
 state_id:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     cbz x0, .Lsi_zero
     mov x19, x0
     LEA x0, s_state_live
@@ -1691,8 +1604,7 @@ state_id:
 .Lsi_two:
     mov x0, #2
 .Lsi_out:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1707,9 +1619,7 @@ state_id:
 // ============================================================================
     .p2align 2
 resolve_cache_path:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
 #ifndef __APPLE__
     LEA x0, s_env_xdg_cache
     bl getenv
@@ -1743,9 +1653,7 @@ resolve_cache_path:
     mov x2, #PATH_SZ
     bl tc_expanduser
 .Lrcp_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1755,9 +1663,7 @@ resolve_cache_path:
 // ============================================================================
     .p2align 2
 mkdir_cache_dir:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // path
     // find the last '/' (dirname ends there)
     mov x20, x19
@@ -1814,9 +1720,7 @@ mkdir_cache_dir:
     mov x1, #0x1FF
     bl mkdir                        // the final component (no trailing slash)
 .Lmcd_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1825,10 +1729,7 @@ mkdir_cache_dir:
 // ============================================================================
     .p2align 2
 fingerprint_build:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     ldr x19, =FNV_OFFSET             // hash
     LEA x20, s_fp_parts
     mov x21, #0                     // part index
@@ -1874,10 +1775,7 @@ fingerprint_build:
 .Lfb_hex_done:
     mov w9, #0
     strb w9, [x23, #16]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1903,8 +1801,7 @@ fnv1a:
 // ============================================================================
     .p2align 2
 db_exec:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     LEA x0, tc_cache_db
     ldr x0, [x0]
@@ -1913,8 +1810,7 @@ db_exec:
     mov x3, #0
     mov x4, #0
     bl sqlite3_exec
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1922,8 +1818,7 @@ db_exec:
 // ============================================================================
     .p2align 2
 prepare_stmt:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     LEA x0, tc_cache_db
     ldr x0, [x0]
@@ -1936,14 +1831,12 @@ prepare_stmt:
     cbnz x0, .Lps_fail
     ldr x0, [sp]
     add sp, sp, #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lps_fail:
     add sp, sp, #16
     mov x0, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1951,11 +1844,11 @@ prepare_stmt:
 // ============================================================================
     .p2align 2
 bind_text_stmt:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x3, #-1
     mov x4, #SQLITE_STATIC
     bl sqlite3_bind_text
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1963,9 +1856,9 @@ bind_text_stmt:
 // ============================================================================
     .p2align 2
 bind_int64_stmt:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl sqlite3_bind_int64
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1973,9 +1866,9 @@ bind_int64_stmt:
 // ============================================================================
     .p2align 2
 step_stmt:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl sqlite3_step
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1984,10 +1877,7 @@ step_stmt:
 // ============================================================================
     .p2align 2
 cache_fail_sqlite:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // step
     LEA x0, tc_cache_db
     ldr x20, [x0]                   // db
@@ -2022,10 +1912,7 @@ cache_fail_sqlite:
 .Lcfs_done:
     LEA x9, tc_cache_db
     str xzr, [x9]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -2033,9 +1920,7 @@ cache_fail_sqlite:
 // ============================================================================
     .p2align 2
 cache_fail_errno:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // step
     bl __errno_location
     ldr w0, [x0]
@@ -2059,9 +1944,7 @@ cache_fail_errno:
     str x10, [x9]
     LEA x9, tc_cache_db
     str xzr, [x9]
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2108,8 +1991,7 @@ cat_cstr:
 // ============================================================================
     .p2align 2
 cat_cstr_cap:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x2                     // cap
     mov x2, #0                      // i
@@ -2133,8 +2015,7 @@ cat_cstr_cap:
     add x19, x19, x2
 .Lccc_out:
     mov x0, x19
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -2142,9 +2023,7 @@ cat_cstr_cap:
 // ============================================================================
     .p2align 2
 fmt_date:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                     // ymd
     mov x20, x1                     // out
     mov x21, #10000
@@ -2175,9 +2054,7 @@ fmt_date:
     bl put_pad
     mov w1, #0
     strb w1, [x0]
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -2186,10 +2063,7 @@ fmt_date:
 // ============================================================================
     .p2align 2
 fmt_iso:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // epoch
     mov x20, x1                     // out
     LEA x0, tc_cache_epoch
@@ -2250,10 +2124,7 @@ fmt_iso:
     bl put_pad
     mov w1, #0
     strb w1, [x0]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -2262,10 +2133,7 @@ fmt_iso:
 // ============================================================================
     .p2align 2
 put_pad:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                     // buf
     mov x20, x1                     // value
     mov x21, x2                     // width
@@ -2311,10 +2179,7 @@ put_pad:
 .Lpp_done:
     mov x0, x19
     add sp, sp, #32
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================

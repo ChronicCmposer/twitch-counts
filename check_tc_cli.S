@@ -23,7 +23,7 @@
 
     .p2align 2
 main:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x19, x0                     // argc
     mov x20, x1                     // argv
     mov x0, x19
@@ -192,7 +192,7 @@ main:
     bl tc_printf_i
 
     mov w0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------

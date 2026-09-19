@@ -42,8 +42,7 @@
     .global main
     FUNC_TYPE(main)
 main:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     // tc_cli_parse(argc, argv)
     mov x19, x0                         // argc (survives the call)
     mov x20, x1                         // argv
@@ -72,8 +71,7 @@ main:
     bl tc_misc_complete
     b .Lmain_out
 .Lmain_out:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
     .end

@@ -621,12 +621,7 @@ s_key_channel:      .asciz "channel"
     .global tc_watch_run
     FUNC_TYPE(tc_watch_run)
 tc_watch_run:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // ---- terminal check --------------------------------------------------
     mov x0, #STDOUT
     bl isatty
@@ -814,12 +809,7 @@ tc_watch_run:
     // run_watch(): `except KeyboardInterrupt: pass` ... `return 0` -- the
     // 130 of main()'s handler is for a Ctrl-C outside the watch loop
     mov x0, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -944,9 +934,7 @@ watch_sleep:
     .p2align 2
 watch_kq_arm:
 #ifdef __APPLE__
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x9, tc_watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwka_out
@@ -990,9 +978,7 @@ watch_kq_arm:
     add x21, x21, #1
     b .Lwka_loop
 .Lwka_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 #else
     ret
@@ -1002,8 +988,7 @@ watch_kq_arm:
     .p2align 2
 watch_wait_changes:
 #ifdef __APPLE__
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x9, tc_watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwwc_sleep
@@ -1074,8 +1059,7 @@ watch_wait_changes:
 .Lwwc_sleep:
     bl watch_sleep
 .Lwwc_out:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 #else
     b watch_sleep
@@ -1085,9 +1069,7 @@ watch_wait_changes:
     .p2align 2
 watch_kq_close:
 #ifdef __APPLE__
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x9, tc_watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwkc_out
@@ -1114,9 +1096,7 @@ watch_kq_close:
     LEA x9, tc_watch_kq_on
     str xzr, [x9]
 .Lwkc_out:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 #else
     ret
@@ -1129,10 +1109,7 @@ watch_kq_close:
 // ============================================================================
     .p2align 2
 watch_load_settings:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x19, tc_opts
     LEA x20, tc_watch_interval
     ldr d0, [x19, #TC_O_INTERVAL]
@@ -1273,10 +1250,7 @@ watch_load_settings:
     LEA x0, tc_watch_errbuf
     bl tc_report_fail                 // noreturn
 .Lwls_ok:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1285,7 +1259,7 @@ watch_load_settings:
 // ============================================================================
     .p2align 2
 watch_replay_horizon:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     fcmp d0, #0.0
     b.le .Lwrh_hold0
     // horizon = hold
@@ -1306,7 +1280,7 @@ watch_replay_horizon:
 .Lwrh_steps_ok:
     scvtf d2, x9
     fmul d0, d2, d1                  // steps * interval
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1314,9 +1288,7 @@ watch_replay_horizon:
 // ============================================================================
     .p2align 2
 watch_load_tail:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x19, tc_opts
     LEA x20, tc_watch_notify
     ldr x21, [x19, #TC_O_NOTIFY]
@@ -1325,9 +1297,7 @@ watch_load_tail:
     str x21, [x20, #(WS_MAX_EVENTS - WS_NOTIFY)]
     ldr x21, [x19, #TC_O_SEED_LOOKBACK]
     str x21, [x20, #(WS_SEED_LOOKBACK - WS_NOTIFY)]
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1335,8 +1305,7 @@ watch_load_tail:
 // burst_cat(dst, src) -> dst + strlen(src) (no NUL; for the write burst)
     .p2align 2
 burst_cat:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x1
     mov x0, x20
@@ -1345,8 +1314,7 @@ burst_cat:
     mov x0, x19
     mov x1, x20
     bl watch_copy_to
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // wc_cat(dst, src) -> dst after the copied NUL; wc_catn(dst, src, len).
@@ -1380,10 +1348,7 @@ wc_catn:
 // ============================================================================
     .p2align 2
 watch_ymd_sod_to_epoch:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0
     mov x20, x1
     mov x2, #10000
@@ -1400,10 +1365,7 @@ watch_ymd_sod_to_epoch:
     ldr x3, =SECS_PER_DAY
     mul x0, x0, x3
     add x0, x0, x20
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1411,9 +1373,7 @@ watch_ymd_sod_to_epoch:
 // ============================================================================
     .p2align 2
 watch_epoch_to_ymd_sod:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     ldr x19, =SECS_PER_DAY
     udiv x20, x0, x19
     msub x21, x20, x19, x0             // sod
@@ -1426,9 +1386,7 @@ watch_epoch_to_ymd_sod:
     add x0, x0, x1
     add x0, x0, x2
     mov x1, x21
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -1493,8 +1451,7 @@ watch_days_from_civil:
 // ============================================================================
     .p2align 2
 watch_build_dirpath:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x0, tc_watch_dirpath
     LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
     bl wc_cat
@@ -1507,8 +1464,7 @@ watch_build_dirpath:
     bl wc_cat
     mov w2, #0
     strb w2, [x0]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1517,12 +1473,7 @@ watch_build_dirpath:
 // ============================================================================
     .p2align 2
 watch_build_listing:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // stat the channel dir; unchanged mtime + existing listing -> memo hit
     LEA x0, tc_watch_dirpath
     LEA x1, tc_watch_stat
@@ -1657,12 +1608,7 @@ watch_build_listing:
     mov x10, #1
     str x10, [x9]
 .Lwbl_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwbl_oom:
     LEA x0, s_oom
@@ -1695,10 +1641,7 @@ watch_listing_cmp:
 // ============================================================================
     .p2align 2
 watch_parse_log_filename:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     cmp x1, #16                       // at least "x-YYYY-MM-DD.log"
     b.lt .Lwpf_fail
     mov x2, x0                        // scan
@@ -1800,17 +1743,11 @@ watch_parse_log_filename:
     mov x9, #100
     madd x0, x22, x9, x0
     add x0, x0, x23
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwpf_fail:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1818,7 +1755,7 @@ watch_parse_log_filename:
 // ============================================================================
     .p2align 2
 watch_days_in_month:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     // month_days table
     LEA x10, watch_month_days
     sub x11, x1, #1
@@ -1845,7 +1782,7 @@ watch_days_in_month:
     add x12, x12, #1
 .Lwdim_out:
     mov x0, x12
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1854,10 +1791,7 @@ watch_days_in_month:
 // ============================================================================
     .p2align 2
 watch_init_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // end_given?  (Python: settings["end"] truthy)
     LEA x19, tc_opts
     mov x20, #TC_O_SRC
@@ -1957,10 +1891,7 @@ watch_init_window:
     str x11, [x9, #TC_W_THRESHOLD]
     ldr x11, [x10, #TC_O_STATE_FILTER]
     str x11, [x9, #TC_W_STATE_FILTER]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1968,9 +1899,7 @@ watch_init_window:
 // ============================================================================
     .p2align 2
 watch_roll_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x9, tc_watch_end_given
     ldr x9, [x9]
     cbnz x9, .Lwrw_slide
@@ -1996,9 +1925,7 @@ watch_roll_window:
     str x0, [x19, #TC_W_BEGIN_YMD]
     str x1, [x19, #TC_W_BEGIN_SOD]
 .Lwrw_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // month_days table (rodata lives with the other strings)
@@ -2016,10 +1943,7 @@ s_no_logs_pre:      .asciz "no log files found in "
 // watch_reader_find(path) -> x0 = reader ptr or 0 (linear scan by path).
     .p2align 2
 watch_reader_find:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // path
     LEA x9, tc_watch_reader_n
     ldr x20, [x9]
@@ -2039,26 +1963,17 @@ watch_reader_find:
     b .Lwrf_loop
 .Lwrf_found:
     ldr x0, [x21, x22, lsl #3]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwrf_none:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // watch_reader_get(path, fdate) -> x0 = reader ptr (created if missing).
     .p2align 2
 watch_reader_get:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // path
     mov x20, x1                        // fdate
     mov x0, x19
@@ -2112,10 +2027,7 @@ watch_reader_get:
     str x22, [x9]
     mov x0, x21
 .Lwrg_have:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwrg_oom:
     LEA x0, s_oom
@@ -2125,8 +2037,7 @@ watch_reader_get:
 //   full_reads/appends are lifetime counters and survive (Python reset()).
     .p2align 2
 watch_reader_reset:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     str xzr, [x19, #RD_BUCKET_N]
     str xzr, [x19, #RD_MATCH_N]
@@ -2153,19 +2064,14 @@ watch_reader_reset:
     str xzr, [x19, #RD_MTIME]
     ldr x9, [x19, #RD_ENTER]
     str x9, [x19, #RD_EXIT]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_bucket_find(rd, second, login, len, state) -> x0 = bucket ptr or 0.
 //   Binary search over the sorted (second, login, state) bucket array.
     .p2align 2
 watch_bucket_find:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // rd
     mov x20, x1                        // second
     mov x21, x2                        // login
@@ -2204,11 +2110,7 @@ watch_bucket_find:
     b.gt .Lwbf_lo
     // found
     mov x0, x10
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 .Lwbf_hi:
     mov x24, x9
@@ -2218,23 +2120,14 @@ watch_bucket_find:
     b .Lwbf_loop
 .Lwbf_none:
     mov x0, #0
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // watch_bucket_insert(rd, second, login, len, state) -> x0 = bucket ptr.
 //   Appends or binary-search inserts, keeping (second, login, state) order.
     .p2align 2
 watch_bucket_insert:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rd
     mov x20, x1                        // second
     mov x21, x2                        // login
@@ -2436,12 +2329,7 @@ watch_bucket_insert:
     add x12, x12, #1
     str x12, [x19, #RD_BUCKET_N]
     mov x0, x10
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwbi_oom:
     LEA x0, s_oom
@@ -2504,12 +2392,7 @@ watch_memcmp_n:
 // ============================================================================
     .p2align 2
 watch_reader_refresh:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rd
     mov x20, x1                        // stat
     mov x21, x2                        // enter
@@ -2785,12 +2668,7 @@ watch_reader_refresh:
     mov x19, x28                       // result
 .Lwrrf_cleanup2:
     mov x0, x19
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwrrf_open_err:
     bl tc_capture_errno                 // the skip() reason
@@ -2801,12 +2679,7 @@ watch_reader_refresh:
     bl close
 .Lwrrf_err:
     mov x0, #RD_ERR
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwrrf_alloc_err:
     mov x0, x23
@@ -2814,30 +2687,17 @@ watch_reader_refresh:
     b .Lwrrf_err
 .Lwrrf_rem_oom:
     mov x0, #RD_ERR
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwrrf_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
 // watch_join_bufs(a, b, blen, alen) -> (x0 = malloc'd a+b, x1 = total len)
     .p2align 2
 watch_join_bufs:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // a
     mov x20, x1                        // b
     mov x21, x2                        // blen
@@ -2858,10 +2718,7 @@ watch_join_bufs:
     bl watch_copy_to
     mov x0, x24
     mov x1, x23
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwjb_oom:
     LEA x0, s_oom
@@ -2905,12 +2762,7 @@ watch_last_newline:
 // ============================================================================
     .p2align 2
 watch_seek_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // text
     mov x20, x1                        // len
     mov x21, x2                        // floor
@@ -3053,22 +2905,12 @@ watch_seek_window:
 .Lwsw_done:
     mov x0, x22                        // start
     mov x1, x23                        // state or -1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwsw_zero:
     mov x0, #0
     mov x1, #-1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // watch_fmt2(dst, x1=0..99) -> dst+2 zero-padded
@@ -3087,11 +2929,7 @@ watch_fmt2:
 //   whose "[HH:MM:SS]" >= want, or len.  Python line_at_or_after (1537-1560).
     .p2align 2
 watch_line_at_or_after:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // text
     mov x20, x1                        // len (size)
     mov x21, x2                        // want
@@ -3144,11 +2982,7 @@ watch_line_at_or_after:
     b.ge .Lwloa_found
     // nothing at or after want -> return size
     mov x0, x20
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 .Lwloa_found:
     cmp x25, x23
@@ -3158,11 +2992,7 @@ watch_line_at_or_after:
     b .Lwloa_outer
 .Lwloa_ret:
     mov x0, x25
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // watch_strncmp_ge(text, len, off, n, want) -> x0 = 1 if text[off:off+n] >=
@@ -3233,8 +3063,7 @@ watch_rfind_char:
 //   at or before `from`, or -1 (Python prefix.rfind(literal)).
     .p2align 2
 watch_rfind:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // buf
     mov x20, x4                        // litlen
     // search window: [from, len)
@@ -3264,21 +3093,18 @@ watch_rfind:
     b .Lwrfl_loop
 .Lwrfl_found:
     sub x0, x9, x20
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwrfl_none:
     mov x0, #-1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_line_is_marker(line, len) -> x0 = 1 (live) / 2 (offline) / 0.
 //   LIVE_RE: ^\[\d{2}:\d{2}:\d{2}\] \S+ is (live!|now offline\.)$
     .p2align 2
 watch_line_is_marker:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x1
     // shape: [HH:MM:SS] then space then \S+ then " is live!" / " is now offline."
@@ -3355,8 +3181,7 @@ watch_line_is_marker:
     b .Lwlim_ns1
 .Lwlim_yes1:
     mov w0, #1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwlim_off:
     // suffix check: " is now offline." (len 16)
@@ -3386,13 +3211,11 @@ watch_line_is_marker:
     b .Lwlim_ns2
 .Lwlim_yes2:
     mov w0, #2
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwlim_no:
     mov w0, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
     RODATA
 lit_is_live:        .asciz " is live!"
@@ -3406,12 +3229,7 @@ lit_offline:        .asciz " is now offline."
 // ============================================================================
     .p2align 2
 watch_fold_lines:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rd
     mov x20, x1                        // text
     mov x21, x2                        // len
@@ -3478,12 +3296,7 @@ watch_fold_lines:
     mov x22, x0
 .Lwfl_done:
     str x22, [x19, #RD_EXIT]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -3492,12 +3305,7 @@ watch_fold_lines:
 // ============================================================================
     .p2align 2
 watch_fold_line:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rd
     mov x20, x1                        // line
     mov x21, x2                        // len
@@ -3700,12 +3508,7 @@ watch_fold_line:
     add x26, x26, #1
     str x26, [x19, #RD_MATCH_N]
 .Lwfln_skip:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwflm_oom:
     LEA x0, s_oom
@@ -3718,8 +3521,7 @@ watch_fold_line:
 // ============================================================================
     .p2align 2
 speaker_login2:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // speaker
     mov x20, x1                        // slen
     cmp x20, #1
@@ -3771,8 +3573,7 @@ speaker_login2:
     strb w3, [x4, x2]
     mov x0, x4
     mov x1, x20
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lsl2_localized:
     // LOCALIZED_RE: ^(\S+) ([a-z0-9_]{1,25})$ with a non-ASCII display
@@ -3856,14 +3657,12 @@ speaker_login2:
     strb w7, [x8, x4]
     mov x0, x8
     mov x1, x4
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lsl2_fail:
     mov x0, #0
     mov x1, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -3872,11 +3671,7 @@ speaker_login2:
 // ============================================================================
     .p2align 2
 watch_highlight_match:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // msg
     mov x20, x1                        // len
     LEA x9, tc_watch_highlight_on
@@ -3930,19 +3725,11 @@ watch_highlight_match:
     b .Lwhm_rule
 .Lwhm_done:
     mov x0, x23
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 .Lwhm_none:
     mov x0, #-1
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -3951,10 +3738,7 @@ watch_highlight_match:
 // ============================================================================
     .p2align 2
 watch_bucket_bounds:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // fdate ymd
     mov x20, x1                        // begin epoch
     mov x21, x2                        // end epoch
@@ -3983,18 +3767,12 @@ watch_bucket_bounds:
     b.gt .Lwbb_none
     mov x0, x23
     mov x1, x24
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwbb_none:
     mov x0, #-1
     mov x1, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -4006,12 +3784,7 @@ watch_bucket_bounds:
 // ============================================================================
     .p2align 2
 watch_reader_window:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rd
     mov x20, x1                        // lo
     mov x21, x2                        // hi
@@ -4198,12 +3971,7 @@ watch_reader_window:
     str x9, [x19, #RD_WIN_REV]
     mov x0, x22
 .Lwrw_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwrw_oom:
     LEA x0, s_oom
@@ -4212,8 +3980,7 @@ watch_reader_window:
 // ============================================================================
     .p2align 2
 watch_ww_find:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // win
     mov x20, x1                        // n
     mov x0, x2                         // login
@@ -4243,23 +4010,20 @@ watch_ww_find:
     b .Lwwf_cmp
 .Lwwf_found:
     mov x0, x3
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwwf_next:
     add x3, x3, #1
     b .Lwwf_loop
 .Lwwf_none:
     mov x0, #-1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_ww_set(win, n, login, state, nval) -> x0 = index (writes at index n)
     .p2align 2
 watch_ww_set:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // win
     mov x20, x1                        // n
     mov x9, #WW_SZ
@@ -4281,17 +4045,13 @@ watch_ww_set:
     strb w3, [x9, #(WW_STATE - WW_LOGIN)]
     str x4, [x9, #(WW_N - WW_LOGIN)]
     mov x0, x20
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_ww_add(win, login, state, n) — add n to the record, or append it.
     .p2align 2
 watch_ww_add:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // win
     mov x20, x1                        // login
     mov x21, x2                        // state
@@ -4338,19 +4098,14 @@ watch_ww_add:
     mov x4, x22
     bl watch_ww_set
 .Lwwa_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // watch_ww_sub(win, login, state, n) — subtract n; a record reaching 0 is
 //   left in place (watch_ww_trim compacts it away, Python's out += Counter()).
     .p2align 2
 watch_ww_sub:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // win
     mov x20, x1                        // login
     mov x21, x2                        // state
@@ -4369,17 +4124,13 @@ watch_ww_sub:
     sub x10, x10, x22
     str x10, [x9, #WW_N]
 .Lwws_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // watch_ww_trim(win) -> x0 = live count; compacts records with n > 0 forward.
     .p2align 2
 watch_ww_trim:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // win
     mov x20, #0                        // out index
     mov x21, #0                        // i
@@ -4411,19 +4162,14 @@ watch_ww_trim:
     b .Lwwt_loop
 .Lwwt_done:
     mov x0, x20
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // watch_order_span(rd, lo, hi) -> (x0 = first index with second >= lo,
 //   x1 = first index with second > hi).
     .p2align 2
 watch_order_span:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // rd
     mov x20, x1                        // lo
     mov x21, x2                        // hi
@@ -4474,10 +4220,7 @@ watch_order_span:
 .Lwosp_ub_done:
     mov x0, x9
     mov x1, x24
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -4486,12 +4229,7 @@ watch_order_span:
 // ============================================================================
     .p2align 2
 watch_reader_day:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rd
     // build when the record is absent or the revision moved
     ldr x9, [x19, #RD_DAY]
@@ -4560,12 +4298,7 @@ watch_reader_day:
     str x9, [x19, #RD_DAY_REV]
 .Lwday_have:
     ldr x0, [x19, #RD_DAY]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwday_oom:
     LEA x0, s_oom
@@ -4577,11 +4310,7 @@ watch_reader_day:
 // ============================================================================
     .p2align 2
 watch_reader_prune:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // rd
     mov x20, x1                        // floor
     mov x21, x2                        // match_floor
@@ -4659,11 +4388,7 @@ watch_reader_prune:
     str x9, [x19, #RD_PARTIAL]
     str xzr, [x19, #RD_WINDOW]
     str xzr, [x19, #RD_WIN_N]
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -4673,9 +4398,7 @@ watch_reader_prune:
 // ============================================================================
     .p2align 2
 watch_memo_find:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // ymd
     mov x20, x1                        // size
     mov x21, x2                        // mtime
@@ -4704,28 +4427,20 @@ watch_memo_find:
     cmp x14, x22
     b.ne .Lwmf_next
     mov x0, x13
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 .Lwmf_next:
     add x12, x12, #1
     b .Lwmf_loop
 .Lwmf_none:
     mov x0, #0
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // watch_memo_put(ymd, size, mtime, enter, exit, counts, count) -> x0 = DM ptr
     .p2align 2
 watch_memo_put:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                        // ymd
     mov x20, x1                        // size
     mov x21, x2                        // mtime
@@ -4775,11 +4490,7 @@ watch_memo_put:
     add x10, x10, #1
     str x10, [x9]
     mov x0, x11
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 .Lwmp_oom:
     LEA x0, s_oom
@@ -4789,10 +4500,7 @@ watch_memo_put:
 //   in: x0 = live count, x1 = live ymd array ptr
     .p2align 2
 watch_memo_retain:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // live count
     mov x20, x1                        // live array
     LEA x9, tc_watch_days_n
@@ -4842,10 +4550,7 @@ watch_memo_retain:
 .Lwmr_done:
     LEA x9, tc_watch_days_n
     str x23, [x9]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -4855,12 +4560,7 @@ watch_memo_retain:
 // ============================================================================
     .p2align 2
 watch_count_tick:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     bl watch_refresh_listing
     bl watch_seed_state                // x0 = entering state
     LEA x9, tc_watch_cur_state
@@ -4924,12 +4624,7 @@ watch_count_tick:
     // (the windows list is handled in watch_gather; readers are retained below)
 .Lwct_retain_done:
     bl watch_retain_readers
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -4937,9 +4632,9 @@ watch_count_tick:
 // ============================================================================
     .p2align 2
 watch_refresh_listing:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     bl watch_build_listing
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -4952,12 +4647,7 @@ watch_refresh_listing:
 // ============================================================================
     .p2align 2
 watch_gather:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // reset bookkeeping + windows
     LEA x9, tc_watch_g_files
     str xzr, [x9]
@@ -5013,12 +4703,7 @@ watch_gather:
 .Lwg_done:
     LEA x9, tc_watch_cur_state
     str x25, [x9]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -5030,12 +4715,7 @@ watch_gather:
 // ============================================================================
     .p2align 2
 watch_gather_file:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // i
     // entry
     LEA x9, tc_listing
@@ -5334,12 +5014,7 @@ watch_gather_file:
     LEA x9, tc_watch_g_enter
     str xzr, [x9]
 .Lwgf_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -5347,8 +5022,7 @@ watch_gather_file:
 // ============================================================================
     .p2align 2
 watch_win_add:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // win ptr
     LEA x9, tc_watch_win_n
     ldr x10, [x9]
@@ -5381,8 +5055,7 @@ watch_win_add:
     str x19, [x11, x10, lsl #3]
     add x10, x10, #1
     str x10, [x9]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwina_oom:
     LEA x0, s_oom
@@ -5394,8 +5067,7 @@ watch_win_add:
 // ============================================================================
     .p2align 2
 watch_record_unreadable:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // name
     mov x20, x1                        // reason
     LEA x9, tc_watch_g_unr_n
@@ -5435,8 +5107,7 @@ watch_record_unreadable:
     add x10, x10, #1
     str x10, [x9]
 .Lwru_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -5446,12 +5117,7 @@ watch_record_unreadable:
 // ============================================================================
     .p2align 2
 watch_fold:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x9, tc_window
     ldr x19, [x9, #TC_W_STATE_FILTER]  // shape
     LEA x9, tc_watch_sqlite_hit
@@ -5551,12 +5217,7 @@ watch_fold:
     add x22, x22, #1
     b .Lwf_copy
 .Lwf_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -5565,7 +5226,7 @@ watch_fold:
 // ============================================================================
     .p2align 2
 watch_reset_count:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_tally
     mov x1, #0
     mov x2, #TC_TALLY_SIZE
@@ -5574,7 +5235,7 @@ watch_reset_count:
     LEA x1, tc_users
     str x1, [x0, #TC_T_USERS_PTR]
     str xzr, [x1, #TC_US_COUNT]
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -5583,9 +5244,7 @@ watch_reset_count:
 // ============================================================================
     .p2align 2
 watch_apply:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // login
     mov x20, x1                        // len
     mov x21, x2                        // state
@@ -5624,9 +5283,7 @@ watch_apply:
     add x11, x11, x22
     str x11, [x10, #TC_US_OFFLINE]
 .Lwapp_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -5635,12 +5292,7 @@ watch_apply:
 // ============================================================================
     .p2align 2
 watch_finish:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_tally
     str xzr, [x19, #TC_T_STATES + 0]
     str xzr, [x19, #TC_T_STATES + 8]
@@ -5700,12 +5352,7 @@ watch_finish:
     add x23, x23, #1
     b .Lwfin_loop
 .Lwfin_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -5714,12 +5361,7 @@ watch_finish:
 // ============================================================================
     .p2align 2
 watch_retain_readers:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // build the live path list = listing entry names
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
@@ -5788,22 +5430,14 @@ watch_retain_readers:
     LEA x9, tc_watch_days_n
     str xzr, [x9]
 .Lwret_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // watch_path_in_listing(rd, n, entries) -> x0 = 1 if the reader's NAME
 //   (the file part of its path) appears in the listing, else 0.
     .p2align 2
 watch_path_in_listing:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // rd
     mov x20, x1                        // n
     mov x21, x2                        // entries
@@ -5842,17 +5476,11 @@ watch_path_in_listing:
     b .Lwpi_loop
 .Lwpi_yes:
     mov x0, #1
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwpi_no:
     mov x0, #0
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -5863,12 +5491,7 @@ watch_path_in_listing:
 // ============================================================================
     .p2align 2
 watch_seed_state:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x9, tc_window
     ldr x19, [x9, #TC_W_BEGIN_YMD]     // begin_ymd
     // find earlier = listing entries with ymd < begin_ymd
@@ -5994,12 +5617,7 @@ watch_seed_state:
     str x19, [x9, #32]
     mov x0, x19
 .Lwss_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6007,12 +5625,7 @@ watch_seed_state:
 // ============================================================================
     .p2align 2
 watch_scan_markers:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // path
     mov x0, x19
     mov x1, #O_RDONLY
@@ -6115,12 +5728,7 @@ watch_scan_markers:
     mov x0, x19
     bl free
 .Lwsm_free_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwsm_close:
     mov x0, x20
@@ -6131,12 +5739,7 @@ watch_scan_markers:
 .Lwsm_none2:
 .Lwsm_none:
     mov x0, #0
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6147,12 +5750,7 @@ watch_scan_markers:
 // ============================================================================
     .p2align 2
 watch_size_users:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x9, tc_window
     ldr x10, [x9, #TC_W_KIND]
     cmp x10, #TC_WIN_USERS
@@ -6296,12 +5894,7 @@ watch_size_users:
     // clear the fold-reuse state: the probes perturbed the tables
     LEA x9, tc_watch_fold_n
     str xzr, [x9]
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6311,10 +5904,7 @@ watch_size_users:
 // ============================================================================
     .p2align 2
 watch_reported_width:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // seconds
     LEA x20, tc_window
     ldr x0, [x20, #TC_W_END_YMD]
@@ -6354,10 +5944,7 @@ watch_reported_width:
     b .Lwrpw_loop
 .Lwrpw_done:
     mov x0, x19
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -6366,7 +5953,7 @@ watch_reported_width:
 // ============================================================================
     .p2align 2
 watch_eff_threshold:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
@@ -6385,7 +5972,7 @@ watch_eff_threshold:
     b .Lwet_col
 .Lwet_check:
     mov x0, x1
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 .Lwet_shown:
     ldr x2, [x0, #TC_O_SHARE_FLOOR]
@@ -6393,7 +5980,7 @@ watch_eff_threshold:
     cmp x2, x1
     b.lt .Lwet_check
     mov x0, x2
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -6403,12 +5990,7 @@ watch_eff_threshold:
 // ============================================================================
     .p2align 2
 watch_build_ramps:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_watch_shades
     ldr x20, [x19]                     // shades
     ldr x9, =SHADES_MAX
@@ -6543,12 +6125,7 @@ watch_build_ramps:
     add x24, x24, #1
     b .Lwbr_degen
 .Lwbr_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -6557,7 +6134,7 @@ watch_build_ramps:
 // ============================================================================
     .p2align 2
 watch_rule_curve_k:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     ldr x2, [x0, #TC_HL_CURVE]
     cmp x2, #-1
     b.ne .Lwrck_curve_ok
@@ -6579,7 +6156,7 @@ watch_rule_curve_k:
     str d0, [x9]
     ldr x1, [x9]
     mov x0, x2
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -6589,8 +6166,7 @@ watch_rule_curve_k:
 // ============================================================================
     .p2align 2
 watch_build_one_ramp:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     LEA x9, tc_watch_fade_curve
     ldr x3, [x9]
     LEA x9, tc_watch_fade_k
@@ -6599,19 +6175,13 @@ watch_build_one_ramp:
     str d4, [x9]
     ldr x4, [x9]
     bl watch_build_one_ramp_full
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_build_one_ramp_full(rgb_ptr, steps, key, curve, kbits) -> x0 = base
     .p2align 2
 watch_build_one_ramp_full:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // rgb ptr
     mov x20, x1                        // steps
     mov x21, x2                        // key
@@ -6800,18 +6370,13 @@ watch_build_one_ramp_full:
     b .Lwbrf_loop
 .Lwbrf_done:
     mov x0, x23                        // base
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // watch_fmt_u64(dst, x1) -> dst after digits (no NUL)
     .p2align 2
 watch_fmt_u64:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     sub sp, sp, #32
     add x2, sp, #20
     cmp x1, #0
@@ -6838,15 +6403,13 @@ watch_fmt_u64:
     b .Lwfu_copy_loop
 .Lwfu_done:
     add sp, sp, #32
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // watch_ramp_distinct(key) -> x0 = 1 when every shade renders identically.
     .p2align 2
 watch_ramp_distinct:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     LEA x9, tc_watch_ramps
     mov x10, #16
     mul x10, x0, x10
@@ -6870,22 +6433,17 @@ watch_ramp_distinct:
     b .Lwrd_loop
 .Lwrd_yes:
     mov x0, #1
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 .Lwrd_no:
     mov x0, #0
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // watch_ramp_key_str(key) -> x0 = "up" / "down" / "highlightN"
     .p2align 2
 watch_ramp_key_str:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     cmp x0, #0
     b.eq .Lwrks_up
@@ -6900,18 +6458,15 @@ watch_ramp_key_str:
     mov w2, #0
     strb w2, [x0]
     LEA x0, tc_watch_scratch
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwrks_up:
     LEA x0, s_up
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwrks_down:
     LEA x0, s_down
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
     RODATA
     .p2align 3
@@ -6934,12 +6489,7 @@ tc_watch_wait:      .skip 8             // double: interval - elapsed (watch_nex
 // ============================================================================
     .p2align 2
 watch_compile_patterns:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // streamer mode: highlights = () (Python resolve_watch)
     LEA x9, tc_watch_streamer
     ldr x9, [x9]
@@ -7064,12 +6614,7 @@ watch_compile_patterns:
     mov x10, #1
     str x10, [x9]
 .Lwcp_on_off:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -7079,12 +6624,7 @@ watch_compile_patterns:
 // ============================================================================
     .p2align 2
 watch_reresolve_settings:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     LEA x19, tc_opts
     mov x20, #TC_O_SRC
     add x20, x19, x20
@@ -7225,22 +6765,14 @@ watch_reresolve_settings:
     // refresh the session copy + validation
     bl watch_load_settings
     bl watch_load_tail
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // watch_reresolve_one(set, key, section, parser, value_off) — when the
 //   setting's current source is config, re-query and re-convert.
     .p2align 2
 watch_reresolve_one:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // set
     mov x20, x1                        // key
     mov x21, x2                        // section
@@ -7273,18 +6805,13 @@ watch_reresolve_one:
     add x10, x9, x10
     ldr x11, [x10, x19, lsl #3]        // keep the config source id
 .Lwrro_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // watch_reresolve_hex — like watch_reresolve_one for P_HEX (writes RGB + raw)
     .p2align 2
 watch_reresolve_hex:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     mov x19, x0                        // set
     mov x20, x1                        // key
     mov x21, x2                        // section
@@ -7318,9 +6845,7 @@ watch_reresolve_hex:
     and x10, x0, #0xFF
     str w10, [x9, #8]
 .Lwrh_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // watch_parse_for_store(parser, raw) -> (x0 = value, x1 = status)
@@ -7329,8 +6854,7 @@ watch_reresolve_hex:
 //   not exported).
     .p2align 2
 watch_parse_for_store:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // parser
     mov x20, x1                        // raw
     cmp x0, #P_NONNEG_FLOAT
@@ -7347,8 +6871,7 @@ watch_parse_for_store:
     b.eq .Lwpfs_curve
     mov x0, #0
     mov x1, #1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_nnf:
     mov x0, x20
@@ -7360,8 +6883,7 @@ watch_parse_for_store:
     str d0, [x9]
     ldr x0, [x9]
     mov x1, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_pf:
     mov x0, x20
@@ -7373,8 +6895,7 @@ watch_parse_for_store:
     str d0, [x9]
     ldr x0, [x9]
     mov x1, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_pos:
     mov x0, x20
@@ -7383,8 +6904,7 @@ watch_parse_for_store:
     cmp x0, #0
     b.le .Lwpfs_bad
     mov x1, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_nonneg:
     mov x0, x20
@@ -7393,37 +6913,33 @@ watch_parse_for_store:
     cmp x0, #0
     b.lt .Lwpfs_bad
     mov x1, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_bad:
     mov x0, #0
     mov x1, #1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_bool:
     mov x0, x20
     bl tc_parse_bool
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpfs_curve:
     mov x0, x20
     bl tc_parse_curve
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_parse_channel_value(raw) — copy a config channel value into TC_O_CHANNEL
     .p2align 2
 watch_parse_channel_value:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     mov x1, x0
     LEA_OFF x0, tc_opts, TC_O_CHANNEL
     mov x2, #TC_O_CHANNEL_SZ
     bl tc_copy_str_cap
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -7434,12 +6950,7 @@ watch_parse_channel_value:
 // ============================================================================
     .p2align 2
 watch_launch_tints:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     // explicit end -> no replay (nothing moves)
     LEA x9, tc_watch_end_given
     ldr x9, [x9]
@@ -7622,12 +7133,7 @@ watch_launch_tints:
     sub x24, x24, #1
     b .Lwlt_step
 .Lwlt_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -7637,9 +7143,7 @@ watch_launch_tints:
 // ============================================================================
     .p2align 2
 watch_replay_add:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     stp x14, x15, [sp, #-16]!
     stp x16, x17, [sp, #-16]!
     mov x19, x0                        // n
@@ -7702,11 +7206,7 @@ watch_replay_add:
 // ============================================================================
     .p2align 2
 watch_colorize_step:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     // filter carried tints: keep when hold <= 0 or now - when < hold
     LEA x9, tc_watch_dtmp3
     ldr d0, [x9]                       // replay now
@@ -7775,11 +7275,7 @@ watch_colorize_step:
     LEA x19, tc_watch_replay_map
     b .Lwcs_loop
 .Lwcs_done:
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // memcpy_copy(dst, src, len) — byte copy helper
@@ -7803,8 +7299,7 @@ memcpy_copy:
 // watch_tint_find(login, len) -> x0 = tint record ptr or 0
     .p2align 2
 watch_tint_find:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // login
     mov x20, x1                        // len
     LEA x9, tc_watch_tint_count
@@ -7828,25 +7323,20 @@ watch_tint_find:
     b .Lwtf_cmp
 .Lwtf_found:
     mov x0, x13
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwtf_next:
     add x12, x12, #1
     b .Lwtf_loop
 .Lwtf_none:
     mov x0, #0
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_tint_set(login, len, dir, when) — assign/refresh a tint.
     .p2align 2
 watch_tint_set:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     mov x19, x0                        // login
     mov x20, x1                        // len
     mov x21, x2                        // dir
@@ -7890,17 +7380,13 @@ watch_tint_set:
     LEA x9, tc_watch_tint_count
     str x10, [x9]
 .Lwts_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // watch_tint_remove(login, len)
     .p2align 2
 watch_tint_remove:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x1
     bl watch_tint_find
@@ -7945,15 +7431,13 @@ watch_tint_remove:
     LEA x9, tc_watch_tint_count
     str x10, [x9]
 .Lwtr_done:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_prev_find(login, len) -> x0 = count or -1
     .p2align 2
 watch_prev_find:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0
     mov x20, x1
     LEA x9, tc_watch_prev_n
@@ -7977,26 +7461,21 @@ watch_prev_find:
     b .Lwpf_cmp
 .Lwpf_found:
     ldr x0, [x13, #PV_COUNT]
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwpf_next:
     add x12, x12, #1
     b .Lwpf_loop
 .Lwpf_none:
     mov x0, #-1
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // watch_build_prev — rebuild tc_watch_prev from the tally's users:
 //   {login: count-column} for non-excluded users with count > 0.
     .p2align 2
 watch_build_prev:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x9, tc_watch_prev_n
     str xzr, [x9]
     LEA x19, tc_users
@@ -8046,10 +7525,7 @@ watch_build_prev:
     add x22, x22, #1
     b .Lwbp_loop
 .Lwbp_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -8058,10 +7534,7 @@ watch_build_prev:
 // ============================================================================
     .p2align 2
 watch_filter_tints:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x9, tc_watch_hold
     ldr d1, [x9]
     fcmp d1, #0.0
@@ -8105,10 +7578,7 @@ watch_filter_tints:
     LEA x9, tc_watch_tint_count
     str x21, [x9]
 .Lwft_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -8117,8 +7587,7 @@ watch_filter_tints:
 // ============================================================================
     .p2align 2
 watch_fade_color:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // key
     LEA x9, tc_watch_dtmp4
     str d0, [x9]                       // age
@@ -8132,8 +7601,7 @@ watch_fade_color:
     b.lt .Lwfc_index
 .Lwfc_expired:
     mov x0, #0                         // expired
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwfc_index:
     // shades = ramps[key]; hold / len(shades)
@@ -8161,8 +7629,7 @@ watch_fade_color:
     mov x9, #SHADE_SZ
     mul x9, x13, x9
     add x0, x11, x9
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 .Lwfc_indef:
     // hold <= 0: shades[0]
@@ -8171,8 +7638,7 @@ watch_fade_color:
     mul x10, x19, x10
     add x9, x9, x10
     ldr x0, [x9]                       // base
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -8182,12 +7648,7 @@ watch_fade_color:
 // ============================================================================
     .p2align 2
 watch_choose:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // login
     LEA x9, tc_watch_highlight_on
     ldr x9, [x9]
@@ -8266,21 +7727,11 @@ watch_choose:
     cmp x22, #0
     b.lt .Lwch_none
     add x0, x22, #2                    // ramp key = 2 + rule index
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwch_none:
     mov x0, #-1
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -8291,12 +7742,7 @@ watch_choose:
 // ============================================================================
     .p2align 2
 watch_tint_apply:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // login
     mov x20, x1                        // count
     mov x21, x2                        // text
@@ -8415,12 +7861,7 @@ watch_tint_apply:
 .Lwta_plain:
     mov x0, x21
 .Lwta_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -8430,12 +7871,7 @@ watch_tint_apply:
 // ============================================================================
     .p2align 2
 watch_tint_hook:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x1                        // rec
     mov x20, x2                        // text
     // colorizer(frame, enabled=False): the row stays plain and no tint is
@@ -8451,12 +7887,7 @@ watch_tint_hook:
     mov x2, x20
     bl watch_tint_apply
 .Lwth_out:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -8465,9 +7896,7 @@ watch_tint_hook:
 // ============================================================================
     .p2align 2
 watch_next_wait:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
+    PROLOGUE 2
     // elapsed: the value measured before the paint (Python computes it once)
     LEA x9, tc_watch_elapsed
     ldr d0, [x9]
@@ -8504,9 +7933,7 @@ watch_next_wait:
     fmov d0, d2
     bl watch_wait_changes
 .Lwnw_done:
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -8516,10 +7943,7 @@ watch_next_wait:
 // ============================================================================
     .p2align 2
 watch_next_tint_change:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     LEA x9, tc_watch_dtmp4
     str d0, [x9]                       // now
     LEA x9, tc_watch_hold
@@ -8593,20 +8017,14 @@ watch_next_tint_change:
 .Lwntc_done:
     LEA x9, tc_watch_dtmp3
     ldr d0, [x9]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwntc_none:
     LEA x9, tc_watch_dtmp3
     mov x10, #-1
     scvtf d0, x10
     str d0, [x9]
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -8617,11 +8035,7 @@ watch_next_tint_change:
 // ============================================================================
     .p2align 2
 watch_build_status:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     // blank line (append at the captured line count)
     LEA x9, tc_frame_count
     ldr x10, [x9]
@@ -8798,11 +8212,7 @@ watch_build_status:
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -8811,10 +8221,7 @@ watch_build_status:
 // ============================================================================
     .p2align 2
 watch_prepare_frame:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
+    PROLOGUE 3
     // estimate the frame height
     LEA x19, tc_plan_reported_n
     ldr x20, [x19]
@@ -8967,10 +8374,7 @@ watch_prepare_frame:
     LEA x9, tc_watch_burst_cap
     str x19, [x9]
 .Lwpf_burst_done:
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 3
     ret
 .Lwpf_oom:
     LEA x0, s_oom
@@ -8981,8 +8385,7 @@ watch_prepare_frame:
 // ============================================================================
     .p2align 2
 watch_free_plan:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     // The slot addresses live in callee-saved registers: free() clobbers
     // x9-x17 (musl's happened not to, libSystem's does), and the slot is
     // cleared after the call.
@@ -8998,8 +8401,7 @@ watch_free_plan:
     bl free
     str xzr, [x19]
 .Lwfp2_excl_ok:
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -9013,12 +8415,7 @@ watch_free_plan:
 // ============================================================================
     .p2align 2
 watch_screen_paint:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     bl watch_terminal_width
     mov x19, x0                        // width
     LEA x9, tc_frame_count
@@ -9179,12 +8576,7 @@ watch_screen_paint:
     LEA x9, tc_watch_since_full
     str xzr, [x9]
 .Lwsp_done:
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 // ============================================================================
 // watch_terminal_width() -> x0 = columns (isatty + TIOCGWINSZ, fallback 80).
@@ -9214,12 +8606,7 @@ watch_strcpy:
 // ============================================================================
     .p2align 2
 watch_clip:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
-    stp x27, x28, [sp, #-16]!
+    PROLOGUE 5
     mov x19, x0                        // text
     mov x20, x1                        // width
     // text length (Python walks `index < len(text)`; x27 survives calls)
@@ -9280,21 +8667,11 @@ watch_clip:
     mov w9, #0
     strb w9, [x22]
     mov x0, x21
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 .Lwcl_ret:
     mov x0, x19
-    ldp x27, x28, [sp], #16
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -9302,8 +8679,7 @@ watch_clip:
 // ============================================================================
     .p2align 2
 watch_visible_width:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     mov x19, x0                        // text
     mov x0, x19
     bl tc_strlen
@@ -9335,8 +8711,7 @@ watch_visible_width:
     b .Lwvw_loop
 .Lwvw_done:
     mov x0, x10
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -9345,7 +8720,7 @@ watch_visible_width:
 // ============================================================================
     .p2align 2
 watch_ansi_match:
-    stp x29, x30, [sp, #-16]!
+    PROLOGUE 0
     add x0, x0, x1                     // scan from pos, not the buffer head
     ldrb w1, [x0]
     cmp w1, #0x1B
@@ -9378,14 +8753,14 @@ watch_ansi_match:
     b.gt .Lwam_none
 .Lwam_yes:
     add x0, x2, #1
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
 .Lwam_next:
     add x2, x2, #1
     b .Lwam_scan
 .Lwam_none:
     mov x0, #0
-    ldp x29, x30, [sp], #16
+    EPILOGUE 0
     ret
     .text
 

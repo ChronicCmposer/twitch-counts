@@ -42,8 +42,7 @@ tc_load_src_id:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_print_src:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     bl tc_source_str                // x0=ptr, x1=len
     mov x19, x0
     mov x20, x1
@@ -51,8 +50,7 @@ tc_print_src:
     mov x1, x20
     mov x2, x19
     bl tc_printf_ip
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -60,12 +58,10 @@ tc_print_src:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_print_src_of:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
+    PROLOGUE 1
     bl tc_load_src_id
     bl tc_print_src
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -73,11 +69,7 @@ tc_print_src_of:
 // ----------------------------------------------------------------------------
     .p2align 2
 main:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    stp x21, x22, [sp, #-16]!
-    stp x23, x24, [sp, #-16]!
-    stp x25, x26, [sp, #-16]!
+    PROLOGUE 4
     mov x19, x0                     // argc
     mov x20, x1                     // argv
     mov x0, x19
@@ -306,11 +298,7 @@ main:
     bl printf
 
     mov w0, #0
-    ldp x25, x26, [sp], #16
-    ldp x23, x24, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
