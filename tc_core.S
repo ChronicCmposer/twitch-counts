@@ -545,9 +545,24 @@ tc_resolve_channel:
     add x0, x0, #TC_O_LOGS_DIR
     ldrb w1, [x0]
     cbnz w1, .Lrc_dir_notfound_set
+    // `root = logs_dir.value or PLATFORM.require_logs_dir()`: an empty value
+    // (e.g. -d "") falls back to the platform default; the macOS class has
+    // one, the Linux class raises Unsupported
+    mov x1, #TC_O_LOGS_DIR_SZ
+    bl tc_platform_default_logs_dir    // x0 = length, 0 = no default
+    cbnz x0, .Lrc_dir_defaulted
     adrp x0, PAGE(s_logs_dir_unsupported)
     add x0, x0, LO12(s_logs_dir_unsupported)
     bl .Lrc_emit_fail
+.Lrc_dir_defaulted:
+    // start over with the default in place (expanduser + isdir + opendir)
+    ldp x27, x28, [sp], #16
+    ldp x25, x26, [sp], #16
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    b tc_resolve_channel
 .Lrc_dir_notfound_set:
     // "logs directory not found: <dir>"
     adrp x0, PAGE(tc_core_scratch)
