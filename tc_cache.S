@@ -55,11 +55,11 @@
 //
 //  Calling contract with tc_core.S (Phase 6 integration)
 //  ----------------------------------------------------
-//    tc_count_final's loop calls tc_cache_day(fpath, lo, hi, enter_state, ymd)
+//    core_count_final's loop calls tc_cache_day(fpath, lo, hi, enter_state, ymd)
 //    before reading the file.  enter_state is the live/offline/unknown state
-//    in force entering the day (tc_core_cur_state); ymd is the entry's date.
-//    The cache module never touches tc_core_cur_state: the core stores the
-//    returned exit_state itself.  It DOES write tc_users (find_user/add_user
+//    in force entering the day (core_cur_state); ymd is the entry's date.
+//    The cache module never touches core_cur_state: the core stores the
+//    returned exit_state itself.  It DOES write tc_users (tc_find_user/tc_add_user
 //    and the all-state totals are exported by tc_core.S for this) and reads
 //    the tally (TC_T_REUSED is incremented by the CORE when result == 1; the
 //    cache module only applies counts).
@@ -203,28 +203,28 @@
 // ----------------------------------------------------------------------------
     .bss
     .p2align 4
-tc_cache_db:        .skip 8          // sqlite3* (0 = not open)
-tc_cache_path:      .skip PATH_SZ    // resolved db path ("" = none)
-tc_cache_path_ptr:  .skip 8
-tc_cache_channel:   .skip 8          // tc_channel_name() pointer (stashed)
-tc_cache_fp:        .skip FP_SZ      // fingerprint hex + NUL
-tc_cache_reason:    .skip 8          // rebuilt_reason ptr (0 = none)
-tc_cache_problem:   .skip 8          // problem ptr (0 = none)
-tc_cache_problem_buf: .skip PROB_BUF_SZ
-tc_cache_swept:     .skip 8
-tc_cache_hits:      .skip 8
-tc_cache_stat:      .skip STAT_SZ    // last stat of the current day
-tc_cache_epoch:     .skip 8          // time_t slot for localtime_r
-tc_cache_tm:        .skip 64         // struct tm
-tc_cache_stash:     .skip 8          // 0/1 a whole-day miss is pending
-tc_cache_stash_ymd: .skip 8
-tc_cache_stash_size:  .skip 8
-tc_cache_stash_mtime: .skip 8
-tc_cache_stash_enter: .skip 8
-tc_cache_snap:      .skip 8          // malloc'd user-table snapshot (0 none)
-tc_cache_snap_n:    .skip 8          // users captured in the snapshot
-tc_cache_scratch:   .skip SCRATCH_SZ // date / iso formatting
-tc_cache_scratch2:  .skip SCRATCH_SZ // mkdir path scratch
+cache_db:        .skip 8          // sqlite3* (0 = not open)
+cache_path:      .skip PATH_SZ    // resolved db path ("" = none)
+cache_path_ptr:  .skip 8
+cache_channel:   .skip 8          // tc_channel_name() pointer (stashed)
+cache_fp:        .skip FP_SZ      // fingerprint hex + NUL
+cache_reason:    .skip 8          // rebuilt_reason ptr (0 = none)
+cache_problem:   .skip 8          // problem ptr (0 = none)
+cache_problem_buf: .skip PROB_BUF_SZ
+cache_swept:     .skip 8
+cache_hits:      .skip 8
+cache_stat:      .skip STAT_SZ    // last stat of the current day
+cache_epoch:     .skip 8          // time_t slot for localtime_r
+cache_tm:        .skip 64         // struct tm
+cache_stash:     .skip 8          // 0/1 a whole-day miss is pending
+cache_stash_ymd: .skip 8
+cache_stash_size:  .skip 8
+cache_stash_mtime: .skip 8
+cache_stash_enter: .skip 8
+cache_snap:      .skip 8          // malloc'd user-table snapshot (0 none)
+cache_snap_n:    .skip 8          // users captured in the snapshot
+cache_scratch:   .skip SCRATCH_SZ // date / iso formatting
+cache_scratch2:  .skip SCRATCH_SZ // mkdir path scratch
 
 // ----------------------------------------------------------------------------
 // .rodata — SQL and message literals
@@ -335,17 +335,17 @@ s_fp_parts:
 tc_cache_open:
     PROLOGUE 5
     // ---- reset session state ----
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     str xzr, [x9]
-    LEA x9, tc_cache_problem
+    LEA x9, cache_problem
     str xzr, [x9]
-    LEA x9, tc_cache_reason
+    LEA x9, cache_reason
     str xzr, [x9]
-    LEA x9, tc_cache_path_ptr
+    LEA x9, cache_path_ptr
     str xzr, [x9]
-    LEA x9, tc_cache_swept
+    LEA x9, cache_swept
     str xzr, [x9]
-    LEA x9, tc_cache_hits
+    LEA x9, cache_hits
     str xzr, [x9]
     // ---- flags ----
     LEA x9, tc_opts
@@ -355,84 +355,84 @@ tc_cache_open:
     tst x10, #TC_F_REBUILD_CACHE
     cset x19, ne                    // x19 = rebuild 0/1
     // ---- resolve the channel first ----
-    // The channel dir name (tc_core_name) is filled by tc_resolve_channel,
+    // The channel dir name (core_name) is filled by tc_resolve_channel,
     // which tc_count_run normally calls later.  The cache needs the name at
     // open time (the purge binds it), and tc_channel_name() only returns the
     // pointer, whose CONTENT is empty until resolution.  Resolve now; the
     // re-resolution inside tc_count_run is idempotent.
     bl tc_resolve_channel
     // ---- resolve the cache path ----
-    bl resolve_cache_path
-    LEA x9, tc_cache_path
+    bl cache_resolve_cache_path
+    LEA x9, cache_path
     ldrb w10, [x9]
     cbz w10, .Lco_no_path           // no default location; not a fault
-    LEA x9, tc_cache_path_ptr
-    LEA x10, tc_cache_path
+    LEA x9, cache_path_ptr
+    LEA x10, cache_path
     str x10, [x9]
     // ---- existed = stat(path) == 0 (Python os.path.exists before connect)
     mov x0, x10
-    LEA x1, tc_cache_stat
+    LEA x1, cache_stat
     bl stat
     cmp w0, #0
     cset x20, eq                    // x20 = existed 0/1
     // ---- mkdir -p dirname(path) ----
-    LEA x0, tc_cache_path
-    bl mkdir_cache_dir
+    LEA x0, cache_path
+    bl cache_mkdir_cache_dir
     // ---- channel + fingerprint ----
     bl tc_channel_name
-    LEA x9, tc_cache_channel
+    LEA x9, cache_channel
     str x0, [x9]
-    bl fingerprint_build
+    bl cache_fingerprint_build
     // ---- step "connect": open + WAL + begin + schema ----
-    LEA x0, tc_cache_path
-    LEA x1, tc_cache_db
+    LEA x0, cache_path
+    LEA x1, cache_db
     ldr x2, =OPEN_FLAGS
     mov x3, #0
     bl sqlite3_open_v2
     cbnz w0, .Lco_fail_connect
     LEA x0, s_pragma_wal
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_connect
     LEA x0, s_begin
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_connect
     LEA x0, s_sql_meta
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_connect
     LEA x0, s_sql_generation
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_connect
     LEA x0, s_sql_file
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_connect
     LEA x0, s_sql_counts
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_connect
     // ---- step "migrate" ----
     mov x0, x20                     // existed
-    bl migrate_step                 // x0 = 0 ok (reason in tc_cache_tmp), else failed
+    bl cache_migrate_step                 // x0 = 0 ok (reason in tc_cache_tmp), else failed
     cbnz x0, .Lco_open_done
 // ---- step "register" ----
-    bl register_step                 // x0 = 0 ok (reason OR'd into tc_cache_tmp)
+    bl cache_register_step                 // x0 = 0 ok (reason OR'd into tc_cache_tmp)
     cbnz x0, .Lco_open_done
     // move the composed reason (migrate or generation) into place
-    LEA x9, tc_cache_tmp_reason
+    LEA x9, cache_tmp_reason
     ldr x10, [x9]
-    LEA x9, tc_cache_reason
+    LEA x9, cache_reason
     str x10, [x9]
     // ---- step "sweep" ----
-    bl sweep_step                   // x0 = 0 ok
+    bl cache_sweep_step                   // x0 = 0 ok
     cbnz x0, .Lco_open_done
     // ---- step "rebuild" (only with --rebuild-cache) ----
     cbz x19, .Lco_commit
-    bl purge_step                   // x0 = 0 ok
+    bl cache_purge_step                   // x0 = 0 ok
     cbnz x0, .Lco_open_done
-    LEA x9, tc_cache_reason
+    LEA x9, cache_reason
     LEA x10, s_reason_rebuild
     str x10, [x9]
 .Lco_commit:
     LEA x0, s_commit
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lco_fail_commit
 .Lco_open_done:
     EPILOGUE 5
@@ -467,7 +467,7 @@ tc_cache_open:
     FUNC_TYPE(tc_cache_close)
 tc_cache_close:
     PROLOGUE 0
-    LEA x0, tc_cache_db
+    LEA x0, cache_db
     ldr x1, [x0]
     cbz x1, .Lcc_done
     str xzr, [x0]
@@ -484,7 +484,7 @@ tc_cache_close:
     .global tc_cache_used
     FUNC_TYPE(tc_cache_used)
 tc_cache_used:
-    LEA x0, tc_cache_db
+    LEA x0, cache_db
     ldr x0, [x0]
     cmp x0, #0
     cset x0, ne
@@ -498,18 +498,18 @@ tc_cache_used:
     .global tc_cache_status
     FUNC_TYPE(tc_cache_status)
 tc_cache_status:
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     ldr x0, [x9]
     cmp x0, #0
     cset x0, ne
     LEA x9, tc_tally
     ldr x1, [x9, #TC_T_REUSED]
     ldr x2, [x9, #TC_T_PARSED]
-    LEA x9, tc_cache_problem
+    LEA x9, cache_problem
     ldr x3, [x9]
-    LEA x9, tc_cache_reason
+    LEA x9, cache_reason
     ldr x4, [x9]
-    LEA x9, tc_cache_path_ptr
+    LEA x9, cache_path_ptr
     ldr x5, [x9]
     ret
 
@@ -531,12 +531,12 @@ tc_cache_day:
     // defensively (put_day/discard_day are no-ops without a stash)
     bl cache_drop_stash
     // cache open?
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     ldr x9, [x9]
     cbz x9, .Lcd_nocache
     // stat the file
     mov x0, x19
-    LEA x1, tc_cache_stat
+    LEA x1, cache_stat
     bl stat
     cbnz w0, .Lcd_statfail
     // whole_day? (lo == 0 and hi == 86399)
@@ -552,13 +552,13 @@ tc_cache_day:
     b.eq .Lcd_hit
     // miss: stash the stat + enter state and snapshot the user table so the
     // put (after parsing) can write the whole-day counts.
-    LEA x9, tc_cache_stash_ymd
+    LEA x9, cache_stash_ymd
     str x23, [x9]
-    LEA x9, tc_cache_stash_size
-    LEA x10, tc_cache_stat
+    LEA x9, cache_stash_size
+    LEA x10, cache_stat
     ldr x11, [x10, #ST_SIZE]
     str x11, [x9]
-    LEA x9, tc_cache_stash_mtime
+    LEA x9, cache_stash_mtime
     ldr x11, [x10, #ST_MTIM_SEC]
     movz x12, #0xCA00, lsl #0
     movk x12, #0x3B9A, lsl #16      // 1000000000
@@ -566,12 +566,12 @@ tc_cache_day:
     ldr x12, [x10, #ST_MTIM_NSEC]
     add x11, x11, x12
     str x11, [x9]
-    LEA x9, tc_cache_stash_enter
+    LEA x9, cache_stash_enter
     str x22, [x9]
-    LEA x9, tc_cache_stash
+    LEA x9, cache_stash
     mov x10, #1
     str x10, [x9]
-    bl snapshot_users
+    bl cache_snapshot_users
     mov x0, #0
     b .Lcd_done
 .Lcd_hit:
@@ -600,55 +600,55 @@ tc_cache_day:
 tc_cache_put_day:
     PROLOGUE 5
     mov x19, x0                     // exit_state
-    LEA x9, tc_cache_stash
+    LEA x9, cache_stash
     ldr x9, [x9]
     cbz x9, .Lcp_done               // nothing stashed
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     ldr x9, [x9]
     cbz x9, .Lcp_discard
-    LEA x9, tc_cache_snap
+    LEA x9, cache_snap
     ldr x9, [x9]
     cbz x9, .Lcp_discard
     // ---- date string ----
-    LEA x9, tc_cache_stash_ymd
+    LEA x9, cache_stash_ymd
     ldr x0, [x9]
-    LEA x1, tc_cache_scratch
-    bl fmt_date
-    LEA x20, tc_cache_scratch  // date ptr
+    LEA x1, cache_scratch
+    bl cache_fmt_date
+    LEA x20, cache_scratch  // date ptr
     // ---- DELETE counts for this (fp, channel, date) ----
     LEA x0, s_sql_del_day_counts
-    bl prepare_stmt                 // x0 = stmt or 0
+    bl cache_prepare_stmt                 // x0 = stmt or 0
     cbz x0, .Lcp_discard
     mov x21, x0                     // stmt
-    LEA x0, tc_cache_fp
+    LEA x0, cache_fp
     mov x2, x0
     mov x0, x21
     mov x1, #1
-    bl bind_text_stmt
-    LEA x2, tc_cache_channel
+    bl cache_bind_text_stmt
+    LEA x2, cache_channel
     ldr x2, [x2]
     mov x0, x21
     mov x1, #2
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #3
     mov x2, x20
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x21
     bl sqlite3_finalize
     // ---- INSERT counts rows (delta of the user table since the snapshot) ----
     LEA x0, s_sql_ins_count
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcp_discard
     mov x21, x0                     // counts stmt
     LEA x22, tc_users
     ldr x23, [x22, #TC_US_COUNT]    // new_n
     ldr x24, [x22, #TC_US_ENTRIES]  // entries
-    LEA x25, tc_cache_snap
+    LEA x25, cache_snap
     ldr x25, [x25]                  // snap value (the malloc'd array)
-    LEA x26, tc_cache_snap_n
+    LEA x26, cache_snap_n
     ldr x26, [x26]                  // snap_n
     mov x27, #0                     // i
 .Lcp_user_loop:
@@ -685,34 +685,34 @@ tc_cache_put_day:
     // bind fingerprint, channel, date, login
     mov x0, x21
     mov x1, #1
-    LEA x2, tc_cache_fp
-    bl bind_text_stmt
+    LEA x2, cache_fp
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #2
-    LEA x2, tc_cache_channel
+    LEA x2, cache_channel
     ldr x2, [x2]
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #3
     mov x2, x20
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #4
     mov x2, x28                     // entry login ptr
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     // live
     ldr x9, [sp]
     cbz x9, .Lcp_no_live
     mov x0, x21
     mov x1, #5
     LEA x2, s_state_live
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #6
     ldr x2, [sp]
-    bl bind_int64_stmt
+    bl cache_bind_int64_stmt
     mov x0, x21
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x21
     bl sqlite3_reset
 .Lcp_no_live:
@@ -722,13 +722,13 @@ tc_cache_put_day:
     mov x0, x21
     mov x1, #5
     LEA x2, s_state_offline
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #6
     ldr x2, [sp, #8]
-    bl bind_int64_stmt
+    bl cache_bind_int64_stmt
     mov x0, x21
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x21
     bl sqlite3_reset
 .Lcp_no_off:
@@ -738,13 +738,13 @@ tc_cache_put_day:
     mov x0, x21
     mov x1, #5
     LEA x2, s_state_unknown
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #6
     ldr x2, [sp, #16]
-    bl bind_int64_stmt
+    bl cache_bind_int64_stmt
     mov x0, x21
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x21
     bl sqlite3_reset
 .Lcp_no_unk:
@@ -756,41 +756,41 @@ tc_cache_put_day:
     bl sqlite3_finalize
     // ---- INSERT OR REPLACE INTO file ----
     LEA x0, s_sql_ins_file
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcp_discard
     mov x21, x0
     mov x0, x21
     mov x1, #1
-    LEA x2, tc_cache_fp
-    bl bind_text_stmt
+    LEA x2, cache_fp
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #2
-    LEA x2, tc_cache_channel
+    LEA x2, cache_channel
     ldr x2, [x2]
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #3
     mov x2, x20
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #4
-    LEA x2, tc_cache_stash_size
+    LEA x2, cache_stash_size
     ldr x2, [x2]
-    bl bind_int64_stmt
+    bl cache_bind_int64_stmt
     mov x0, x21
     mov x1, #5
-    LEA x2, tc_cache_stash_mtime
+    LEA x2, cache_stash_mtime
     ldr x2, [x2]
-    bl bind_int64_stmt
+    bl cache_bind_int64_stmt
     // enter_state (state id -> string; 0 -> NULL)
-    LEA x2, tc_cache_stash_enter
+    LEA x2, cache_stash_enter
     ldr x0, [x2]
-    bl state_str
+    bl cache_state_str
     cbz x0, .Lcp_enter_null
     mov x2, x0
     mov x0, x21
     mov x1, #6
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     b .Lcp_enter_done
 .Lcp_enter_null:
     mov x0, x21
@@ -799,12 +799,12 @@ tc_cache_put_day:
 .Lcp_enter_done:
     // exit_state (state id -> string; 0 -> NULL)
     mov x0, x19
-    bl state_str
+    bl cache_state_str
     cbz x0, .Lcp_exit_null
     mov x2, x0
     mov x0, x21
     mov x1, #7
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     b .Lcp_exit_done
 .Lcp_exit_null:
     mov x0, x21
@@ -812,12 +812,12 @@ tc_cache_put_day:
     bl sqlite3_bind_null
 .Lcp_exit_done:
     mov x0, x21
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x21
     bl sqlite3_finalize
     // ---- commit ----
     LEA x0, s_commit
-    bl db_exec
+    bl cache_db_exec
 .Lcp_discard:
     bl cache_drop_stash
 .Lcp_done:
@@ -845,19 +845,19 @@ tc_cache_discard_day:
     FUNC_TYPE(tc_cache_debug_dump)
 tc_cache_debug_dump:
     PROLOGUE 5
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     ldr x9, [x9]
     cbz x9, .Lcdd_done
     // ---- table names ----
     LEA x0, s_sql_master
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcdd_done
     mov x19, x0                     // stmt
     LEA x0, s_cachetables
     bl tc_puts
 .Lcdd_tbl_loop:
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcdd_tbl_done
     mov x0, x19
@@ -876,29 +876,29 @@ tc_cache_debug_dump:
     LEA x0, s_cachecounts
     bl tc_puts
     LEA x0, s_sql_count_meta
-    bl dump_count
+    bl cache_dump_count
     LEA x0, s_lbl_generation
     bl tc_puts
     LEA x0, s_sql_count_generation
-    bl dump_count
+    bl cache_dump_count
     LEA x0, s_lbl_file
     bl tc_puts
     LEA x0, s_sql_count_file
-    bl dump_count
+    bl cache_dump_count
     LEA x0, s_lbl_counts
     bl tc_puts
     LEA x0, s_sql_count_counts
-    bl dump_count
+    bl cache_dump_count
     LEA x0, s_newline
     bl tc_puts
     // ---- file rows ----
     LEA x0, s_sql_all_file
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcdd_done
     mov x19, x0
 .Lcdd_file_loop:
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcdd_file_done
     LEA x0, s_cachefile
@@ -963,12 +963,12 @@ tc_cache_debug_dump:
     bl sqlite3_finalize
     // ---- counts rows ----
     LEA x0, s_sql_all_counts
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcdd_done
     mov x19, x0
 .Lcdd_cnt_loop:
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcdd_cnt_done
     LEA x0, s_cachecount
@@ -1019,17 +1019,17 @@ tc_cache_debug_dump:
     ret
 
 // ============================================================================
-// dump_count(x0=count_sql) — print "<n> " for a SELECT COUNT(*) statement.
+// cache_dump_count(x0=count_sql) — print "<n> " for a SELECT COUNT(*) statement.
 // ============================================================================
     .p2align 2
-dump_count:
+cache_dump_count:
     PROLOGUE 1
     mov x19, x0
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Ldc_done
     mov x20, x0
     mov x0, x20
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Ldc_fin
     mov x0, x20
@@ -1044,20 +1044,20 @@ dump_count:
     ret
 
 // ============================================================================
-// migrate_step(x0=existed) -> x0 = 0 ok (reason in tc_cache_tmp), else failed
+// cache_migrate_step(x0=existed) -> x0 = 0 ok (reason in tc_cache_tmp), else failed
 //   (problem composed, db closed).
 // ============================================================================
     .p2align 2
-migrate_step:
+cache_migrate_step:
     PROLOGUE 2
     mov x19, x0                     // existed
     // stored = SELECT value FROM meta WHERE key='schema'
     LEA x0, s_sql_sel_schema
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lms_fail
     mov x20, x0                     // stmt
     mov x0, x20
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lms_migrate               // no meta row -> migrate
     // The column_text pointer is owned by the statement: strcmp BEFORE
@@ -1080,34 +1080,34 @@ migrate_step:
 .Lms_migrate:
     // drop + recreate + set schema
     LEA x0, s_sql_drop
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lms_fail
     LEA x0, s_sql_meta
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lms_fail
     LEA x0, s_sql_generation
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lms_fail
     LEA x0, s_sql_file
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lms_fail
     LEA x0, s_sql_counts
-    bl db_exec
+    bl cache_db_exec
     cbnz w0, .Lms_fail
     LEA x0, s_sql_set_schema
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lms_fail
     mov x20, x0
     mov x0, x20
     mov x1, #1
     LEA x2, s_schema_version
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x20
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x20
     bl sqlite3_finalize
     // reason = existed ? "new cache layout" : "new cache"
-    LEA x0, tc_cache_tmp_reason
+    LEA x0, cache_tmp_reason
     cbz x19, .Lms_new_cache
     LEA x1, s_reason_new_layout
     str x1, [x0]
@@ -1128,22 +1128,22 @@ migrate_step:
     ret
 
 // ============================================================================
-// register_step() -> x0 = 0 ok (reason OR'd into tc_cache_tmp), else failed.
+// cache_register_step() -> x0 = 0 ok (reason OR'd into tc_cache_tmp), else failed.
 //   known-set read BEFORE the upsert, exactly like the Python.
 // ============================================================================
     .p2align 2
-register_step:
+cache_register_step:
     PROLOGUE 3
     // known = { SELECT fingerprint FROM generation }
     LEA x0, s_sql_sel_gen
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lrs_fail
     mov x19, x0                     // stmt
     mov x20, #0                     // known (any generation row seen)
     mov x21, #0                     // present (our fp among them)
 .Lrs_loop:
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lrs_loop_done
     mov x20, #1
@@ -1151,7 +1151,7 @@ register_step:
     mov x1, #0
     bl sqlite3_column_text
     mov x22, x0                     // row fp
-    LEA x0, tc_cache_fp
+    LEA x0, cache_fp
     mov x1, x22
     bl strcmp
     cbnz w0, .Lrs_loop
@@ -1164,31 +1164,31 @@ register_step:
     mov x0, #0
     bl time
     mov x23, x0
-    LEA x0, tc_cache_scratch
+    LEA x0, cache_scratch
     mov x1, x0
     mov x0, x23
-    bl fmt_iso                       // x1 -> out; x0 -> cursor (unused)
+    bl cache_fmt_iso                       // x1 -> out; x0 -> cursor (unused)
     // INSERT ... ON CONFLICT(fingerprint) DO UPDATE SET last_seen=...
     LEA x0, s_sql_ins_gen
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lrs_fail
     mov x19, x0
     mov x0, x19
     mov x1, #1
-    LEA x2, tc_cache_fp
-    bl bind_text_stmt
+    LEA x2, cache_fp
+    bl cache_bind_text_stmt
     mov x0, x19
     mov x1, #2
-    LEA x2, tc_cache_scratch
-    bl bind_text_stmt
+    LEA x2, cache_scratch
+    bl cache_bind_text_stmt
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x19
     bl sqlite3_finalize
     // reason = known && !present ? "new parser generation" : (keep existing)
     cbz x20, .Lrs_ok
     cbnz x21, .Lrs_ok
-    LEA x0, tc_cache_tmp_reason
+    LEA x0, cache_tmp_reason
     ldr x1, [x0]
     cbnz x1, .Lrs_ok                // migrate's reason wins
     LEA x1, s_reason_new_gen
@@ -1205,11 +1205,11 @@ register_step:
     ret
 
 // ============================================================================
-// sweep_step() -> x0 = 0 ok, else failed.  Drops generations unseen for
-//   CACHE_KEEP_DAYS; records how many in tc_cache_swept.
+// cache_sweep_step() -> x0 = 0 ok, else failed.  Drops generations unseen for
+//   CACHE_KEEP_DAYS; records how many in cache_swept.
 // ============================================================================
     .p2align 2
-sweep_step:
+cache_sweep_step:
     PROLOGUE 3
     // now
     mov x0, #0
@@ -1219,23 +1219,23 @@ sweep_step:
     mov x21, #CACHE_KEEP_DAYS
     mul x20, x20, x21
     sub x19, x19, x20               // now - 7 days
-    LEA x0, tc_cache_scratch
+    LEA x0, cache_scratch
     mov x1, x0
     mov x0, x19
-    bl fmt_iso
+    bl cache_fmt_iso
     // SELECT fingerprint FROM generation WHERE last_seen < ?
     LEA x0, s_sql_sel_stale
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lsw_fail
     mov x19, x0                     // stmt
     mov x0, x19
     mov x1, #1
-    LEA x2, tc_cache_scratch
-    bl bind_text_stmt
+    LEA x2, cache_scratch
+    bl cache_bind_text_stmt
     mov x20, #0                     // swept count
 .Lsw_loop:
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lsw_loop_done
     mov x0, x19
@@ -1244,39 +1244,39 @@ sweep_step:
     mov x21, x0                     // stale fp
     // DELETE counts/file/generation WHERE fingerprint = ?
     LEA x0, s_sql_del_counts_fp
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
     mov x0, x22
     mov x1, #1
     mov x2, x21
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x22
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x22
     bl sqlite3_finalize
     LEA x0, s_sql_del_file_fp
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
     mov x0, x22
     mov x1, #1
     mov x2, x21
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x22
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x22
     bl sqlite3_finalize
     LEA x0, s_sql_del_gen_fp
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
     mov x0, x22
     mov x1, #1
     mov x2, x21
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x22
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x22
     bl sqlite3_finalize
     add x20, x20, #1
@@ -1284,7 +1284,7 @@ sweep_step:
 .Lsw_loop_done:
     mov x0, x19
     bl sqlite3_finalize
-    LEA x9, tc_cache_swept
+    LEA x9, cache_swept
     str x20, [x9]
     mov x0, #0
     b .Lsw_out
@@ -1300,36 +1300,36 @@ sweep_step:
     ret
 
 // ============================================================================
-// purge_step() -> x0 = 0 ok, else failed.  --rebuild-cache: drop the channel
+// cache_purge_step() -> x0 = 0 ok, else failed.  --rebuild-cache: drop the channel
 //   across every generation (Python Cache._purge).
 // ============================================================================
     .p2align 2
-purge_step:
+cache_purge_step:
     PROLOGUE 1
     LEA x0, s_sql_del_counts_chan
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lpg_fail
     mov x19, x0
     mov x0, x19
     mov x1, #1
-    LEA x2, tc_cache_channel
+    LEA x2, cache_channel
     ldr x2, [x2]
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x19
     bl sqlite3_finalize
     LEA x0, s_sql_del_file_chan
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lpg_fail
     mov x19, x0
     mov x0, x19
     mov x1, #1
-    LEA x2, tc_cache_channel
+    LEA x2, cache_channel
     ldr x2, [x2]
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x19
-    bl step_stmt
+    bl cache_step_stmt
     mov x0, x19
     bl sqlite3_finalize
     mov x0, #0
@@ -1354,31 +1354,31 @@ cache_get_day:
     mov x19, x0                     // ymd
     mov x20, x1                     // enter_state
     // date string
-    LEA x0, tc_cache_scratch
+    LEA x0, cache_scratch
     mov x1, x0
     mov x0, x19
-    bl fmt_date
-    LEA x21, tc_cache_scratch  // date ptr
+    bl cache_fmt_date
+    LEA x21, cache_scratch  // date ptr
     // SELECT the file row
     LEA x0, s_sql_sel_file
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcg_miss
     mov x22, x0                     // stmt
     mov x0, x22
     mov x1, #1
-    LEA x2, tc_cache_fp
-    bl bind_text_stmt
+    LEA x2, cache_fp
+    bl cache_bind_text_stmt
     mov x0, x22
     mov x1, #2
-    LEA x2, tc_cache_channel
+    LEA x2, cache_channel
     ldr x2, [x2]
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x22
     mov x1, #3
     mov x2, x21
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x22
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcg_miss_fin
     // row: size=col1, mtime=col2, enter=col3, exit=col4
@@ -1401,15 +1401,15 @@ cache_get_day:
     bl sqlite3_column_text
     mov x26, x0                     // cached exit str (may be 0)
     mov x0, x25
-    bl state_id                     // x0 = cached enter id 0/1/2/3
+    bl cache_state_id                     // x0 = cached enter id 0/1/2/3
     mov x25, x0
     mov x0, x26
-    bl state_id                     // x0 = cached exit id 0/1/2/3
+    bl cache_state_id                     // x0 = cached exit id 0/1/2/3
     mov x26, x0
     mov x0, x22
     bl sqlite3_finalize
     // validity: size + mtime_ns
-    LEA x9, tc_cache_stat
+    LEA x9, cache_stat
     ldr x10, [x9, #ST_SIZE]
     cmp x23, x10
     b.ne .Lcg_miss
@@ -1427,25 +1427,25 @@ cache_get_day:
 .Lcg_enter_done:
     // hit: apply every counts row
     LEA x0, s_sql_sel_counts
-    bl prepare_stmt
+    bl cache_prepare_stmt
     cbz x0, .Lcg_miss
     mov x22, x0
     mov x0, x22
     mov x1, #1
-    LEA x2, tc_cache_fp
-    bl bind_text_stmt
+    LEA x2, cache_fp
+    bl cache_bind_text_stmt
     mov x0, x22
     mov x1, #2
-    LEA x2, tc_cache_channel
+    LEA x2, cache_channel
     ldr x2, [x2]
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
     mov x0, x22
     mov x1, #3
     mov x2, x21
-    bl bind_text_stmt
+    bl cache_bind_text_stmt
 .Lcg_apply_loop:
     mov x0, x22
-    bl step_stmt
+    bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcg_apply_done
     mov x0, x22
@@ -1464,7 +1464,7 @@ cache_get_day:
     bl tc_strlen
     mov x24, x0                     // login len (callee-saved)
     mov x0, x28
-    bl state_id                     // x0 = TC_ST_* (0/1/2/3)
+    bl cache_state_id                     // x0 = TC_ST_* (0/1/2/3)
     mov x2, x0
     mov x0, x27
     mov x1, x24
@@ -1474,7 +1474,7 @@ cache_get_day:
 .Lcg_apply_done:
     mov x0, x22
     bl sqlite3_finalize
-    LEA x9, tc_cache_hits
+    LEA x9, cache_hits
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -1492,11 +1492,11 @@ cache_get_day:
     ret
 
 // ============================================================================
-// snapshot_users — malloc an array of old_count*3 u64s holding the live/
+// cache_snapshot_users — malloc an array of old_count*3 u64s holding the live/
 //   offline/unknown counts per existing user; stashed for the put.
 // ============================================================================
     .p2align 2
-snapshot_users:
+cache_snapshot_users:
     PROLOGUE 3
     LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]    // n
@@ -1507,9 +1507,9 @@ snapshot_users:
                                     // allocated n bytes and overran the heap)
     cbz x0, .Lsu_none               // malloc fail -> no put (still parse)
     mov x22, x0                     // snap
-    LEA x23, tc_cache_snap
+    LEA x23, cache_snap
     str x22, [x23]
-    LEA x23, tc_cache_snap_n
+    LEA x23, cache_snap_n
     str x20, [x23]
     mov x24, #0                     // i
 .Lsu_loop:
@@ -1532,7 +1532,7 @@ snapshot_users:
 .Lsu_done:
     b .Lsu_out
 .Lsu_none:
-    LEA x9, tc_cache_snap
+    LEA x9, cache_snap
     str xzr, [x9]
 .Lsu_out:
     EPILOGUE 3
@@ -1544,22 +1544,22 @@ snapshot_users:
     .p2align 2
 cache_drop_stash:
     PROLOGUE 0
-    LEA x9, tc_cache_snap
+    LEA x9, cache_snap
     ldr x0, [x9]
     cbz x0, .Lcds_done
     str xzr, [x9]
     bl free
 .Lcds_done:
-    LEA x9, tc_cache_stash
+    LEA x9, cache_stash
     str xzr, [x9]
     EPILOGUE 0
     ret
 
 // ============================================================================
-// state_str(x0=state 0/1/2/3) -> x0 = "live"/"offline"/"unknown"/0
+// cache_state_str(x0=state 0/1/2/3) -> x0 = "live"/"offline"/"unknown"/0
 // ============================================================================
     .p2align 2
-state_str:
+cache_state_str:
     cmp w0, #1
     b.eq .Lss_live
     cmp w0, #2
@@ -1579,10 +1579,10 @@ state_str:
     ret
 
 // ============================================================================
-// state_id(x0=str) -> x0 = 0/1/2/3 (unknown/live/offline/unknown-string)
+// cache_state_id(x0=str) -> x0 = 0/1/2/3 (unknown/live/offline/unknown-string)
 // ============================================================================
     .p2align 2
-state_id:
+cache_state_id:
     PROLOGUE 1
     cbz x0, .Lsi_zero
     mov x19, x0
@@ -1609,8 +1609,8 @@ state_id:
     ret
 
 // ============================================================================
-// resolve_cache_path -- DEFAULT_CACHE_PATH per platform class into
-//   tc_cache_path:
+// cache_resolve_cache_path -- DEFAULT_CACHE_PATH per platform class into
+//   cache_path:
 //     MacOS: expanduser("~/.cache/twitch-counts/rollup.db")   (XDG_* ignored)
 //     Linux: os.path.join(XDG_CACHE_HOME or expanduser("~/.cache"),
 //                         "twitch-counts/rollup.db") -- an empty variable
@@ -1619,7 +1619,7 @@ state_id:
 //   password database), so there is no "no HOME -> no cache" case any more.
 // ============================================================================
     .p2align 2
-resolve_cache_path:
+cache_resolve_cache_path:
     PROLOGUE 2
 #ifndef __APPLE__
     LEA x0, s_env_xdg_cache
@@ -1628,10 +1628,10 @@ resolve_cache_path:
     ldrb w1, [x0]
     cbz w1, .Lrcp_default
     mov x19, x0                     // base = XDG_CACHE_HOME, verbatim
-    LEA x0, tc_cache_path
+    LEA x0, cache_path
     mov x1, x19
     mov x2, #PATH_SZ
-    bl cat_cstr_cap                 // x0 = cursor at the NUL
+    bl cache_cat_cstr_cap                 // x0 = cursor at the NUL
     mov x20, x0
     mov x0, x19
     bl tc_strlen
@@ -1643,14 +1643,14 @@ resolve_cache_path:
     add x1, x1, #1                  // os.path.join: no doubled slash
 .Lrcp_join:
     mov x0, x20
-    LEA_OFF x2, tc_cache_path, PATH_SZ
+    LEA_OFF x2, cache_path, PATH_SZ
     sub x2, x2, x20                 // bytes left from the cursor
-    bl cat_cstr_cap
+    bl cache_cat_cstr_cap
     b .Lrcp_done
 .Lrcp_default:
 #endif
     LEA x0, s_cache_default
-    LEA x1, tc_cache_path
+    LEA x1, cache_path
     mov x2, #PATH_SZ
     bl tc_expanduser
 .Lrcp_done:
@@ -1658,12 +1658,12 @@ resolve_cache_path:
     ret
 
 // ============================================================================
-// mkdir_cache_dir(x0=path) — mkdir -p the directory component of the cache
+// cache_mkdir_cache_dir(x0=path) — mkdir -p the directory component of the cache
 //   path (Python os.makedirs(dirname, exist_ok=True)).  Failures are ignored:
 //   a bad directory surfaces later as sqlite3_open_v2's CANTOPEN.
 // ============================================================================
     .p2align 2
-mkdir_cache_dir:
+cache_mkdir_cache_dir:
     PROLOGUE 2
     mov x19, x0                     // path
     // find the last '/' (dirname ends there)
@@ -1684,7 +1684,7 @@ mkdir_cache_dir:
 .Lmcd_len_done:
     cbz x21, .Lmcd_done             // no directory component
     // copy the dirname [0..last slash) into scratch2, NUL-terminated
-    LEA x0, tc_cache_scratch2
+    LEA x0, cache_scratch2
     mov x20, x0                     // scratch cursor
     mov x22, #0                     // i
 .Lmcd_copy:
@@ -1725,11 +1725,11 @@ mkdir_cache_dir:
     ret
 
 // ============================================================================
-// fingerprint_build — FNV-1a 64 over the fixed parts, rendered as 16 hex
-//   chars into tc_cache_fp.
+// cache_fingerprint_build — FNV-1a 64 over the fixed parts, rendered as 16 hex
+//   chars into cache_fp.
 // ============================================================================
     .p2align 2
-fingerprint_build:
+cache_fingerprint_build:
     PROLOGUE 3
     ldr x19, =FNV_OFFSET             // hash
     LEA x20, s_fp_parts
@@ -1742,19 +1742,19 @@ fingerprint_build:
     mov x2, x0
     mov x0, x19
     mov x1, x22
-    bl fnv1a
+    bl cache_fnv1a
     mov x19, x0
     // separator byte '\n' between parts
     LEA x1, s_sep
     mov x0, x19
     mov x2, #1
-    bl fnv1a
+    bl cache_fnv1a
     mov x19, x0
     add x21, x21, #1
     b .Lfb_loop
 .Lfb_hash_done:
     // render 16 hex chars, most significant nibble first
-    LEA x23, tc_cache_fp
+    LEA x23, cache_fp
     mov x24, #15                    // nibble index
 .Lfb_hex:
     cmp x24, #0
@@ -1780,10 +1780,10 @@ fingerprint_build:
     ret
 
 // ============================================================================
-// fnv1a(x0=hash, x1=ptr, x2=len) -> x0 = hash
+// cache_fnv1a(x0=hash, x1=ptr, x2=len) -> x0 = hash
 // ============================================================================
     .p2align 2
-fnv1a:
+cache_fnv1a:
     mov x3, #0
 .Lf_loop:
     cmp x3, x2
@@ -1798,13 +1798,13 @@ fnv1a:
     ret
 
 // ============================================================================
-// db_exec(x0=sql) -> x0 = sqlite3_exec rc
+// cache_db_exec(x0=sql) -> x0 = sqlite3_exec rc
 // ============================================================================
     .p2align 2
-db_exec:
+cache_db_exec:
     PROLOGUE 1
     mov x19, x0
-    LEA x0, tc_cache_db
+    LEA x0, cache_db
     ldr x0, [x0]
     mov x1, x19
     mov x2, #0
@@ -1815,13 +1815,13 @@ db_exec:
     ret
 
 // ============================================================================
-// prepare_stmt(x0=sql) -> x0 = stmt ptr or 0 on error
+// cache_prepare_stmt(x0=sql) -> x0 = stmt ptr or 0 on error
 // ============================================================================
     .p2align 2
-prepare_stmt:
+cache_prepare_stmt:
     PROLOGUE 1
     mov x19, x0
-    LEA x0, tc_cache_db
+    LEA x0, cache_db
     ldr x0, [x0]
     mov x1, x19
     mov x2, #-1
@@ -1841,10 +1841,10 @@ prepare_stmt:
     ret
 
 // ============================================================================
-// bind_text_stmt(x0=stmt, x1=idx, x2=str) -> x0 = rc
+// cache_bind_text_stmt(x0=stmt, x1=idx, x2=str) -> x0 = rc
 // ============================================================================
     .p2align 2
-bind_text_stmt:
+cache_bind_text_stmt:
     PROLOGUE 0
     mov x3, #-1
     mov x4, #SQLITE_STATIC
@@ -1853,20 +1853,20 @@ bind_text_stmt:
     ret
 
 // ============================================================================
-// bind_int64_stmt(x0=stmt, x1=idx, x2=val) -> x0 = rc
+// cache_bind_int64_stmt(x0=stmt, x1=idx, x2=val) -> x0 = rc
 // ============================================================================
     .p2align 2
-bind_int64_stmt:
+cache_bind_int64_stmt:
     PROLOGUE 0
     bl sqlite3_bind_int64
     EPILOGUE 0
     ret
 
 // ============================================================================
-// step_stmt(x0=stmt) -> x0 = sqlite3_step rc
+// cache_step_stmt(x0=stmt) -> x0 = sqlite3_step rc
 // ============================================================================
     .p2align 2
-step_stmt:
+cache_step_stmt:
     PROLOGUE 0
     bl sqlite3_step
     EPILOGUE 0
@@ -1874,24 +1874,24 @@ step_stmt:
 
 // ============================================================================
 // cache_fail_sqlite(x0=step) — compose "<step> failed -- <Type>: <errmsg>",
-//   close the db and clear tc_cache_db.
+//   close the db and clear cache_db.
 // ============================================================================
     .p2align 2
 cache_fail_sqlite:
     PROLOGUE 3
     mov x19, x0                     // step
-    LEA x0, tc_cache_db
+    LEA x0, cache_db
     ldr x20, [x0]                   // db
     mov x0, x20
     bl sqlite3_errcode
     mov x21, x0                     // rc
-    bl sqlite_type_name             // x0 = type ptr
+    bl cache_sqlite_type_name             // x0 = type ptr
     mov x22, x0
     mov x0, x20
     bl sqlite3_errmsg
     mov x23, x0                     // msg
     // compose
-    LEA x0, tc_cache_problem_buf
+    LEA x0, cache_problem_buf
     mov x24, x0
     mov x1, x19
     bl tc_cat_cstr
@@ -1903,15 +1903,15 @@ cache_fail_sqlite:
     bl tc_cat_cstr
     mov x1, x23
     bl tc_cat_cstr
-    LEA x9, tc_cache_problem
-    LEA x10, tc_cache_problem_buf
+    LEA x9, cache_problem
+    LEA x10, cache_problem_buf
     str x10, [x9]
     // close the db
     mov x0, x20
     cbz x0, .Lcfs_done
     bl sqlite3_close
 .Lcfs_done:
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     str xzr, [x9]
     EPILOGUE 3
     ret
@@ -1928,7 +1928,7 @@ cache_fail_errno:
     bl strerror
     mov x20, x0                     // msg
     // compose
-    LEA x0, tc_cache_problem_buf
+    LEA x0, cache_problem_buf
     mov x21, x0
     mov x1, x19
     bl tc_cat_cstr
@@ -1940,19 +1940,19 @@ cache_fail_errno:
     bl tc_cat_cstr
     mov x1, x20
     bl tc_cat_cstr
-    LEA x9, tc_cache_problem
-    LEA x10, tc_cache_problem_buf
+    LEA x9, cache_problem
+    LEA x10, cache_problem_buf
     str x10, [x9]
-    LEA x9, tc_cache_db
+    LEA x9, cache_db
     str xzr, [x9]
     EPILOGUE 2
     ret
 
 // ============================================================================
-// sqlite_type_name(x0=rc) -> x0 = Python-exception-name approximation.
+// cache_sqlite_type_name(x0=rc) -> x0 = Python-exception-name approximation.
 // ============================================================================
     .p2align 2
-sqlite_type_name:
+cache_sqlite_type_name:
     cmp w0, #SQLITE_NOTADB
     b.eq .Lstn_db
     cmp w0, #SQLITE_CORRUPT
@@ -1971,12 +1971,12 @@ sqlite_type_name:
     ret
 
 // ============================================================================
-// cat_cstr_cap(x0=cursor, x1=s, x2=cap) — bounded append; writes at most
+// cache_cat_cstr_cap(x0=cursor, x1=s, x2=cap) — bounded append; writes at most
 //   cap-1 bytes plus a NUL (cap = bytes available from the cursor).
 //   Returns the cursor at the NUL.
 // ============================================================================
     .p2align 2
-cat_cstr_cap:
+cache_cat_cstr_cap:
     PROLOGUE 1
     mov x19, x0
     mov x20, x2                     // cap
@@ -2005,10 +2005,10 @@ cat_cstr_cap:
     ret
 
 // ============================================================================
-// fmt_date(x0=ymd, x1=out) -> x0 = cursor after "YYYY-MM-DD" (NUL written).
+// cache_fmt_date(x0=ymd, x1=out) -> x0 = cursor after "YYYY-MM-DD" (NUL written).
 // ============================================================================
     .p2align 2
-fmt_date:
+cache_fmt_date:
     PROLOGUE 2
     mov x19, x0                     // ymd
     mov x20, x1                     // out
@@ -2027,37 +2027,37 @@ fmt_date:
     mov x0, x20
     mov x1, x22
     mov x2, #4
-    bl put_pad
+    bl cache_put_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov x1, x24
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov x1, x23
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #0
     strb w1, [x0]
     EPILOGUE 2
     ret
 
 // ============================================================================
-// fmt_iso(x0=epoch, x1=out) -> x0 = cursor after "YYYY-MM-DDTHH:MM:SS".
+// cache_fmt_iso(x0=epoch, x1=out) -> x0 = cursor after "YYYY-MM-DDTHH:MM:SS".
 //   Local time via localtime_r; UTC fallback (1970-01-01) if it fails.
 // ============================================================================
     .p2align 2
-fmt_iso:
+cache_fmt_iso:
     PROLOGUE 3
     mov x19, x0                     // epoch
     mov x20, x1                     // out
-    LEA x0, tc_cache_epoch
+    LEA x0, cache_epoch
     str x19, [x0]
     mov x1, x0
-    LEA x0, tc_cache_tm
+    LEA x0, cache_tm
     mov x21, x0                     // tm
-    LEA x0, tc_cache_epoch
+    LEA x0, cache_epoch
     mov x1, x21
     bl localtime_r
     cbz x0, .Lfiso_epoch0
@@ -2082,43 +2082,43 @@ fmt_iso:
     mov x0, x20
     mov x1, x22
     mov x2, #4
-    bl put_pad
+    bl cache_put_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov x1, x23
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov x1, x24
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #'T'
     strb w1, [x0], #1
     mov x1, x9
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #':'
     strb w1, [x0], #1
     mov x1, x10
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #':'
     strb w1, [x0], #1
     mov x1, x11
     mov x2, #2
-    bl put_pad
+    bl cache_put_pad
     mov w1, #0
     strb w1, [x0]
     EPILOGUE 3
     ret
 
 // ============================================================================
-// put_pad(x0=buf, x1=value, x2=width) -> x0 = cursor after the digits.
+// cache_put_pad(x0=buf, x1=value, x2=width) -> x0 = cursor after the digits.
 //   Zero-pads to `width`; value must fit (<= 9999 for the callers here).
 // ============================================================================
     .p2align 2
-put_pad:
+cache_put_pad:
     PROLOGUE 3
     mov x19, x0                     // buf
     mov x20, x1                     // value
@@ -2169,10 +2169,10 @@ put_pad:
     ret
 
 // ============================================================================
-// tc_cache_tmp_reason — bss slot for migrate/register reasons (private).
+// cache_tmp_reason — bss slot for migrate/register reasons (private).
 // ============================================================================
     .bss
     .p2align 3
-tc_cache_tmp_reason: .skip 8
+cache_tmp_reason: .skip 8
 
     .end

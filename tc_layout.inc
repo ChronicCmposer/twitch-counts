@@ -24,6 +24,12 @@
 //    * A "flag" bit set means the option was present on the command line.
 //    * A source id (TC_SRC_*) is an index into the source-string table served
 //      by tc_source_str(); TC_SRC_NONE means "no value / not resolved".
+//    * Naming: tc_* is reserved for exported (.global) symbols.  Everything
+//      file-local -- routines and data -- carries its module's prefix (util_,
+//      main_, cli_, cfg_, core_, cache_, render_, json_, misc_, watch_);
+//      branch targets are .L labels.  (On Mach-O a label starting with a
+//      lowercase 'l' is an assembler-private symbol the debugger never sees,
+//      which the module prefixes also rule out.)
 //
 //  Error/exit conventions (frozen)
 //  -------------------------------
@@ -504,10 +510,10 @@
 //       DATETIME_FORMATS + ISO weeks + fromisoformat week subset.
 //   tc_parse_duration(x0=s)               -> (x0=seconds, x1=status)
 //       status 0 ok, 1 unrecognized, 2 zero.
-//   tc_parse_positive_int(x0=s)           -> (x0=value, x1=ok)
-//   tc_parse_nonnegative_int(x0=s)        -> (x0=value, x1=ok)
-//   tc_parse_nonnegative_float(x0=s)      -> (x0=bits, x1=ok) (double bits)
-//   tc_parse_positive_float(x0=s)         -> (x0=bits, x1=ok)
+//   cli_parse_positive_int(x0=s)           -> (x0=value, x1=ok)
+//   cli_parse_nonnegative_int(x0=s)        -> (x0=value, x1=ok)
+//   cli_parse_nonnegative_float(x0=s)      -> (x0=bits, x1=ok) (double bits)
+//   cli_parse_positive_float(x0=s)         -> (x0=bits, x1=ok)
 //   tc_parse_bool(x0=s)                   -> (x0=value 0/1, x1=ok)
 //   tc_parse_state(x0=s)                  -> (x0=TC_ST_*, x1=ok)
 //   tc_parse_header(x0=s)                 -> (x0=TC_HDR_*, x1=ok)

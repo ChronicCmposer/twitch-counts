@@ -46,14 +46,10 @@
 //    tc_source_str(x0=id)                -> (x0=ptr, x1=len)
 //    tc_prog_name()                      -> x0 = basename(argv[0]) pointer
 //    tc_print_help()                     prints help to stdout, exit 0
-//    tc_civil_from_days(x0=z)            -> x0=y, x1=m, x2=d
+//    tc_setting_src_str(x0=TC_SET_*)     -> x0 = provenance string of a setting
 //    tc_parse_datetime(x0=s, x1=eod)     -> (x0=ymd, x1=sod, x2=status,
 //                                           x3=extra, x4=extra2)
 //    tc_parse_duration(x0=s)             -> (x0=secs, x1=status)
-//    tc_parse_positive_int(x0=s)         -> (x0=value, x1=status)
-//    tc_parse_nonnegative_int(x0=s)      -> (x0=value, x1=status)
-//    tc_parse_nonnegative_float(x0=s)    -> (x0=bits, x1=status)
-//    tc_parse_positive_float(x0=s)       -> (x0=bits, x1=status)
 //    tc_parse_bool(x0=s)                 -> (x0=0/1, x1=status)
 //    tc_parse_state(x0=s)                -> (x0=TC_ST_*, x1=status)
 //    tc_parse_header(x0=s)               -> (x0=TC_HDR_*, x1=status)
@@ -65,6 +61,11 @@
 //                                           x2=failing column ptr)
 //    Parser status: 0 ok, 1 bad value, 2 range error (3 = no-such-week for
 //    datetime; x3=year, x4=week then).
+//    The int/float parsers (cli_parse_positive_int, cli_parse_nonnegative_int,
+//    cli_parse_nonnegative_float, cli_parse_positive_float) are file-local.
+//
+//  Naming: tc_* is reserved for exported symbols; everything file-local is
+//  cli_* (routines and data alike), and branch targets are .L labels.
 // ============================================================================
 
 #include "tc_platform.h"
@@ -187,7 +188,7 @@
 
     // Wave E highlight resolution ([[watch.highlight]]): the frozen
     // tc_config_get cannot return array-of-tables (toml_raw_in only sees
-    // kvals), so tc_resolve_highlights re-reads the config TOML directly via
+    // kvals), so cli_resolve_highlights re-reads the config TOML directly via
     // tomlc99 and validates patterns with pcre2, the pattern tc_misc.S
     // established.  Every driver that links tc_cli.o also links toml.o and
     // libpcre2-8.a (the Makefile owns the driver links), so these are plain
@@ -218,31 +219,31 @@ tc_listing:         .skip TC_L_HEADER_SZ
 
     // private scratch (NOT part of the frozen contract)
     .p2align 4
-tc_opt_argv:        .skip 8 * OPT_MAX
-tc_extras:          .skip 8 * OPT_MAX
-tc_argstr:          .skip OPT_MAX * ARGSTR_SZ
-tc_scratch:         .skip SCRATCH_SZ
+cli_opt_argv:        .skip 8 * OPT_MAX
+cli_extras:          .skip 8 * OPT_MAX
+cli_argstr:          .skip OPT_MAX * ARGSTR_SZ
+cli_scratch:         .skip SCRATCH_SZ
 help_text:          .skip HELP_TEXT_SZ  // "--config" help line before wrapping
 help_line:          .skip HELP_LINE_SZ  // one wrapped line
-tc_scratch2:        .skip SCRATCH_SZ
-tc_dt_bad_year:     .skip 16              // {year, week} of a rejected ISO week
-tc_err_display:     .skip SCRATCH_SZ      // normalised value quoted by a resolve error
-tc_strtod_end:      .skip 8
-tc_tm_buf:          .skip 64
-tc_ts_buf:          .skip 16
-tc_cli_given:       .skip TC_SET_COUNT
-tc_metrics_tmp:     .skip 8 * 6
-tc_metrics_tmp_n:   .skip 8
-tc_show_staging:    .skip 8 * 6       // --show columns before the by-state merge
-tc_cli_state:       .skip 8
-tc_win_first:       .skip 8
-tc_win_kind:        .skip 8
-tc_win_raw:         .skip 8
-tc_win_src:         .skip 8
-tc_opt_n:           .skip 8
-tc_extras_n:        .skip 8
-tc_argc_saved:      .skip 8
-tc_argv_saved:      .skip 8
+cli_scratch2:        .skip SCRATCH_SZ
+cli_dt_bad_year:     .skip 16              // {year, week} of a rejected ISO week
+cli_err_display:     .skip SCRATCH_SZ      // normalised value quoted by a resolve error
+cli_strtod_end:      .skip 8
+cli_tm_buf:          .skip 64
+cli_ts_buf:          .skip 16
+cli_given:       .skip TC_SET_COUNT
+cli_metrics_tmp:     .skip 8 * 6
+cli_metrics_tmp_n:   .skip 8
+cli_show_staging:    .skip 8 * 6       // --show columns before the by-state merge
+cli_state:       .skip 8
+cli_win_first:       .skip 8
+cli_win_kind:        .skip 8
+cli_win_raw:         .skip 8
+cli_win_src:         .skip 8
+cli_opt_n:           .skip 8
+cli_extras_n:        .skip 8
+cli_argc_saved:      .skip 8
+cli_argv_saved:      .skip 8
 
     .text
 
@@ -259,7 +260,7 @@ tc_cli_parse:
 
     // basename(argv[0])
     ldr x0, [x20]
-    bl tc_basename
+    bl cli_basename
     LEA x1, tc_opts
     str x0, [x1, #TC_O_PROG_PTR]
     bl tc_strlen
@@ -267,32 +268,32 @@ tc_cli_parse:
     str x0, [x1, #TC_O_PROG_LEN]
 
     // clear private marks
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #TC_SET_COUNT
-    bl tc_memzero
-    LEA x0, tc_cli_state
+    bl cli_memzero
+    LEA x0, cli_state
     mov x1, #8
-    bl tc_memzero
-    LEA x0, tc_win_first
+    bl cli_memzero
+    LEA x0, cli_win_first
     mov x1, #8
-    bl tc_memzero
-    LEA x0, tc_opt_n
+    bl cli_memzero
+    LEA x0, cli_opt_n
     mov x1, #8
-    bl tc_memzero
-    LEA x0, tc_extras_n
+    bl cli_memzero
+    LEA x0, cli_extras_n
     mov x1, #8
-    bl tc_memzero
+    bl cli_memzero
 
     // pre-pass
     mov x0, x19
     mov x1, x20
-    bl tc_prepass                   // exit 2 on parse errors
+    bl cli_prepass                   // exit 2 on parse errors
 
     // getopt_long over the cleaned argv.  getopt's argc counts argv[0], so
     // shift the cleaned tokens right by one and put the program name first.
-    LEA x0, tc_opt_n
+    LEA x0, cli_opt_n
     ldr x21, [x0]
-    LEA x0, tc_opt_argv
+    LEA x0, cli_opt_argv
     mov x1, x21
 .Lgl_shift:
     cbz x1, .Lgl_shift_done
@@ -308,18 +309,18 @@ tc_cli_parse:
     LOAD_EXTERN_DATA_ADDR x0, opterr
     str wzr, [x0]
 
-    LEA x19, tc_opt_argv
+    LEA x19, cli_opt_argv
     ldr x19, [x19, #8]
     mov x20, x19
 
 .Lgl_loop:
     cbz x21, .Lgl_done
     mov x0, x21
-    LEA x1, tc_opt_argv
+    LEA x1, cli_opt_argv
     LEA x2, optstring
-    LEA x3, tc_longopts
+    LEA x3, cli_longopts
     mov x4, #0
-    LEA x19, tc_opt_argv
+    LEA x19, cli_opt_argv
     ldr x19, [x19, #8]
     mov x20, x19
 
@@ -329,7 +330,7 @@ tc_cli_parse:
     cmp w0, #VAL_MAX
     b.le .Lgl_mapped
     mov x22, x0
-    bl tc_short_lookup
+    bl cli_short_lookup
     mov x22, x0
     b .Lgl_have_optarg
 .Lgl_mapped:
@@ -341,11 +342,11 @@ tc_cli_parse:
     b.eq .Ldo_help
     mov x0, x22
     mov x1, x23
-    bl tc_handle_opt
+    bl cli_handle_opt
     b .Lgl_loop
 .Lgl_done:
 
-    LEA x0, tc_extras_n
+    LEA x0, cli_extras_n
     ldr x0, [x0]
     cbnz x0, .Lunrecognized
 
@@ -372,14 +373,14 @@ tc_cli_parse:
     tst x0, #TC_F_COMPLETE_GIVEN
     b.ne .Lgl_complete
 
-    bl tc_resolve_settings
-    bl tc_resolve_window
+    bl cli_resolve_settings
+    bl cli_resolve_window
     bl tc_aliases_apply
-    bl tc_choose_columns
+    bl cli_choose_columns
     b .Lgl_done_ret
 
 .Lgl_complete:
-    bl tc_resolve_settings
+    bl cli_resolve_settings
     // skip the "no channel given" guard: aliases apply only when the channel
     // resolved to a real value (source != TC_SRC_DEFAULT).
     LEA x0, tc_opts
@@ -397,20 +398,20 @@ tc_cli_parse:
     bl tc_print_help
 
 .Lunrecognized:
-    LEA x0, tc_extras
-    LEA x1, tc_extras_n
+    LEA x0, cli_extras
+    LEA x1, cli_extras_n
     ldr x1, [x1]
-    LEA x2, tc_scratch
+    LEA x2, cli_scratch
     LEA x3, s_unrecognized
-    bl tc_join_args_into
-    LEA x0, tc_scratch
-    bl tc_arg_error
+    bl cli_join_args_into
+    LEA x0, cli_scratch
+    bl cli_arg_error
 
 // ----------------------------------------------------------------------------
-// tc_memzero(x0=ptr, x1=len)
+// cli_memzero(x0=ptr, x1=len)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_memzero:
+cli_memzero:
     mov x2, #0
 .Lmz:
     cbz x1, .Lmz_done
@@ -421,10 +422,10 @@ tc_memzero:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_basename(x0=path) -> x0 = pointer after the last '/'
+// cli_basename(x0=path) -> x0 = pointer after the last '/'
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_basename:
+cli_basename:
     mov x1, x0
     mov x2, x0
 .Lbn:
@@ -452,11 +453,11 @@ tc_prog_name:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_join_args_into — "prefix a b c" into dst.
+// cli_join_args_into — "prefix a b c" into dst.
 //   in: x0 = array, x1 = count, x2 = dst, x3 = prefix
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_join_args_into:
+cli_join_args_into:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -488,14 +489,14 @@ tc_join_args_into:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_arg_error — usage + "<prog>: error: <msg>" to stderr, exit 2.
+// cli_arg_error — usage + "<prog>: error: <msg>" to stderr, exit 2.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_arg_error:
+cli_arg_error:
     PROLOGUE 5
     mov x19, x0
     mov x0, #STDERR
-    bl tc_print_usage
+    bl cli_print_usage
     LEA x0, tc_opts
     ldr x0, [x0, #TC_O_PROG_PTR]
     bl tc_eputs
@@ -509,10 +510,10 @@ tc_arg_error:
     bl exit
 
 // ----------------------------------------------------------------------------
-// tc_print_usage(x0=fd) — the wrapped usage block.
+// cli_print_usage(x0=fd) — the wrapped usage block.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_print_usage:
+cli_print_usage:
     // argparse.HelpFormatter._format_usage: the usage is a list of parts
     // ("[-c CHANNEL]", "[-b BEGIN | -S SINCE | --users N]", ...) packed
     // greedily into lines of text_width = max(terminal columns - 2, 11),
@@ -533,11 +534,11 @@ tc_print_usage:
     // "usage: " + prog
     mov x0, x19
     LEA x1, s_usage_prefix
-    bl tc_fd_puts
+    bl cli_fd_puts
     mov x0, x19
     mov x1, x21
     mov x2, x22
-    bl tc_fd_write
+    bl cli_fd_write
     // a prog wider than 0.75 * text_width goes on a line of its own and
     // the parts are indented by len("usage: ") only
     add x9, x22, #7
@@ -554,14 +555,14 @@ tc_print_usage:
     mov x0, x19
     LEA x1, s_newline
     mov x2, #1
-    bl tc_fd_write
+    bl cli_fd_write
     mov x24, #7                        // indent = len(prefix)
     mov x28, x24
     bl .Lpu_spaces
     mov x23, #6                        // line_len = indent - 1
     mov x25, #0                        // the line is empty
 .Lpu_parts:
-    LEA x26, tc_usage_parts
+    LEA x26, cli_usage_parts
 .Lpu_loop:
     ldr x27, [x26], #8
     cbz x27, .Lpu_done
@@ -577,7 +578,7 @@ tc_print_usage:
     mov x0, x19
     LEA x1, s_newline
     mov x2, #1
-    bl tc_fd_write
+    bl cli_fd_write
     mov x9, x28                        // (x28 is the loop's part length)
     mov x28, x24
     stp x9, x9, [sp, #-16]!
@@ -590,12 +591,12 @@ tc_print_usage:
     mov x0, x19
     LEA x1, s_space
     mov x2, #1
-    bl tc_fd_write
+    bl cli_fd_write
 .Lpu_no_sep:
     mov x0, x19
     mov x1, x27
     mov x2, x28
-    bl tc_fd_write
+    bl cli_fd_write
     add x23, x23, x28
     add x23, x23, #1                   // line_len += len(part) + 1
     mov x25, #1
@@ -604,7 +605,7 @@ tc_print_usage:
     mov x0, x19
     LEA x1, s_newline
     mov x2, #1
-    bl tc_fd_write
+    bl cli_fd_write
     EPILOGUE 5
     ret
 
@@ -616,7 +617,7 @@ tc_print_usage:
     mov x0, x19
     LEA x1, s_space
     mov x2, #1
-    bl tc_fd_write
+    bl cli_fd_write
     sub x28, x28, #1
     b .Lpu_spaces_loop
 .Lpu_spaces_done:
@@ -624,21 +625,21 @@ tc_print_usage:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_fd_write(x0=fd, x1=buf, x2=len) — tail call to libc write(2), not a raw
+// cli_fd_write(x0=fd, x1=buf, x2=len) — tail call to libc write(2), not a raw
 // syscall (write is renamed to _write on Darwin by tc_platform.h).  Like any
 // libc call it clobbers x0-x17; callers must hold nothing live there across
 // it.  x0 = write()'s return value (bytes written, or -1) is passed through
 // unexamined to our own caller.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_fd_write:
+cli_fd_write:
     b write
 
 // ----------------------------------------------------------------------------
-// tc_fd_puts(x0=fd, x1=s)
+// cli_fd_puts(x0=fd, x1=s)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_fd_puts:
+cli_fd_puts:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -647,7 +648,7 @@ tc_fd_puts:
     mov x2, x0
     mov x0, x19
     mov x1, x20
-    bl tc_fd_write
+    bl cli_fd_write
     EPILOGUE 5
     ret
 
@@ -663,7 +664,7 @@ tc_print_help:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x0, #STDOUT
-    bl tc_print_usage
+    bl cli_print_usage
     LEA x0, help_body
     bl tc_puts
     // dynamic "--config" default: expanduser(DEFAULT_CONFIG_PATH), then
@@ -674,10 +675,10 @@ tc_print_help:
     // verbatim.  Otherwise the value is spliced into a single unwrapped
     // line — argparse's own wrapping only breaks the text when it does
     // not fit the terminal width, which the common short values here do.
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x1, #SCRATCH_SZ
     bl tc_default_config_path        // the platform class's DEFAULT_CONFIG_PATH
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     bl tc_shorten_path               // x0 = ptr to shortened path (scratch)
     mov x19, x0
     LEA x1, s_default_config_path
@@ -736,10 +737,10 @@ tc_print_help:
     cmp x10, x21
     b.lt .Lhw_scan
     ldrb w10, [x20, x10]
-    bl help_is_word_char
+    bl cli_help_is_word_char
     cbz w0, .Lhw_scan
     ldrb w10, [x20, x24]
-    bl help_is_word_char
+    bl cli_help_is_word_char
     cbz w0, .Lhw_scan
 .Lhw_have_chunk:
     sub x25, x24, x21                 // chunk length
@@ -794,9 +795,9 @@ tc_print_help:
     bl exit
 
 
-// help_is_word_char: w0 = 1 when the byte in w10 is [0-9A-Za-z_], else 0.
+// cli_help_is_word_char: w0 = 1 when the byte in w10 is [0-9A-Za-z_], else 0.
     .p2align 2
-help_is_word_char:
+cli_help_is_word_char:
     mov w0, #1
     cmp w10, #'0'
     b.lt .Lhiw_no
@@ -818,10 +819,10 @@ help_is_word_char:
     ret
 
 // ============================================================================
-// tc_handle_opt(x0=val, x1=optarg) — dispatch one option (may exit 2).
+// cli_handle_opt(x0=val, x1=optarg) — dispatch one option (may exit 2).
 // ============================================================================
     .p2align 2
-tc_handle_opt:
+cli_handle_opt:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -869,12 +870,12 @@ tc_handle_opt:
     b.eq .Lho_users
     mov x0, x19
     mov x1, x20
-    bl tc_handle_typed
+    bl cli_handle_typed
     b .Lho_done
 
 .Lho_by_state:
     mov x0, #TC_F_BY_STATE
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_json:
     LEA x0, tc_opts
@@ -882,22 +883,22 @@ tc_handle_opt:
     tst x1, #TC_F_WATCH_PRESENT
     b.ne .Lho_json_conflict
     mov x0, #TC_F_JSON
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_json_conflict:
     LEA x0, s_canon_json
     LEA x1, s_canon_watch
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 .Lho_bcast:
     mov x0, #TC_F_EXCLUDE_BCAST
-    bl tc_set_flag
-    LEA x1, tc_cli_given
+    bl cli_set_flag
+    LEA x1, cli_given
     mov x2, #1
     strb w2, [x1, #TC_SET_EXCLUDE_BCAST]
     b .Lho_done
 .Lho_no_exclude:
     mov x0, #TC_F_NO_EXCLUDE
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_no_config:
     LEA x0, tc_opts
@@ -905,16 +906,16 @@ tc_handle_opt:
     tst x1, #TC_F_CONFIG_GIVEN
     b.ne .Lho_no_config_conflict
     mov x0, #TC_F_NO_CONFIG
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_no_config_conflict:
     LEA x0, s_canon_no_config
     LEA x1, s_canon_config
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 .Lho_streamer:
     mov x0, #TC_F_STREAMER
-    bl tc_set_flag
-    LEA x1, tc_cli_given
+    bl cli_set_flag
+    LEA x1, cli_given
     mov x2, #1
     strb w2, [x1, #TC_SET_STREAMER_MODE]
     b .Lho_done
@@ -924,31 +925,31 @@ tc_handle_opt:
     tst x1, #TC_F_REBUILD_CACHE
     b.ne .Lho_no_cache_conflict
     mov x0, #TC_F_NO_CACHE
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_no_cache_conflict:
     LEA x0, s_canon_no_cache
     LEA x1, s_canon_rebuild_cache
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 .Lho_rebuild_cache:
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CACHE
     b.ne .Lho_rebuild_conflict
     mov x0, #TC_F_REBUILD_CACHE
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_rebuild_conflict:
     LEA x0, s_canon_rebuild_cache
     LEA x1, s_canon_no_cache
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 .Lho_manual:
     mov x0, #TC_F_MANUAL
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 .Lho_emit_fish:
     mov x0, #TC_F_EMIT_FISH
-    bl tc_set_flag
+    bl cli_set_flag
     b .Lho_done
 
 .Lho_live:
@@ -961,18 +962,18 @@ tc_handle_opt:
     mov x0, #TC_ST_UNKNOWN
 .Lho_state:
     mov x19, x0
-    LEA x0, tc_cli_state
+    LEA x0, cli_state
     ldr x1, [x0]
     cbnz x1, .Lho_state_conflict
     str x19, [x0]
     LEA x0, tc_opts
     str x19, [x0, #TC_O_STATE_FILTER]
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, #TC_SET_STATE]
     b .Lho_done
 // x19 = the state constant for the option just parsed (current arg); x1 =
-// the state constant already stored in tc_cli_state (the earlier, conflicting
+// the state constant already stored in cli_state (the earlier, conflicting
 // arg).  Each adrp/add pair below must name the SAME symbol -- a mismatched
 // pair (adrp of one canonical string, add LO12 of another) only produced the
 // right address by accident on Linux, when both strings happened to share a
@@ -1003,7 +1004,7 @@ tc_handle_opt:
 .Lho_sc_prev_offline:
     LEA x1, s_canon_offline
 .Lho_sc_emit:
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 
 .Lho_exclude:
     mov x0, #TC_O_EXCL_LIST
@@ -1027,7 +1028,7 @@ tc_handle_opt:
     mov x4, #TC_SET_INCLUDE
 .Lho_list:
     mov x5, x20
-    bl tc_append_list
+    bl cli_append_list
     b .Lho_done
 
 .Lho_watch:
@@ -1036,13 +1037,13 @@ tc_handle_opt:
     tst x1, #TC_F_JSON
     b.ne .Lho_watch_json_conflict
     mov x0, #TC_F_WATCH_PRESENT
-    bl tc_set_flag
-    LEA x0, tc_cli_given
+    bl cli_set_flag
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, #TC_SET_INTERVAL]
     cbz x20, .Lho_watch_fc
     mov x0, x20
-    bl tc_parse_nonnegative_float
+    bl cli_parse_nonnegative_float
     cbnz x1, .Lho_watch_bad
     LEA x1, tc_opts
     str x0, [x1, #TC_O_INTERVAL]
@@ -1060,11 +1061,11 @@ tc_handle_opt:
     mov x2, #P_NONNEG_FLOAT
     mov x3, x1                      // actual status (1=parse, 2=range)
     mov x1, x20                     // display
-    bl tc_emit_typed_err
+    bl cli_emit_typed_err
 .Lho_watch_json_conflict:
     LEA x0, s_canon_watch
     LEA x1, s_canon_json
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 
 .Lho_config:
     LEA x0, tc_opts
@@ -1072,32 +1073,32 @@ tc_handle_opt:
     tst x1, #TC_F_NO_CONFIG
     b.ne .Lho_config_conflict
     mov x0, #TC_F_CONFIG_GIVEN
-    bl tc_set_flag
+    bl cli_set_flag
     LEA_OFF x0, tc_opts, TC_O_CONFIG_PATH
     mov x1, x20
     mov x2, #TC_O_CONFIG_PATH_SZ
     bl tc_copy_str_cap
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, #TC_SET_CONFIG]
     b .Lho_done
 .Lho_config_conflict:
     LEA x0, s_canon_config
     LEA x1, s_canon_no_config
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 
 .Lho_begin:
     mov x0, #VAL_BEGIN
     mov x1, #VAL_SINCE
     mov x2, #VAL_USERS
-    bl tc_win_conflict_check
+    bl cli_win_conflict_check
     mov x0, #TC_F_BEGIN_GIVEN
-    bl tc_set_flag
+    bl cli_set_flag
     LEA_OFF x0, tc_opts, TC_O_BEGIN_RAW
     mov x1, x20
     mov x2, #TC_O_BEGIN_RAW_SZ
     bl tc_copy_str_cap
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, #TC_SET_BEGIN]
     b .Lho_done
@@ -1105,14 +1106,14 @@ tc_handle_opt:
     mov x0, #VAL_SINCE
     mov x1, #VAL_BEGIN
     mov x2, #VAL_USERS
-    bl tc_win_conflict_check
+    bl cli_win_conflict_check
     mov x0, #TC_F_SINCE_GIVEN
-    bl tc_set_flag
+    bl cli_set_flag
     LEA_OFF x0, tc_opts, TC_O_SINCE_RAW
     mov x1, x20
     mov x2, #TC_O_SINCE_RAW_SZ
     bl tc_copy_str_cap
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, #TC_SET_SINCE]
     b .Lho_done
@@ -1120,15 +1121,15 @@ tc_handle_opt:
     mov x0, #VAL_USERS
     mov x1, #VAL_BEGIN
     mov x2, #VAL_SINCE
-    bl tc_win_conflict_check
+    bl cli_win_conflict_check
     mov x0, x20
-    bl tc_parse_positive_int
+    bl cli_parse_positive_int
     cbnz x1, .Lho_users_bad
     LEA x1, tc_opts
     str x0, [x1, #TC_O_USERS]
     mov x0, #TC_F_USERS_GIVEN
-    bl tc_set_flag
-    LEA x0, tc_cli_given
+    bl cli_set_flag
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, #TC_SET_USERS]
     b .Lho_done
@@ -1137,16 +1138,16 @@ tc_handle_opt:
     mov x2, #P_POS_INT              // parser
     mov x3, x1                      // actual status (1=parse, 2=range)
     mov x1, x20                     // display
-    bl tc_emit_typed_err
+    bl cli_emit_typed_err
 .Lho_done:
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_set_flag(x0=bit)
+// cli_set_flag(x0=bit)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_set_flag:
+cli_set_flag:
     LEA x1, tc_opts
     ldr x2, [x1, #TC_O_FLAGS]
     orr x2, x2, x0
@@ -1154,14 +1155,14 @@ tc_set_flag:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_win_conflict_check(x0=current val, x1=other A val, x2=other B val)
+// cli_win_conflict_check(x0=current val, x1=other A val, x2=other B val)
 //   noreturn on conflict.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_win_conflict_check:
+cli_win_conflict_check:
     PROLOGUE 5
     mov x19, x0                     // current val
-    LEA x20, tc_win_first
+    LEA x20, cli_win_first
     ldr x2, [x20]
     cbz x2, .Lwc_first
     cmp x2, x19
@@ -1169,29 +1170,29 @@ tc_win_conflict_check:
     // a different window option is already recorded -> conflict
     mov x20, x1                     // the other val (for the message)
     mov x0, x19
-    bl tc_val_canon
+    bl cli_val_canon
     mov x19, x0
     mov x0, x20
-    bl tc_val_canon
+    bl cli_val_canon
     mov x1, x0
     mov x0, x19
-    bl tc_arg_not_allowed
+    bl cli_arg_not_allowed
 .Lwc_first:
-    LEA x2, tc_win_first
+    LEA x2, cli_win_first
     str x19, [x2]
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_val_canon(x0=val) -> x0 = canonical option string
+// cli_val_canon(x0=val) -> x0 = canonical option string
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_val_canon:
+cli_val_canon:
     cmp x0, #1
     b.lt .Lvc_none
     cmp x0, #VAL_MAX
     b.gt .Lvc_none
-    LEA x1, tc_val_table
+    LEA x1, cli_val_table
     mov x2, #VT_REC_SZ
     mul x0, x0, x2
     add x0, x1, x0
@@ -1202,27 +1203,27 @@ tc_val_canon:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_arg_not_allowed — "argument X: not allowed with argument Y", exit 2.
+// cli_arg_not_allowed — "argument X: not allowed with argument Y", exit 2.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_arg_not_allowed:
+cli_arg_not_allowed:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
     mov x2, x20
-    bl tc_build_not_allowed
-    LEA x0, tc_scratch2
-    bl tc_arg_error
+    bl cli_build_not_allowed
+    LEA x0, cli_scratch2
+    bl cli_arg_error
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_build_not_allowed(x0=dst, x1=X, x2=Y)
+// cli_build_not_allowed(x0=dst, x1=X, x2=Y)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_build_not_allowed:
+cli_build_not_allowed:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -1250,10 +1251,10 @@ tc_build_not_allowed:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_append_list(x0=list off, x1=count off, x2=esz, x3=flag, x4=set, x5=value)
+// cli_append_list(x0=list off, x1=count off, x2=esz, x3=flag, x4=set, x5=value)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_append_list:
+cli_append_list:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -1277,11 +1278,11 @@ tc_append_list:
     add x6, x6, #1
     str x6, [x0]
     mov x0, #TC_O_FLAGS
-    bl tc_opts_off
+    bl cli_opts_off
     ldr x6, [x0]
     orr x6, x6, x22
     str x6, [x0]
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #1
 .Lal_done:
     EPILOGUE 5
@@ -1312,31 +1313,31 @@ tc_copy_str_cap:
     ret
 
 // ============================================================================
-// tc_handle_typed(x0=val, x1=optarg) — table-driven options.
+// cli_handle_typed(x0=val, x1=optarg) — table-driven options.
 // ============================================================================
     .p2align 2
-tc_handle_typed:
+cli_handle_typed:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
-    LEA x21, tc_val_table
+    LEA x21, cli_val_table
     mov x22, #VT_REC_SZ
     mul x22, x19, x22
     add x21, x21, x22
     ldr x23, [x21, #VT_SET]
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     mov x1, #1
     strb w1, [x0, x23]
     ldr x1, [x21, #VT_FLAGS]
     cbz x1, .Lht_flags_done
     mov x0, x1
-    bl tc_set_flag
+    bl cli_set_flag
 .Lht_flags_done:
     ldr w24, [x21, #VT_PARSER]
     cbz w24, .Lht_string
     mov x0, x24
     mov x1, x20
-    bl tc_parse_for_store
+    bl cli_parse_for_store
     cbnz x1, .Lht_bad
     ldr x25, [x21, #VT_STORE]
     cmp w24, #P_METRICS
@@ -1364,11 +1365,11 @@ tc_handle_typed:
     bl tc_copy_str_cap
     b .Lht_done
 .Lht_metrics:
-    // stage into tc_show_staging (the by-state merge re-lays the final list)
-    LEA x1, tc_metrics_tmp_n
+    // stage into cli_show_staging (the by-state merge re-lays the final list)
+    LEA x1, cli_metrics_tmp_n
     ldr x2, [x1]
-    LEA x3, tc_metrics_tmp
-    LEA x1, tc_show_staging
+    LEA x3, cli_metrics_tmp
+    LEA x1, cli_show_staging
     mov x4, #0
 .Lht_mc:
     cmp x4, x2
@@ -1390,7 +1391,7 @@ tc_handle_typed:
     ldr x0, [x21, #VT_CANON]
     mov x2, x24                     // parser
     // x1 = display, x2 = parser, x3 = status
-    bl tc_emit_typed_err
+    bl cli_emit_typed_err
 .Lht_string:
     ldr x25, [x21, #VT_STORE]
     LEA x0, tc_opts
@@ -1403,10 +1404,10 @@ tc_handle_typed:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_parse_for_store(x0=parser, x1=raw) -> (x0=value, x1=status, x2=extra)
+// cli_parse_for_store(x0=parser, x1=raw) -> (x0=value, x1=status, x2=extra)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_parse_for_store:
+cli_parse_for_store:
     stp x30, xzr, [sp, #-16]!
     cmp x0, #P_POS_INT
     b.eq .Lpfs_pos
@@ -1444,19 +1445,19 @@ tc_parse_for_store:
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_pos:     mov x0, x1
-    bl tc_parse_positive_int
+    bl cli_parse_positive_int
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_nonneg:  mov x0, x1
-    bl tc_parse_nonnegative_int
+    bl cli_parse_nonnegative_int
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_nnf:     mov x0, x1
-    bl tc_parse_nonnegative_float
+    bl cli_parse_nonnegative_float
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_pf:      mov x0, x1
-    bl tc_parse_positive_float
+    bl cli_parse_positive_float
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_dur:     mov x0, x1
@@ -1492,11 +1493,11 @@ tc_parse_for_store:
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_color:   mov x0, x1
-    bl tc_parse_color_choice
+    bl cli_parse_color_choice
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_complete: mov x0, x1
-    bl tc_parse_complete_choice
+    bl cli_parse_complete_choice
     ldp x30, xzr, [sp], #16
     ret
 .Lpfs_state:   mov x0, x1
@@ -1505,31 +1506,31 @@ tc_parse_for_store:
     ret
 
 // ============================================================================
-// tc_emit_typed_err(x0=canonical, x1=display, x2=parser, x3=status) — exit 2
+// cli_emit_typed_err(x0=canonical, x1=display, x2=parser, x3=status) — exit 2
 // ============================================================================
     .p2align 2
-tc_emit_typed_err:
+cli_emit_typed_err:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
     mov x22, x3
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x1, x19
     mov x2, x21
     mov x3, x20
     mov x4, x22
-    bl tc_build_arg_msg
-    LEA x0, tc_scratch
-    bl tc_arg_error                // exit 2
+    bl cli_build_arg_msg
+    LEA x0, cli_scratch
+    bl cli_arg_error                // exit 2
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_build_arg_msg(x0=dst, x1=canonical, x2=parser, x3=display, x4=status)
+// cli_build_arg_msg(x0=dst, x1=canonical, x2=parser, x3=display, x4=status)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_build_arg_msg:
+cli_build_arg_msg:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -1553,17 +1554,17 @@ tc_build_arg_msg:
     mov x1, x21
     mov x2, x22
     mov x3, x23
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov w1, #0
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_emit_msg_body(x0=cursor, x1=parser, x2=display, x3=status) -> cursor
-//   Uses the tc_msg_table: {pre, suf, alt}; status 2 uses alt (range msg).
+// cli_emit_msg_body(x0=cursor, x1=parser, x2=display, x3=status) -> cursor
+//   Uses the cli_msg_table: {pre, suf, alt}; status 2 uses alt (range msg).
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_emit_msg_body:
+cli_emit_msg_body:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -1578,7 +1579,7 @@ tc_emit_msg_body:
     b.lt .Lmb_fallback
     cmp x20, #18
     b.gt .Lmb_fallback
-    LEA x23, tc_msg_table
+    LEA x23, cli_msg_table
     mov x24, #24
     mul x24, x20, x24
     add x23, x23, x24
@@ -1648,19 +1649,19 @@ tc_emit_msg_body:
     LEA x1, s_week_no_prefix
     bl tc_cat_cstr
     mov x19, x0
-    LEA x9, tc_dt_bad_year
+    LEA x9, cli_dt_bad_year
     ldr x1, [x9, #8]                // week
     mov x0, x19
-    bl tc_format_u64
+    bl cli_format_u64
     mov x19, x0
     mov x0, x19
     LEA x1, s_week_in_iso
     bl tc_cat_cstr
     mov x19, x0
-    LEA x9, tc_dt_bad_year
+    LEA x9, cli_dt_bad_year
     ldr x1, [x9]                    // year
     mov x0, x19
-    bl tc_format_u64
+    bl cli_format_u64
     mov x19, x0
     mov x0, x19
     LEA x1, s_week_suffix
@@ -1677,16 +1678,16 @@ tc_emit_msg_body:
     ret
 
 // ============================================================================
-// tc_prepass(x0=argc, x1=argv) — cleaned argv + extras.  Exits 2 on errors.
+// cli_prepass(x0=argc, x1=argv) — cleaned argv + extras.  Exits 2 on errors.
 // ============================================================================
     .p2align 2
-tc_prepass:
+cli_prepass:
     PROLOGUE 5
     mov x19, x0                     // argc
     mov x20, x1                     // argv
-    LEA x0, tc_argc_saved
+    LEA x0, cli_argc_saved
     str x19, [x0]
-    LEA x0, tc_argv_saved
+    LEA x0, cli_argv_saved
     str x20, [x0]
     mov x21, #1
     mov x22, #0                     // opt_n
@@ -1704,7 +1705,7 @@ tc_prepass:
     b.eq .Lpp_longish
     mov x0, x24
     mov x1, x21
-    bl tc_pp_short
+    bl cli_pp_short
     mov x21, x0
     b .Lpp_loop
 .Lpp_longish:
@@ -1712,7 +1713,7 @@ tc_prepass:
     cbz w0, .Lpp_endopts
     mov x0, x24
     mov x1, x21
-    bl tc_pp_long
+    bl cli_pp_long
     mov x21, x0
     b .Lpp_loop
 .Lpp_endopts:
@@ -1720,33 +1721,33 @@ tc_prepass:
     // ('unrecognized arguments: --'), unlike traditional getopt which
     // silently consumes it.  x24 still holds argv[x21] (the "--" token).
     mov x0, x24
-    bl tc_pp_extra
+    bl cli_pp_extra
     add x24, x21, #1
 .Lpp_end_loop:
     cmp x24, x19
     b.ge .Lpp_done
     ldr x0, [x20, x24, lsl #3]
-    bl tc_pp_extra
+    bl cli_pp_extra
     add x24, x24, #1
     b .Lpp_end_loop
 .Lpp_extra:
     mov x0, x24
-    bl tc_pp_extra
+    bl cli_pp_extra
     add x21, x21, #1
     b .Lpp_loop
 .Lpp_done:
-    // tc_pp_emit / tc_pp_extra already updated the memory counters; the
+    // cli_pp_emit / cli_pp_extra already updated the memory counters; the
     // register copies (x22/x23) are stale, so do NOT store them here.
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_pp_emit(x0=token) — append to the cleaned argv
+// cli_pp_emit(x0=token) — append to the cleaned argv
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_pp_emit:
-    LEA x1, tc_opt_argv
-    LEA x2, tc_opt_n
+cli_pp_emit:
+    LEA x1, cli_opt_argv
+    LEA x2, cli_opt_n
     ldr x3, [x2]
     str x0, [x1, x3, lsl #3]
     add x3, x3, #1
@@ -1754,12 +1755,12 @@ tc_pp_emit:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_pp_extra(x0=token) — append to the extras list
+// cli_pp_extra(x0=token) — append to the extras list
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_pp_extra:
-    LEA x1, tc_extras
-    LEA x2, tc_extras_n
+cli_pp_extra:
+    LEA x1, cli_extras
+    LEA x2, cli_extras_n
     ldr x3, [x2]
     str x0, [x1, x3, lsl #3]
     add x3, x3, #1
@@ -1767,36 +1768,36 @@ tc_pp_extra:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_pp_slot(x0=index) -> x0 = tc_argstr + index*ARGSTR_SZ
+// cli_pp_slot(x0=index) -> x0 = cli_argstr + index*ARGSTR_SZ
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_pp_slot:
-    LEA x1, tc_argstr
+cli_pp_slot:
+    LEA x1, cli_argstr
     mov x2, #ARGSTR_SZ
     mul x0, x0, x2
     add x0, x1, x0
     ret
 
 // ----------------------------------------------------------------------------
-// tc_opts_off(x0=offset) -> x0 = tc_opts + offset   (offsets may exceed 4095)
+// cli_opts_off(x0=offset) -> x0 = tc_opts + offset   (offsets may exceed 4095)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_opts_off:
+cli_opts_off:
     LEA x1, tc_opts
     add x0, x1, x0
     ret
 
 // ============================================================================
-// tc_pp_long(x0=token, x1=index) -> x0 = next argv index (may exit 2)
+// cli_pp_long(x0=token, x1=index) -> x0 = next argv index (may exit 2)
 // ============================================================================
     .p2align 2
-tc_pp_long:
+cli_pp_long:
     PROLOGUE 5
     mov x19, x0                     // token
     mov x20, x1                     // index
     // copy to the scratch slot first (we may modify it)
     mov x0, x20
-    bl tc_pp_slot
+    bl cli_pp_slot
     mov x21, x0                     // slot
     mov x0, x21
     mov x1, x19
@@ -1821,8 +1822,8 @@ tc_pp_long:
     // comparison pointer: the token name WITHOUT the leading "--"
     // (getopt's longopts names have no dashes)
     add x23, x19, #2
-    // exact match in tc_longopts
-    LEA x24, tc_longopts
+    // exact match in cli_longopts
+    LEA x24, cli_longopts
     mov x25, #0
 .Lpl_exact:
     ldr x26, [x24]
@@ -1839,7 +1840,7 @@ tc_pp_long:
     b .Lpl_have
 .Lpl_no_exact:
     // prefix matches
-    LEA x24, tc_longopts
+    LEA x24, cli_longopts
     mov x25, #0
     mov x27, #0
 .Lpl_pre:
@@ -1851,7 +1852,7 @@ tc_pp_long:
     cbnz x0, .Lpl_pre_next
     mov x0, x23
     mov x1, x28
-    bl tc_startswith
+    bl cli_startswith
     cbz x0, .Lpl_pre_next
     add x25, x25, #1
     mov x27, x24
@@ -1864,17 +1865,17 @@ tc_pp_long:
     cmp x25, #0
     b.eq .Lpl_unknown
     // ambiguous
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x1, x19
-    bl tc_build_ambiguous
-    LEA x0, tc_scratch
-    bl tc_arg_error
+    bl cli_build_ambiguous
+    LEA x0, cli_scratch
+    bl cli_arg_error
 .Lpl_one:
     mov x26, x27
     b .Lpl_have
 .Lpl_unknown:
     mov x0, x19
-    bl tc_pp_extra
+    bl cli_pp_extra
     add x0, x20, #1
     b .Lpl_ret
 .Lpl_have:
@@ -1886,15 +1887,15 @@ tc_pp_long:
     // takes a value
     cbnz x22, .Lpl_inline
     // space form: value from the next argv if value-like
-    LEA x24, tc_argc_saved
+    LEA x24, cli_argc_saved
     ldr x24, [x24]
     add x25, x20, #1
     cmp x25, x24
     b.ge .Lpl_no_value
-    LEA x24, tc_argv_saved
+    LEA x24, cli_argv_saved
     ldr x24, [x24]
     ldr x0, [x24, x25, lsl #3]
-    bl tc_is_value_token
+    bl cli_is_value_token
     cbz x0, .Lpl_no_value
     // value available: rebuild the slot as "fullname=value"
     strb wzr, [x21]
@@ -1909,12 +1910,12 @@ tc_pp_long:
     mov w2, #'='
     strb w2, [x23], #1
     mov x0, x23
-    LEA x24, tc_argv_saved
+    LEA x24, cli_argv_saved
     ldr x24, [x24]
     ldr x1, [x24, x25, lsl #3]
     bl tc_cat_cstr
     mov x0, x21
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #2
     b .Lpl_ret
 .Lpl_inline:
@@ -1934,7 +1935,7 @@ tc_pp_long:
     mov x1, x22
     bl tc_cat_cstr
     mov x0, x21
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lpl_ret
 .Lpl_space:
@@ -1952,16 +1953,16 @@ tc_pp_long:
     mov x1, x28
     bl tc_cat_cstr
     mov x0, x21
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lpl_ret
 .Lpl_bool_explicit:
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x26
     mov x2, x22
-    bl tc_build_ignored_explicit
-    LEA x0, tc_scratch2
-    bl tc_arg_error
+    bl cli_build_ignored_explicit
+    LEA x0, cli_scratch2
+    bl cli_arg_error
 .Lpl_no_value:
     cmp w27, #1
     b.eq .Lpl_missing
@@ -1975,23 +1976,23 @@ tc_pp_long:
     mov x1, x28
     bl tc_cat_cstr
     mov x0, x21
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lpl_ret
 .Lpl_missing:
     mov x0, x26
-    bl tc_arg_missing_value
+    bl cli_arg_missing_value
 .Lpl_ret:
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_startswith(x0=prefix, x1=s) -> x0 = 1 if s is a PROPER prefix of x0... 
+// cli_startswith(x0=prefix, x1=s) -> x0 = 1 if s is a PROPER prefix of x0... 
 //   actually: 1 if x0 starts with x1 AND is longer (abbreviation match)
 //   in: x0 = the token, x1 = the long option name
 // ============================================================================
     .p2align 2
-tc_startswith:
+cli_startswith:
     mov x2, x0
 .Lsw:
     ldrb w3, [x2], #1
@@ -2010,10 +2011,10 @@ tc_startswith:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_build_ambiguous(x0=dst, x1=optpart)
+// cli_build_ambiguous(x0=dst, x1=optpart)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_build_ambiguous:
+cli_build_ambiguous:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -2031,7 +2032,7 @@ tc_build_ambiguous:
     bl tc_cat_cstr
     mov x21, x0
     add x23, x20, #2                // token name without the leading "--"
-    LEA x24, tc_longopts
+    LEA x24, cli_longopts
     mov x25, #0
 .Lba:
     ldr x22, [x24]
@@ -2042,7 +2043,7 @@ tc_build_ambiguous:
     cbnz x0, .Lba_next
     mov x0, x23
     mov x1, x22
-    bl tc_startswith
+    bl cli_startswith
     cbz x0, .Lba_next
     cbnz x25, .Lba_comma
     mov x25, #1
@@ -2069,10 +2070,10 @@ tc_build_ambiguous:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_build_ignored_explicit(x0=dst, x1=longopts record, x2=value)
+// cli_build_ignored_explicit(x0=dst, x1=longopts record, x2=value)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_build_ignored_explicit:
+cli_build_ignored_explicit:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -2083,7 +2084,7 @@ tc_build_ignored_explicit:
     bl tc_cat_cstr
     mov x22, x0
     ldr w0, [x20, #24]              // val
-    bl tc_val_canon
+    bl cli_val_canon
     mov x1, x0
     mov x0, x22
     bl tc_cat_cstr
@@ -2102,32 +2103,32 @@ tc_build_ignored_explicit:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_arg_missing_value(x0=longopts record) — exit 2
+// cli_arg_missing_value(x0=longopts record) — exit 2
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_arg_missing_value:
+cli_arg_missing_value:
     PROLOGUE 5
     mov x19, x0
     ldr w0, [x19, #24]
-    bl tc_val_canon
+    bl cli_val_canon
     mov x1, x0
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x2, x1
     mov x1, x0
     mov x0, x1
     mov x1, x2
     LEA x2, s_expected_one
-    bl tc_build_simple_arg_msg
-    LEA x0, tc_scratch
-    bl tc_arg_error
+    bl cli_build_simple_arg_msg
+    LEA x0, cli_scratch
+    bl cli_arg_error
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_build_simple_arg_msg(x0=dst, x1=canonical, x2=msg)
+// cli_build_simple_arg_msg(x0=dst, x1=canonical, x2=msg)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_build_simple_arg_msg:
+cli_build_simple_arg_msg:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -2155,10 +2156,10 @@ tc_build_simple_arg_msg:
     ret
 
 // ============================================================================
-// tc_pp_short(x0=token, x1=index) -> x0 = next argv index (may exit 2)
+// cli_pp_short(x0=token, x1=index) -> x0 = next argv index (may exit 2)
 // ============================================================================
     .p2align 2
-tc_pp_short:
+cli_pp_short:
     PROLOGUE 5
     mov x19, x0                     // token
     mov x20, x1                     // index
@@ -2167,10 +2168,10 @@ tc_pp_short:
 .Lps_loop:
     ldrb w0, [x21, x22]
     cbz w0, .Lps_all_bool
-    bl tc_short_lookup              // x0 = val or 0
+    bl cli_short_lookup              // x0 = val or 0
     cbz x0, .Lps_unknown
     mov x23, x0                     // val
-    LEA x24, tc_val_table
+    LEA x24, cli_val_table
     mov x25, #VT_REC_SZ
     mul x25, x23, x25
     add x24, x24, x25
@@ -2186,16 +2187,16 @@ tc_pp_short:
     b .Lps_loop
 .Lps_bool_explicit:
     add x26, x26, #1
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x23
     mov x2, x26
-    bl tc_build_ignored_short_explicit
-    LEA x0, tc_scratch2
-    bl tc_arg_error
+    bl cli_build_ignored_short_explicit
+    LEA x0, cli_scratch2
+    bl cli_arg_error
 .Lps_unknown:
     // remainder "-<rest>" is unrecognized
     mov x0, x20
-    bl tc_pp_slot
+    bl cli_pp_slot
     mov x26, x0                     // slot base
     mov x27, x26                    // cursor
     mov w1, #'-'
@@ -2206,7 +2207,7 @@ tc_pp_short:
     strb w3, [x27], #1
     cbnz w3, .Lps_unknown_copy
     mov x0, x26
-    bl tc_pp_extra
+    bl cli_pp_extra
     add x0, x20, #1
     b .Lps_ret
 .Lps_value:
@@ -2219,7 +2220,7 @@ tc_pp_short:
     b.eq .Lps_eq_attached
     // attached (cluster rest is the value): token as-is
     mov x0, x19
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lps_ret
 .Lps_eq_attached:
@@ -2228,19 +2229,19 @@ tc_pp_short:
     cbz w0, .Lps_eq_empty
     // "=value": build merged token without the '='
     mov x0, x20
-    bl tc_pp_slot
+    bl cli_pp_slot
     mov x27, x0
     mov x0, x27
     mov x1, x21
     add x2, x22, #1
-    bl tc_copy_n                    // tok[0..p] (p+1 chars)
+    bl cli_copy_n                    // tok[0..p] (p+1 chars)
     mov x0, x27
     add x0, x0, x22
     add x0, x0, #1
     mov x1, x26
     bl tc_cat_cstr
     mov x0, x27
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lps_ret
 .Lps_eq_empty:
@@ -2251,45 +2252,45 @@ tc_pp_short:
     // real getopt_long syntax for an explicit (possibly empty) value.
     mov x0, x23
     mov x1, x20
-    bl tc_pp_build_long_val
+    bl cli_pp_build_long_val
     add x0, x20, #1
     b .Lps_ret
 .Lps_no_attached:
     // value from the next argv if value-like
-    LEA x26, tc_argc_saved
+    LEA x26, cli_argc_saved
     ldr x26, [x26]
     add x27, x20, #1
     cmp x27, x26
     b.ge .Lps_missing
-    LEA x26, tc_argv_saved
+    LEA x26, cli_argv_saved
     ldr x26, [x26]
     ldr x28, [x26, x27, lsl #3]     // next argv token
     mov x0, x28
-    bl tc_is_value_token
+    bl cli_is_value_token
     cbz x0, .Lps_missing
     ldrb w0, [x28]
     cbz w0, .Lps_no_attached_empty  // "-c \"\"": empty separate argument
     // value available: merge tok[0..p] + value into the slot
     mov x0, x20
-    bl tc_pp_slot
+    bl cli_pp_slot
     mov x26, x0                     // slot base
     mov x0, x26
     mov x1, x21
     add x2, x22, #1
-    bl tc_copy_n                    // tok[0..p] -> slot
+    bl cli_copy_n                    // tok[0..p] -> slot
     mov x0, x26
     add x0, x0, x22
     add x0, x0, #1
     mov x1, x28
     bl tc_cat_cstr
     mov x0, x26
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #2
     b .Lps_ret
 .Lps_no_attached_empty:
     mov x0, x23
     mov x1, x20
-    bl tc_pp_build_long_val
+    bl cli_pp_build_long_val
     add x0, x20, #2
     b .Lps_ret
 .Lps_missing:
@@ -2299,30 +2300,30 @@ tc_pp_short:
     // required: missing value
     ldr x0, [x24, #VT_CANON]
     mov x1, x0
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     LEA x2, s_expected_one
-    bl tc_build_simple_arg_msg
-    LEA x0, tc_scratch
-    bl tc_arg_error
+    bl cli_build_simple_arg_msg
+    LEA x0, cli_scratch
+    bl cli_arg_error
 .Lps_optional_noval:
     // "-w" no value: emit tok[0..p]
     mov x0, x20
-    bl tc_pp_slot
+    bl cli_pp_slot
     mov x27, x0                     // slot base
     mov x0, x27
     mov x1, x21
     add x2, x22, #1
-    bl tc_copy_n                    // tok[0..p] -> slot
+    bl cli_copy_n                    // tok[0..p] -> slot
     add x28, x27, x22
     mov w0, #0
     strb w0, [x28, #1]              // NUL after the option char
     mov x0, x27
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lps_ret
 .Lps_all_bool:
     mov x0, x19
-    bl tc_pp_emit
+    bl cli_pp_emit
     add x0, x20, #1
     b .Lps_ret
 .Lps_ret:
@@ -2330,21 +2331,21 @@ tc_pp_short:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_pp_build_long_val(x0=short val, x1=index) — writes "--<name>=" into
+// cli_pp_build_long_val(x0=short val, x1=index) — writes "--<name>=" into
 // the scratch slot for `index` and emits it.  Used to spell an explicit,
 // possibly-empty value ("-c=", "-c \"\"") through getopt_long's native
 // "--long=value" syntax, since a bare merged "-c" token is indistinguishable
 // from "no value attached" and would make getopt_long consume another argv.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_pp_build_long_val:
+cli_pp_build_long_val:
     PROLOGUE 2
     mov w19, w0                     // short val
     mov x20, x1                     // index
     mov x0, x20
-    bl tc_pp_slot
+    bl cli_pp_slot
     mov x21, x0                     // slot
-    LEA x0, tc_longopts
+    LEA x0, cli_longopts
 .Lpbv_scan:
     ldr x1, [x0]
     cbz x1, .Lpbv_use_fallback
@@ -2379,15 +2380,15 @@ tc_pp_build_long_val:
     strb wzr, [x0]
 .Lpbv_done:
     mov x0, x21
-    bl tc_pp_emit
+    bl cli_pp_emit
     EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
-// tc_copy_n(x0=dst, x1=src, x2=n)
+// cli_copy_n(x0=dst, x1=src, x2=n)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_copy_n:
+cli_copy_n:
     mov x3, #0
 .Lcn:
     cmp x3, x2
@@ -2400,11 +2401,11 @@ tc_copy_n:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_short_lookup(x0=char) -> x0 = val or 0
+// cli_short_lookup(x0=char) -> x0 = val or 0
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_short_lookup:
-    LEA x1, tc_short_pairs
+cli_short_lookup:
+    LEA x1, cli_short_pairs
 .Lsl:
     ldrb w2, [x1]
     cbz w2, .Lsl_none
@@ -2420,10 +2421,10 @@ tc_short_lookup:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_build_ignored_short_explicit(x0=dst, x1=val, x2=value)
+// cli_build_ignored_short_explicit(x0=dst, x1=val, x2=value)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_build_ignored_short_explicit:
+cli_build_ignored_short_explicit:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -2434,7 +2435,7 @@ tc_build_ignored_short_explicit:
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x20
-    bl tc_val_canon
+    bl cli_val_canon
     mov x1, x0
     mov x0, x22
     bl tc_cat_cstr
@@ -2453,11 +2454,11 @@ tc_build_ignored_short_explicit:
     ret
 
 // ============================================================================
-// tc_is_value_token(x0=s) -> x0 = 1 when a following option may consume it.
+// cli_is_value_token(x0=s) -> x0 = 1 when a following option may consume it.
 //   Non-destructive mirror of argparse's _parse_optional(s) is None.
 // ============================================================================
     .p2align 2
-tc_is_value_token:
+cli_is_value_token:
     PROLOGUE 5
     mov x19, x0
     ldrb w0, [x19]
@@ -2489,7 +2490,7 @@ tc_is_value_token:
     EPILOGUE 5
     ret
 
-tc_resolve_settings:
+cli_resolve_settings:
     PROLOGUE 5
     mov x19, #0
 .Lrs:
@@ -2524,7 +2525,7 @@ tc_resolve_settings:
     cmp x19, #TC_SET_LOGS_DIR
     b.eq .Lrs_logs_dir
     mov x0, x19
-    bl tc_resolve_one
+    bl cli_resolve_one
     b .Lrs_next
 .Lrs_logs_dir:
     // logs_dir: CLI/env/config take the generic path.  Only when nothing
@@ -2533,7 +2534,7 @@ tc_resolve_settings:
     // platform with no default (Linux) the value stays empty and the
     // source stays TC_SRC_DEFAULT, matching Python's None.
     mov x0, x19
-    bl tc_resolve_one
+    bl cli_resolve_one
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_SRC + TC_SET_LOGS_DIR*8]
     cmp x1, #TC_SRC_DEFAULT
@@ -2548,7 +2549,7 @@ tc_resolve_settings:
     b .Lrs_next
 .Lrs_config:
     // config path
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_CONFIG]
     cbz w1, .Lrs_config_default
     LEA x1, tc_opts
@@ -2567,7 +2568,7 @@ tc_resolve_settings:
     str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
     b .Lrs_next
 .Lrs_color:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_COLOR]
     cbnz w1, .Lrs_color_cli
     LEA x0, tc_opts
@@ -2582,10 +2583,10 @@ tc_resolve_settings:
     str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
     b .Lrs_next
 .Lrs_state:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_STATE]
     cbz w1, .Lrs_state_generic
-    LEA x0, tc_cli_state
+    LEA x0, cli_state
     ldr x1, [x0]
     cmp x1, #TC_ST_LIVE
     b.eq .Lrs_state_live
@@ -2604,7 +2605,7 @@ tc_resolve_settings:
     b .Lrs_next
 .Lrs_state_generic:
     mov x0, x19
-    bl tc_resolve_one
+    bl cli_resolve_one
     b .Lrs_next
 .Lrs_interval:
     // CLI numeric value?
@@ -2616,13 +2617,13 @@ tc_resolve_settings:
     str x1, [x0, #TC_O_SRC + TC_SET_INTERVAL*8]
     b .Lrs_next
 .Lrs_interval_generic:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     strb wzr, [x0, #TC_SET_INTERVAL]    // ignore the from-config sentinel
     mov x0, x19
-    bl tc_resolve_one
+    bl cli_resolve_one
     b .Lrs_next
 .Lrs_streamer:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_STREAMER_MODE]
     cbz w1, .Lrs_streamer_generic
     LEA x0, tc_opts
@@ -2633,10 +2634,10 @@ tc_resolve_settings:
     b .Lrs_next
 .Lrs_streamer_generic:
     mov x0, x19
-    bl tc_resolve_one
+    bl cli_resolve_one
     b .Lrs_next
 .Lrs_bcast:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_EXCLUDE_BCAST]
     cbz w1, .Lrs_bcast_generic
     LEA x0, tc_opts
@@ -2647,19 +2648,19 @@ tc_resolve_settings:
     b .Lrs_next
 .Lrs_bcast_generic:
     mov x0, x19
-    bl tc_resolve_one
+    bl cli_resolve_one
     b .Lrs_next
 .Lrs_highlights:
-    // [[watch.highlight]] — parsed here (tc_resolve_highlights fills
+    // [[watch.highlight]] — parsed here (cli_resolve_highlights fills
     // TC_O_HL_COUNT / TC_O_HL_ARR; Python resolve_settings + parse_highlights)
-    bl tc_resolve_highlights
+    bl cli_resolve_highlights
     b .Lrs_next
 .Lrs_next:
     add x19, x19, #1
     b .Lrs
 .Lrs_done:
     // exclusion/inclusion provenance
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_EXCLUDE]
     LEA x2, tc_opts
     cbz w1, .Lrs_excl_none
@@ -2669,7 +2670,7 @@ tc_resolve_settings:
 .Lrs_excl_none:
     str xzr, [x2, #TC_O_SRC + TC_SET_EXCLUDE*8]
 .Lrs_excl_done:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_INCLUDE]
     LEA x2, tc_opts
     cbz w1, .Lrs_inc_none
@@ -2679,7 +2680,7 @@ tc_resolve_settings:
 .Lrs_inc_none:
     str xzr, [x2, #TC_O_SRC + TC_SET_INCLUDE*8]
 .Lrs_inc_done:
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_EXCLUDE_GROUP]
     LEA x2, tc_opts
     cbz w1, .Lrs_eg_none
@@ -2693,23 +2694,23 @@ tc_resolve_settings:
     ret
 
 // ============================================================================
-// tc_resolve_one(x0=set id) — CLI -> env -> config -> default.
+// cli_resolve_one(x0=set id) — CLI -> env -> config -> default.
 // ============================================================================
     .p2align 2
-tc_resolve_one:
+cli_resolve_one:
     PROLOGUE 5
     mov x19, x0
-    LEA x20, tc_spec_table
+    LEA x20, cli_spec_table
     mov x21, #SP_REC_SZ
     mul x21, x19, x21
     add x20, x20, x21
     // CLI?
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, x19]
     cbz w1, .Lro_env
     ldr x1, [x20, #SP_CLI_SRC]
     mov x0, x19
-    bl tc_store_src
+    bl cli_store_src
     b .Lro_done
 .Lro_env:
     ldr x21, [x20, #SP_ENV]
@@ -2720,7 +2721,7 @@ tc_resolve_one:
     mov x0, x19
     mov x1, x1                      // value
     ldr x2, [x20, #SP_ENV_SRC]
-    bl tc_store_from_raw
+    bl cli_store_from_raw
     b .Lro_done
 .Lro_cfg:
     ldr x21, [x20, #SP_KEY]
@@ -2745,7 +2746,7 @@ tc_resolve_one:
     mov x0, x19
     mov x1, x1                      // value
     mov x2, x2                      // source id
-    bl tc_store_from_raw
+    bl cli_store_from_raw
     b .Lro_done
 .Lro_default:
     ldr x21, [x20, #SP_DEFAULT]
@@ -2764,21 +2765,21 @@ tc_resolve_one:
     mov x0, x19
     mov x1, x21
     mov x2, x22
-    bl tc_store_from_raw
+    bl cli_store_from_raw
     b .Lro_done
 .Lro_default_none:
     mov x0, x19
     mov x1, x22
-    bl tc_store_src
+    bl cli_store_src
 .Lro_done:
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_store_src(x0=set id, x1=src)
+// cli_store_src(x0=set id, x1=src)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_store_src:
+cli_store_src:
     LEA x2, tc_opts
     mov x3, #TC_O_SRC
     add x2, x2, x3
@@ -2788,26 +2789,26 @@ tc_store_src:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_store_from_raw(x0=set, x1=raw, x2=src) — convert + store; exit 1 on err
+// cli_store_from_raw(x0=set, x1=raw, x2=src) — convert + store; exit 1 on err
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_store_from_raw:
+cli_store_from_raw:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x21, x2
-    LEA x22, tc_spec_table
+    LEA x22, cli_spec_table
     mov x23, #SP_REC_SZ
     mul x23, x19, x23
     add x22, x22, x23
     mov x0, x19
     mov x1, x21
-    bl tc_store_src
+    bl cli_store_src
     ldr w23, [x22, #SP_PARSER]
     cbz w23, .Lsfr_string
     mov x0, x23
     mov x1, x20
-    bl tc_parse_for_store
+    bl cli_parse_for_store
     cbz x1, .Lsfr_store
     // conversion error: x1 = status, x2 = the offending item (P_METRICS)
     mov x4, x1                      // status (before x1 is reused below)
@@ -2820,7 +2821,7 @@ tc_store_from_raw:
     ldr x0, [x22, #SP_FLAG]
     mov x1, x21
     mov x2, x23
-    bl tc_resolve_err
+    bl cli_resolve_err
 .Lsfr_store:
     cmp w23, #P_METRICS
     b.eq .Lsfr_metrics
@@ -2850,10 +2851,10 @@ tc_store_from_raw:
     bl tc_copy_str_cap
     b .Lsfr_done
 .Lsfr_metrics:
-    LEA x1, tc_metrics_tmp_n
+    LEA x1, cli_metrics_tmp_n
     ldr x2, [x1]
-    LEA x3, tc_metrics_tmp
-    LEA x1, tc_show_staging
+    LEA x3, cli_metrics_tmp
+    LEA x1, cli_show_staging
     mov x4, #0
 .Lsfr_mc:
     cmp x4, x2
@@ -2875,11 +2876,11 @@ tc_store_from_raw:
     ret
 
 // ============================================================================
-// tc_resolve_err — "error: <flag> (from <src>): <msg>", exit 1.
+// cli_resolve_err — "error: <flag> (from <src>): <msg>", exit 1.
 //   x0=flag, x1=src id, x2=parser, x3=display, x4=status
 // ============================================================================
     .p2align 2
-tc_resolve_err:
+cli_resolve_err:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -2888,7 +2889,7 @@ tc_resolve_err:
     mov x23, x4
     // parse_datetime() quotes str(text).strip(), parse_duration() quotes
     // str(text).strip().lower(): normalise the display the same way (into
-    // its own buffer: tc_scratch is where the message is built)
+    // its own buffer: cli_scratch is where the message is built)
     cmp x21, #P_DATETIME
     b.eq .Lre_norm
     cmp x21, #P_DATETIME_EOD
@@ -2896,16 +2897,16 @@ tc_resolve_err:
     cmp x21, #P_DURATION
     b.ne .Lre_norm_done
 .Lre_norm:
-    LEA x0, tc_err_display
+    LEA x0, cli_err_display
     mov x1, x22
-    bl tc_strip_copy
+    bl cli_strip_copy
     mov x22, x0
     cmp x21, #P_DURATION
     b.ne .Lre_norm_done
     mov x0, x22
-    bl tc_lowercase
+    bl cli_lowercase
 .Lre_norm_done:
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x24, x0
     mov x0, x24
     mov x1, x19
@@ -2934,7 +2935,7 @@ tc_resolve_err:
     mov x0, x24
     mov x1, x25
     mov x2, x26
-    bl tc_copy_n
+    bl cli_copy_n
     add x24, x24, x26
     mov x0, x24
     LEA x1, s_from_suffix
@@ -2945,17 +2946,17 @@ tc_resolve_err:
     mov x1, x21
     mov x2, x22
     mov x3, x23
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     bl tc_fail
 
 // ============================================================================
-// tc_resolve_window — fill tc_window.
+// cli_resolve_window — fill tc_window.
 // ============================================================================
     .p2align 2
-tc_resolve_window:
+cli_resolve_window:
     PROLOGUE 5
     // ---- end ---------------------------------------------------------------
     LEA x19, tc_opts
@@ -2971,14 +2972,14 @@ tc_resolve_window:
     mov x2, #P_DATETIME_EOD
     add x3, x19, #TC_O_END_RAW       // the raw end string (display)
     mov x4, x2                      // status
-    bl tc_resolve_err
+    bl cli_resolve_err
 .Lrw_end_ok:
     LEA x19, tc_window
     str x0, [x19, #TC_W_END_YMD]
     str x1, [x19, #TC_W_END_SOD]
     b .Lrw_start
 .Lrw_end_default:
-    bl tc_now
+    bl cli_now
     LEA x19, tc_window
     str x0, [x19, #TC_W_END_YMD]
     str x1, [x19, #TC_W_END_SOD]
@@ -2987,7 +2988,7 @@ tc_resolve_window:
     str x0, [x19, #TC_O_SRC + TC_SET_END*8]
 .Lrw_start:
     // ---- window start ------------------------------------------------------
-    LEA x0, tc_cli_given
+    LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_USERS]
     cbnz w1, .Lrw_users
     LEA x0, tc_opts
@@ -3001,13 +3002,13 @@ tc_resolve_window:
     mov x0, #TC_SRC_CLI_BEGIN
     LEA_OFF x1, tc_opts, TC_O_BEGIN_RAW
     mov x2, #TC_WIN_BEGIN
-    bl tc_win_set
+    bl cli_win_set
     b .Lrw_convert
 .Lrw_cli_since:
     mov x0, #TC_SRC_CLI_SINCE
     LEA_OFF x1, tc_opts, TC_O_SINCE_RAW
     mov x2, #TC_WIN_SINCE
-    bl tc_win_set
+    bl cli_win_set
     b .Lrw_convert
 .Lrw_env:
     LEA x0, s_env_begin
@@ -3026,13 +3027,13 @@ tc_resolve_window:
     mov x0, #TC_SRC_ENV_BEGIN
     mov x1, x22
     mov x2, #TC_WIN_BEGIN
-    bl tc_win_set
+    bl cli_win_set
     b .Lrw_convert
 .Lrw_env_since_ok:
     mov x0, #TC_SRC_ENV_SINCE
     mov x1, x24
     mov x2, #TC_WIN_SINCE
-    bl tc_win_set
+    bl cli_win_set
     b .Lrw_convert
 .Lrw_env_both:
     LEA x0, s_mutex_env_begin
@@ -3056,13 +3057,13 @@ tc_resolve_window:
     mov x0, #TC_SRC_CONFIG_BEGIN
     mov x1, x22
     mov x2, #TC_WIN_BEGIN
-    bl tc_win_set
+    bl cli_win_set
     b .Lrw_convert
 .Lrw_cfg_since_ok:
     mov x0, #TC_SRC_CONFIG_SINCE
     mov x1, x24
     mov x2, #TC_WIN_SINCE
-    bl tc_win_set
+    bl cli_win_set
     b .Lrw_convert
 .Lrw_cfg_both:
     LEA x0, s_mutex_cfg_begin
@@ -3092,25 +3093,25 @@ tc_resolve_window:
     str x3, [x19, #TC_W_BEGIN_SOD]
     // compose "--users N" into TC_O_WIN_SRC
     mov x0, #TC_O_WIN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     LEA x1, s_users_prefix
     bl tc_cat_cstr
     mov x24, x0
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_USERS]
     mov x0, x24
-    bl tc_format_u64
+    bl cli_format_u64
     mov x0, #TC_O_WIN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     LEA x1, tc_window
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_common
 .Lrw_convert:
-    LEA x19, tc_win_kind
+    LEA x19, cli_win_kind
     ldr x20, [x19]
-    LEA x19, tc_win_raw
+    LEA x19, cli_win_raw
     ldr x21, [x19]
-    LEA x19, tc_win_src
+    LEA x19, cli_win_src
     ldr x22, [x19]
     cmp x20, #TC_WIN_SINCE
     b.eq .Lrw_since
@@ -3124,7 +3125,7 @@ tc_resolve_window:
     mov x1, x22
     mov x2, #P_DATETIME
     mov x3, x21                     // the raw begin string (display)
-    bl tc_resolve_err
+    bl cli_resolve_err
 .Lrw_begin_ok:
     LEA x19, tc_window
     str x0, [x19, #TC_W_BEGIN_YMD]
@@ -3143,7 +3144,7 @@ tc_resolve_window:
     mov x1, x22
     mov x2, #P_DURATION
     mov x3, x21                     // the raw since string (display)
-    bl tc_resolve_err
+    bl cli_resolve_err
 .Lrw_since_ok:
     mov x25, x0                     // delta seconds (from tc_parse_duration)
     // begin = end - delta
@@ -3163,7 +3164,7 @@ tc_resolve_window:
     str x0, [x19, #TC_W_BEGIN_ROLLS]
     // compose "<src> <raw> before end"
     mov x0, #TC_O_WIN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     mov x24, x0
     mov x0, x22
     bl tc_source_str
@@ -3172,7 +3173,7 @@ tc_resolve_window:
     mov x0, x24
     mov x1, x26
     mov x2, x25
-    bl tc_copy_n
+    bl cli_copy_n
     add x24, x24, x25
     mov w0, #' '
     strb w0, [x24], #1
@@ -3184,7 +3185,7 @@ tc_resolve_window:
     LEA x1, s_before_end
     bl tc_cat_cstr
     mov x0, #TC_O_WIN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     LEA x1, tc_window
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_check
@@ -3205,7 +3206,7 @@ tc_resolve_window:
     cmp x24, x25
     b.le .Lrw_common
     // "begin (A) is after end (B)"
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x26, x0
     mov x0, x26
     LEA x1, s_begin_paren
@@ -3214,7 +3215,7 @@ tc_resolve_window:
     mov x0, x26
     mov x1, x20
     mov x2, x21
-    bl tc_format_ymd_sod
+    bl cli_format_ymd_sod
     mov x26, x0
     mov x0, x26
     LEA x1, s_is_after_end
@@ -3223,12 +3224,12 @@ tc_resolve_window:
     mov x0, x26
     mov x1, x22
     mov x2, x23
-    bl tc_format_ymd_sod
+    bl cli_format_ymd_sod
     mov w1, #')'
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     bl tc_fail
 .Lrw_common:
     LEA x19, tc_opts
@@ -3238,23 +3239,23 @@ tc_resolve_window:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_win_set(x0=src id, x1=raw ptr, x2=kind) — stash the window-start choice
+// cli_win_set(x0=src id, x1=raw ptr, x2=kind) — stash the window-start choice
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_win_set:
-    LEA x3, tc_win_kind
+cli_win_set:
+    LEA x3, cli_win_kind
     str x2, [x3]
-    LEA x3, tc_win_raw
+    LEA x3, cli_win_raw
     str x1, [x3]
-    LEA x3, tc_win_src
+    LEA x3, cli_win_src
     str x0, [x3]
     ret
 
 // ============================================================================
-// tc_choose_columns — merge by-state + --show into TC_O_COLUMNS.
+// cli_choose_columns — merge by-state + --show into TC_O_COLUMNS.
 // ============================================================================
     .p2align 2
-tc_choose_columns:
+cli_choose_columns:
     PROLOGUE 5
     LEA x19, tc_opts
     // final = by-state base
@@ -3278,8 +3279,8 @@ tc_choose_columns:
     // every field below 1400.  x28 is the columns base for both the dedupe
     // read and the append store.
     add x28, x19, #TC_O_COLUMNS
-    LEA x22, tc_show_staging
-    LEA x23, tc_metrics_tmp_n
+    LEA x22, cli_show_staging
+    LEA x23, cli_metrics_tmp_n
     ldr x23, [x23]                  // staged count
     mov x24, #0
 .Lcc_loop:
@@ -3316,7 +3317,7 @@ tc_choose_columns:
     b.eq .Lcc_src_by_state_only
     // both
     mov x0, #TC_O_COLUMNS_SRC_BUF
-    bl tc_opts_off
+    bl cli_opts_off
     mov x23, x0
     LEA x1, s_by_state_label
     bl tc_cat_cstr
@@ -3332,14 +3333,14 @@ tc_choose_columns:
     mov x0, x23
     mov x1, x25
     mov x2, x24
-    bl tc_copy_n
+    bl cli_copy_n
     add x23, x23, x24
     mov w0, #0
     strb w0, [x23]
     b .Lcc_src_store
 .Lcc_src_by_state_only:
     mov x0, #TC_O_COLUMNS_SRC_BUF
-    bl tc_opts_off
+    bl cli_opts_off
     mov x23, x0
     LEA x1, s_by_state_label
     bl tc_cat_cstr
@@ -3352,33 +3353,33 @@ tc_choose_columns:
     mov x24, x1
     mov x25, x0
     mov x0, #TC_O_COLUMNS_SRC_BUF
-    bl tc_opts_off
+    bl cli_opts_off
     mov x23, x0
     mov x1, x25
     mov x2, x24
-    bl tc_copy_n
+    bl cli_copy_n
     b .Lcc_src_store
 .Lcc_src_none:
     mov x0, #TC_O_COLUMNS_SRC_PTR
-    bl tc_opts_off
+    bl cli_opts_off
     str xzr, [x0]
     b .Lcc_done
 .Lcc_src_store:
     // x20 is dead at this point, so it carries the buffer address across the
-    // second tc_opts_off (which clobbers x1, the register the naive
+    // second cli_opts_off (which clobbers x1, the register the naive
     // mov x1, x0 / str x1, [x0] sequence would otherwise corrupt).
     mov x0, #TC_O_COLUMNS_SRC_BUF
-    bl tc_opts_off
+    bl cli_opts_off
     mov x20, x0
     mov x0, #TC_O_COLUMNS_SRC_PTR
-    bl tc_opts_off
+    bl cli_opts_off
     str x20, [x0]
 .Lcc_done:
     EPILOGUE 5
     ret
 
 // ============================================================================
-// tc_resolve_highlights — fill TC_O_HL_COUNT / TC_O_HL_ARR from the config's
+// cli_resolve_highlights — fill TC_O_HL_COUNT / TC_O_HL_ARR from the config's
 //   [[watch.highlight]] rules (Python resolve_settings + parse_highlights).
 //
 //   The frozen tc_config_get cannot return array-of-tables (toml_raw_in only
@@ -3418,17 +3419,17 @@ tc_choose_columns:
 
     .bss
     .p2align 3
-tc_hl_errbuf:   .skip TC_HL_ERRBUF_SZ  // toml_parse_file error buffer
+cli_hl_errbuf:   .skip TC_HL_ERRBUF_SZ  // toml_parse_file error buffer
     .global tc_hl_patterns
 tc_hl_patterns: .skip TC_HL_MAX * TC_HL_PAT_MAX * TC_HL_PAT_SZ  // rule i, pattern j: (i*TC_HL_PAT_MAX + j)*TC_HL_PAT_SZ
-tc_hl_dst:      .skip 8                // toml_rtos result slot (char *)
-tc_hl_errcode:  .skip 8                // pcre2_compile_8 error code
-tc_hl_erroff:   .skip 8                // pcre2_compile_8 error offset
-tc_hl_pat_free: .skip 8                // 0/1 free the current pattern string
+cli_hl_dst:      .skip 8                // toml_rtos result slot (char *)
+cli_hl_errcode:  .skip 8                // pcre2_compile_8 error code
+cli_hl_erroff:   .skip 8                // pcre2_compile_8 error offset
+cli_hl_pat_free: .skip 8                // 0/1 free the current pattern string
 
     .text
     .p2align 2
-tc_resolve_highlights:
+cli_resolve_highlights:
     PROLOGUE 5
     sub sp, sp, #16                     // [sp] = the current rule table slot
     LEA x19, tc_opts
@@ -3442,7 +3443,7 @@ tc_resolve_highlights:
     cbz x0, .Lrh_cfg
     mov x0, #TC_SRC_ENV_WATCH_HIGHLIGHT
     LEA x1, s_hl_must_be_list
-    bl tc_hl_err                        // noreturn
+    bl cli_hl_err                        // noreturn
 .Lrh_cfg:
     ldr x1, [x19, #TC_O_CONFIG_LOADED]
     cbz x1, .Lrh_default
@@ -3461,7 +3462,7 @@ tc_resolve_highlights:
     bl fopen
     cbz x0, .Lrh_default
     mov x27, x0                         // FILE*
-    LEA x0, tc_hl_errbuf
+    LEA x0, cli_hl_errbuf
     mov w1, #0
     strb w1, [x0]                       // clear the parse error buffer
     mov x1, x0
@@ -3501,7 +3502,7 @@ tc_resolve_highlights:
     // the key exists but is a string/number/table: not a list/tuple
     mov x0, x20
     LEA x1, s_hl_must_be_list
-    bl tc_hl_err                        // noreturn
+    bl cli_hl_err                        // noreturn
 .Lrh_have_array:
     mov x23, x0                         // the highlight array
     mov x0, x23
@@ -3555,7 +3556,7 @@ tc_resolve_highlights:
     b .Lrh_need_pattern                 // bare number/bool: not a string
 .Lrh_match_str:
     // single pattern: unquote via toml_rtos
-    LEA x0, tc_hl_dst
+    LEA x0, cli_hl_dst
     mov x22, x0                         // &dst
     mov x0, x25
     LEA x1, s_key_match
@@ -3568,7 +3569,7 @@ tc_resolve_highlights:
     mov x21, #0                         // pattern index 0
     mov x27, #1                         // pattern count 1
     mov x22, #0                         // no match array (single string)
-    LEA x0, tc_hl_pat_free
+    LEA x0, cli_hl_pat_free
     mov x1, #1
     str x1, [x0]                        // the unquoted string is malloc'd
     b .Lrh_pat_copy
@@ -3590,7 +3591,7 @@ tc_resolve_highlights:
     cbz w0, .Lrh_pat_raw
     mov x25, x1                         // malloc'd string
     mov x0, #1
-    LEA x1, tc_hl_pat_free
+    LEA x1, cli_hl_pat_free
     str x0, [x1]
     b .Lrh_pat_copy
 .Lrh_pat_raw:
@@ -3598,7 +3599,7 @@ tc_resolve_highlights:
     mov x1, x21
     bl toml_raw_at                      // x0 = raw text (into the parsed tree)
     mov x25, x0
-    LEA x0, tc_hl_pat_free
+    LEA x0, cli_hl_pat_free
     str xzr, [x0]
 .Lrh_pat_copy:
     // x25 = pattern text, x27 = pattern count, x21 = pattern index
@@ -3615,7 +3616,7 @@ tc_resolve_highlights:
     mul x10, x10, x11
     add x0, x9, x10                     // pattern slot
     mov x1, x25
-    bl tc_copy_n
+    bl cli_copy_n
     LEA x9, tc_hl_patterns
     mov x10, #TC_HL_PAT_MAX
     mul x10, x24, x10                   // rule index (x24)
@@ -3643,13 +3644,13 @@ tc_resolve_highlights:
     mul x10, x10, x11
     add x0, x9, x10                     // pattern slot
     ldr w2, =PCRE2_OPTS                 // Python re: Unicode \w \s \d, case folding
-    LEA x3, tc_hl_errcode
-    LEA x4, tc_hl_erroff
+    LEA x3, cli_hl_errcode
+    LEA x4, cli_hl_erroff
     mov x5, #0
     bl pcre2_compile_8
     cbz x0, .Lrh_bad_regex
     bl pcre2_code_free_8                // validation only; tc_watch.S recompiles
-    LEA x0, tc_hl_pat_free
+    LEA x0, cli_hl_pat_free
     ldr x0, [x0]
     cbz x0, .Lrh_pat_next
     mov x0, x25
@@ -3706,7 +3707,7 @@ tc_resolve_highlights:
     cbnz x1, .Lrh_color_fail_plain
     b .Lrh_color_store
 .Lrh_color_unquote:
-    LEA x0, tc_hl_dst
+    LEA x0, cli_hl_dst
     mov x22, x0                         // &dst
     mov x0, x21
     mov x1, x22
@@ -3746,7 +3747,7 @@ tc_resolve_highlights:
     cbnz x1, .Lrh_curve_fail_plain
     b .Lrh_curve_store
 .Lrh_curve_unquote:
-    LEA x0, tc_hl_dst
+    LEA x0, cli_hl_dst
     mov x22, x0
     mov x0, x21
     mov x1, x22
@@ -3778,19 +3779,19 @@ tc_resolve_highlights:
     cmp w1, #'\''
     b.eq .Lrh_k_unquote
     mov x0, x21
-    bl tc_parse_positive_float
+    bl cli_parse_positive_float
     cbz x1, .Lrh_k_store_plain
     mov x23, x1                         // status 1/2 (error path: x23 expendable)
     b .Lrh_k_fail_plain
 .Lrh_k_unquote:
-    LEA x0, tc_hl_dst
+    LEA x0, cli_hl_dst
     mov x22, x0
     mov x0, x21
     mov x1, x22
     bl toml_rtos
     cbnz x0, .Lrh_k_none
     ldr x0, [x22]
-    bl tc_parse_positive_float
+    bl cli_parse_positive_float
     cbz x1, .Lrh_k_store_unq
     mov x23, x1                         // status 1/2 (error path)
     b .Lrh_k_fail_unq
@@ -3804,7 +3805,7 @@ tc_resolve_highlights:
     str x21, [x28, #TC_HL_K]
     b .Lrh_k_done
 .Lrh_k_none:
-    LEA x0, tc_hl_dbl_neg1
+    LEA x0, cli_hl_dbl_neg1
     ldr x0, [x0]
     str x0, [x28, #TC_HL_K]             // -1.0 = inherit
 .Lrh_k_done:
@@ -3830,40 +3831,40 @@ tc_resolve_highlights:
 .Lrh_too_many_rules:
     mov x0, x20
     LEA x1, s_hl_too_many_rules
-    bl tc_hl_err                        // noreturn
+    bl cli_hl_err                        // noreturn
 .Lrh_expected_table:
     mov x0, x20
     mov x1, #0
     LEA x2, s_hl_expected_table
-    bl tc_hl_err_rule                   // noreturn
+    bl cli_hl_err_rule                   // noreturn
 .Lrh_needs_both:
     mov x0, x20
     mov x1, x24
     LEA x2, s_hl_needs_both
-    bl tc_hl_err_rule                   // noreturn
+    bl cli_hl_err_rule                   // noreturn
 .Lrh_need_pattern:
     mov x0, x20
     mov x1, x24
     LEA x2, s_hl_need_pattern
-    bl tc_hl_err_rule                   // noreturn
+    bl cli_hl_err_rule                   // noreturn
 .Lrh_too_many_pats:
     mov x0, x20
     mov x1, x24
     LEA x2, s_hl_too_many_pats
-    bl tc_hl_err_rule                   // noreturn
+    bl cli_hl_err_rule                   // noreturn
 .Lrh_pat_long:
     mov x0, x20
     mov x1, x24
     LEA x2, s_hl_pat_long
-    bl tc_hl_err_rule                   // noreturn
+    bl cli_hl_err_rule                   // noreturn
 .Lrh_bad_regex:
     // "rule {i}: '{pat}' is not a valid regex ({pcre2 msg})"
     mov x0, x20
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x26, x0                         // cursor (error path: x26 is expendable)
     mov x0, x26
     mov x1, x24
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x26, x0
     mov x0, x26
     LEA x1, s_q
@@ -3877,13 +3878,13 @@ tc_resolve_highlights:
     LEA x1, s_hl_bad_regex_mid
     bl tc_cat_cstr
     mov x26, x0
-    LEA x0, tc_hl_errcode
+    LEA x0, cli_hl_errcode
     ldr w0, [x0]
-    LEA x1, tc_scratch2
+    LEA x1, cli_scratch2
     mov x2, #SCRATCH_SZ
     bl pcre2_get_error_message_8
     mov x0, x26
-    LEA x1, tc_scratch2
+    LEA x1, cli_scratch2
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
@@ -3891,106 +3892,106 @@ tc_resolve_highlights:
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 .Lrh_color_bad:
     // colour is a table or a malformed array: fixed message (deviation text)
     mov x0, x20
     mov x1, x24
     LEA x2, s_hl_color_bad
-    bl tc_hl_err_rule                   // noreturn
+    bl cli_hl_err_rule                   // noreturn
 .Lrh_color_fail_plain:
     mov x0, x20
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x26, x0
     mov x0, x26
     mov x1, x24
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x26, x0
     mov x0, x26
     mov x1, #P_HEX
     mov x2, x21                         // display = raw colour text
     mov x3, #1
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov x26, x0
     mov x0, x26
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 .Lrh_color_fail_unq:
     mov x0, x20
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x26, x0
     mov x0, x26
     mov x1, x24
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x26, x0
     mov x0, x26
     mov x1, #P_HEX
-    LEA x2, tc_hl_dst
+    LEA x2, cli_hl_dst
     ldr x2, [x2]                        // display = unquoted colour
     mov x3, #1
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov x26, x0
     mov x0, x26
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 .Lrh_curve_fail_plain:
 .Lrh_curve_fail_unq:
-    // tc_parse_curve normalizes into tc_scratch2; that is Python's {name!r}
+    // tc_parse_curve normalizes into cli_scratch2; that is Python's {name!r}
     mov x0, x20
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x26, x0
     mov x0, x26
     mov x1, x24
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x26, x0
     mov x0, x26
     mov x1, #P_CURVE
-    LEA x2, tc_scratch2
+    LEA x2, cli_scratch2
     mov x3, #1
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov x26, x0
     mov x0, x26
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 .Lrh_k_fail_plain:
     mov x0, x20
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x26, x0
     mov x0, x26
     mov x1, x24
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x26, x0
     mov x0, x26
     mov x1, #P_POS_FLOAT
     mov x2, x21                         // display = raw k text
     mov x3, x23                         // status 1 or 2
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov x26, x0
     mov x0, x26
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 .Lrh_k_fail_unq:
     mov x0, x20
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x26, x0
     mov x0, x26
     mov x1, x24
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x26, x0
     mov x0, x26
     mov x1, #P_POS_FLOAT
-    LEA x2, tc_hl_dst
+    LEA x2, cli_hl_dst
     ldr x2, [x2]                        // display = unquoted k text
     mov x3, x23                         // status 1 or 2
-    bl tc_emit_msg_body
+    bl cli_emit_msg_body
     mov x26, x0
     mov x0, x26
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 
 // ============================================================================
 // Highlight error composition helpers
 // ============================================================================
     .p2align 2
-tc_hl_begin:
+cli_hl_begin:
     PROLOGUE 2
     mov x19, x0                         // source id
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x20, x0
     mov x0, x20
     LEA x1, s_flag_highlight
@@ -4007,7 +4008,7 @@ tc_hl_begin:
     mov x0, x20
     mov x1, x21
     mov x2, x22
-    bl tc_copy_n
+    bl cli_copy_n
     add x20, x20, x22
     mov x0, x20
     LEA x1, s_from_suffix
@@ -4016,7 +4017,7 @@ tc_hl_begin:
     ret
 
     .p2align 2
-tc_hl_rule:
+cli_hl_rule:
     PROLOGUE 2
     mov x19, x0                         // cursor
     mov x20, x1                         // rule index
@@ -4026,7 +4027,7 @@ tc_hl_rule:
     mov x19, x0
     mov x0, x19
     mov x1, x20
-    bl tc_hl_fmt_u64                    // appends digits, returns the END cursor
+    bl cli_hl_fmt_u64                    // appends digits, returns the END cursor
     mov x19, x0
     mov x0, x19
     LEA x1, s_hl_rule_mid
@@ -4035,14 +4036,14 @@ tc_hl_rule:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_hl_fmt_u64(x0=cursor, x1=value) -> x0 = cursor AFTER the digits.
-//   A local decimal appender: the shared tc_format_u64 returns the START of
+// cli_hl_fmt_u64(x0=cursor, x1=value) -> x0 = cursor AFTER the digits.
+//   A local decimal appender: the shared cli_format_u64 returns the START of
 //   the digits (its header's "after the digits" contract is not what the
 //   implementation does), which would let a following tc_cat_cstr overwrite
 //   the digits.  This one returns the end, so composition stays correct.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_hl_fmt_u64:
+cli_hl_fmt_u64:
     PROLOGUE 2
     sub sp, sp, #32
     mov x19, x0                         // cursor
@@ -4082,61 +4083,61 @@ tc_hl_fmt_u64:
     ret
 
     .p2align 2
-tc_hl_finish:
+cli_hl_finish:
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     b tc_fail                           // noreturn tail call
 
     .p2align 2
-tc_hl_err:
+cli_hl_err:
     PROLOGUE 1
     mov x19, x0                         // source id
     mov x20, x1                         // message
     mov x0, x19
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x19, x0
     mov x0, x19
     mov x1, x20
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 
     .p2align 2
-tc_hl_err_rule:
+cli_hl_err_rule:
     PROLOGUE 2
     mov x19, x0                         // source id
     mov x20, x1                         // rule index
     mov x21, x2                         // message
     mov x0, x19
-    bl tc_hl_begin
+    bl cli_hl_begin
     mov x19, x0
     mov x0, x19
     mov x1, x20
-    bl tc_hl_rule
+    bl cli_hl_rule
     mov x19, x0
     mov x0, x19
     mov x1, x21
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    bl tc_hl_finish                     // noreturn
+    bl cli_hl_finish                     // noreturn
 
 // ============================================================================
-// tc_now() -> x0=ymd, x1=sod (local time)
+// cli_now() -> x0=ymd, x1=sod (local time)
 // ============================================================================
     .p2align 2
-tc_now:
+cli_now:
     PROLOGUE 5
     mov x0, #CLOCK_REALTIME
-    LEA x1, tc_ts_buf
+    LEA x1, cli_ts_buf
     bl clock_gettime
-    LEA x19, tc_ts_buf
+    LEA x19, cli_ts_buf
     mov x0, x19
-    LEA x1, tc_tm_buf
+    LEA x1, cli_tm_buf
     bl localtime_r
-    LEA x19, tc_tm_buf
+    LEA x19, cli_tm_buf
     ldr w20, [x19, #20]
     add x20, x20, #1900
     ldr w21, [x19, #16]
@@ -4162,10 +4163,10 @@ tc_now:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_format_u64(x0=cursor, x1=value) -> x0 = cursor after the digits
+// cli_format_u64(x0=cursor, x1=value) -> x0 = cursor after the digits
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_format_u64:
+cli_format_u64:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -4209,10 +4210,10 @@ tc_format_u64:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_format_ymd_sod(x0=cursor, x1=ymd, x2=sod) -> x0 = cursor after the text
+// cli_format_ymd_sod(x0=cursor, x1=ymd, x2=sod) -> x0 = cursor after the text
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_format_ymd_sod:
+cli_format_ymd_sod:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -4233,21 +4234,21 @@ tc_format_ymd_sod:
     mov x0, x19
     mov x1, x23
     mov x2, #4
-    bl tc_format_pad
+    bl cli_format_pad
     mov x19, x0
     mov w0, #'-'
     strb w0, [x19], #1
     mov x0, x19
     mov x1, x25
     mov x2, #2
-    bl tc_format_pad
+    bl cli_format_pad
     mov x19, x0
     mov w0, #'-'
     strb w0, [x19], #1
     mov x0, x19
     mov x1, x24
     mov x2, #2
-    bl tc_format_pad
+    bl cli_format_pad
     mov x19, x0
     mov w0, #' '
     strb w0, [x19], #1
@@ -4255,7 +4256,7 @@ tc_format_ymd_sod:
     mov x26, #3600
     udiv x1, x21, x26
     mov x2, #2
-    bl tc_format_pad
+    bl cli_format_pad
     mov x19, x0
     mov w0, #':'
     strb w0, [x19], #1
@@ -4267,7 +4268,7 @@ tc_format_ymd_sod:
     mov x0, x19
     mov x1, x24
     mov x2, #2
-    bl tc_format_pad
+    bl cli_format_pad
     mov x19, x0
     mov w0, #':'
     strb w0, [x19], #1
@@ -4277,15 +4278,15 @@ tc_format_ymd_sod:
     mov x0, x19
     mov x1, x24
     mov x2, #2
-    bl tc_format_pad
+    bl cli_format_pad
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// tc_format_pad(x0=cursor, x1=value, x2=width) -> x0 = cursor after digits
+// cli_format_pad(x0=cursor, x1=value, x2=width) -> x0 = cursor after digits
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_format_pad:
+cli_format_pad:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -4339,9 +4340,9 @@ tc_format_pad:
 // tc_util.S: tc_days_from_civil, tc_civil_from_days, tc_days_in_month, ...)
 // ============================================================================
 
-// tc_weekday(x0=days) -> x0 = 1..7 (Monday=1)
+// cli_weekday(x0=days) -> x0 = 1..7 (Monday=1)
     .p2align 2
-tc_weekday:
+cli_weekday:
     add x0, x0, #3
     mov x1, #7
     udiv x2, x0, x1
@@ -4349,9 +4350,9 @@ tc_weekday:
     add x0, x0, #1
     ret
 
-// tc_iso_week_monday(x0=y, x1=w) -> x0=ymd (Monday 00:00:00)
+// cli_iso_week_monday(x0=y, x1=w) -> x0=ymd (Monday 00:00:00)
     .p2align 2
-tc_iso_week_monday:
+cli_iso_week_monday:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -4360,7 +4361,7 @@ tc_iso_week_monday:
     mov x2, #1
     bl tc_days_from_civil           // x0 = jan1 days
     mov x21, x0
-    bl tc_weekday                   // x0 = dow
+    bl cli_weekday                   // x0 = dow
     sub x0, x0, #1
     sub x21, x21, x0                // monday of week 1
     sub x0, x20, #1
@@ -4379,9 +4380,9 @@ tc_iso_week_monday:
     EPILOGUE 5
     ret
 
-// tc_iso_week_count(x0=y) -> x0 = 52 or 53
+// cli_iso_week_count(x0=y) -> x0 = 52 or 53
     .p2align 2
-tc_iso_week_count:
+cli_iso_week_count:
     PROLOGUE 5
     mov x19, x0
     mov x0, x19
@@ -4389,7 +4390,7 @@ tc_iso_week_count:
     mov x2, #1
     bl tc_days_from_civil
     mov x20, x0
-    bl tc_weekday
+    bl cli_weekday
     cmp x0, #4
     b.eq .Liwc_53
     cmp x0, #3
@@ -4417,25 +4418,25 @@ tc_parse_datetime:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
-    LEA x0, tc_scratch
+    LEA x0, cli_scratch
     mov x1, x19
-    bl tc_strip_copy
+    bl cli_strip_copy
     mov x21, x0                     // stripped ptr
     // ISO week / weekday
     mov x0, x21
-    bl tc_match_week                // x0=1; x1=year, x2=week, x3=weekday(0=plain)
+    bl cli_match_week                // x0=1; x1=year, x2=week, x3=weekday(0=plain)
     cmp x0, #0
     b.eq .Lpd_formats
     mov x22, x1                     // year
     mov x23, x2                     // week
     mov x24, x3                     // weekday (0 = plain week)
     mov x0, x22
-    bl tc_iso_week_count
+    bl cli_iso_week_count
     cmp x23, x0
     b.gt .Lpd_week_bad
     mov x0, x22
     mov x1, x23
-    bl tc_iso_week_monday           // x0 = monday ymd
+    bl cli_iso_week_monday           // x0 = monday ymd
     mov x25, x0
     cbz x24, .Lpd_plain_week
     // weekday: add (weekday-1) days
@@ -4476,7 +4477,7 @@ tc_parse_datetime:
 .Lpd_week_bad:
     // status 3: the message wants the rejected week and its year; the
     // resolve-error path only carries (display, status), so park them
-    LEA x0, tc_dt_bad_year
+    LEA x0, cli_dt_bad_year
     str x22, [x0]
     str x23, [x0, #8]
     mov x0, #0
@@ -4487,27 +4488,27 @@ tc_parse_datetime:
     b .Lpd_ret
 .Lpd_formats:
     mov x0, x21
-    bl tc_norm_T
+    bl cli_norm_T
     mov x0, x21
     mov x1, x20
-    bl tc_parse_fixed_datetime      // x0=ymd, x1=sod, x2=status
+    bl cli_parse_fixed_datetime      // x0=ymd, x1=sod, x2=status
     cmp x2, #0
     b.eq .Lpd_ret
     // fromisoformat subset: YYYYWwwD
     mov x0, x21
-    bl tc_match_compact_week        // x0=1; x1=year, x2=week, x3=day
+    bl cli_match_compact_week        // x0=1; x1=year, x2=week, x3=day
     cmp x0, #0
     b.eq .Lpd_fail
     mov x22, x1
     mov x23, x2
     mov x24, x3
     mov x0, x22
-    bl tc_iso_week_count
+    bl cli_iso_week_count
     cmp x23, x0
     b.gt .Lpd_week_bad
     mov x0, x22
     mov x1, x23
-    bl tc_iso_week_monday
+    bl cli_iso_week_monday
     mov x25, x0
     sub x24, x24, #1
     mov x0, x25
@@ -4537,16 +4538,16 @@ tc_parse_datetime:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_strip_copy(x0=dst, x1=src) -> x0 = dst (stripped copy)
+// cli_strip_copy(x0=dst, x1=src) -> x0 = dst (stripped copy)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_strip_copy:
+cli_strip_copy:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
 .Lsc_lead:
     ldrb w0, [x20]
-    bl tc_is_space
+    bl cli_is_space
     cbz w0, .Lsc_copy
     add x20, x20, #1
     b .Lsc_lead
@@ -4563,7 +4564,7 @@ tc_strip_copy:
     cmp x21, x19
     b.le .Lsc_done                  // nothing left
     ldrb w0, [x21, #-1]
-    bl tc_is_space
+    bl cli_is_space
     cbz w0, .Lsc_done
     sub x21, x21, #1
     strb wzr, [x21]
@@ -4574,11 +4575,11 @@ tc_strip_copy:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_is_space(w0=byte) -> w0 = 1 for the ASCII whitespace str.strip() drops
+// cli_is_space(w0=byte) -> w0 = 1 for the ASCII whitespace str.strip() drops
 //   (space, \t, \n, \r, \v, \f), else 0.  Clobbers nothing else.
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_is_space:
+cli_is_space:
     cmp w0, #' '
     b.eq .Lisp_yes
     cmp w0, #'\t'
@@ -4593,10 +4594,10 @@ tc_is_space:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_norm_T(x0=s) — replace 'T' with ' ' in place
+// cli_norm_T(x0=s) — replace 'T' with ' ' in place
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_norm_T:
+cli_norm_T:
     mov x1, x0
 .Lnt:
     ldrb w2, [x1]
@@ -4612,16 +4613,16 @@ tc_norm_T:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_match_week(x0=s) -> x0=1 for "YYYY-Www" / "YYYYWww" (+ optional "-d");
+// cli_match_week(x0=s) -> x0=1 for "YYYY-Www" / "YYYYWww" (+ optional "-d");
 //   x1=year, x2=week, x3=weekday (0 = none)
 // ============================================================================
     .p2align 2
-tc_match_week:
+cli_match_week:
     PROLOGUE 5
     mov x19, x0
     mov x0, x19
     mov x1, #4
-    bl tc_read_digits
+    bl cli_read_digits
     cbz x1, .Lmw_no
     mov x20, x0                     // year
     ldrb w0, [x19, #4]
@@ -4646,7 +4647,7 @@ tc_match_week:
     add x0, x19, #6
 .Lmw_week:
     mov x1, #1
-    bl tc_read_digits_range         // x0=value, x1=ok, x2=next ptr
+    bl cli_read_digits_range         // x0=value, x1=ok, x2=next ptr
     cbz x1, .Lmw_no
     mov x21, x0                     // week
     ldrb w0, [x2]
@@ -4680,15 +4681,15 @@ tc_match_week:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_match_compact_week(x0=s) -> x0=1 for "YYYYWwwD"; x1=year, x2=week, x3=day
+// cli_match_compact_week(x0=s) -> x0=1 for "YYYYWwwD"; x1=year, x2=week, x3=day
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_match_compact_week:
+cli_match_compact_week:
     PROLOGUE 5
     mov x19, x0
     mov x0, x19
     mov x1, #4
-    bl tc_read_digits
+    bl cli_read_digits
     cbz x1, .Lmcw_no
     mov x20, x0
     ldrb w0, [x19, #4]
@@ -4700,7 +4701,7 @@ tc_match_compact_week:
 .Lmcw_w:
     add x0, x19, #5
     mov x1, #2
-    bl tc_read_digits
+    bl cli_read_digits
     cbz x1, .Lmcw_no
     mov x21, x0
     ldrb w0, [x19, #7]
@@ -4724,10 +4725,10 @@ tc_match_compact_week:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_read_digits(x0=s, x1=n) -> x0=value, x1=ok (exactly n digits)
+// cli_read_digits(x0=s, x1=n) -> x0=value, x1=ok (exactly n digits)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_read_digits:
+cli_read_digits:
     mov x2, #0
     mov x3, #0
 .Lrd:
@@ -4754,10 +4755,10 @@ tc_read_digits:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_read_digits_range(x0=s, x1=min) -> x0=value, x1=ok, x2=next ptr
+// cli_read_digits_range(x0=s, x1=min) -> x0=value, x1=ok, x2=next ptr
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_read_digits_range:
+cli_read_digits_range:
     mov x2, #0
     mov x3, #0
     mov x4, x0
@@ -4790,16 +4791,16 @@ tc_read_digits_range:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_parse_fixed_datetime(x0=s, x1=eod) -> (x0=ymd, x1=sod, x2=status)
+// cli_parse_fixed_datetime(x0=s, x1=eod) -> (x0=ymd, x1=sod, x2=status)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_parse_fixed_datetime:
+cli_parse_fixed_datetime:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
     mov x0, x19
     mov x1, #4
-    bl tc_read_digits
+    bl cli_read_digits
     cbz x1, .Lpfd_fail
     mov x21, x0                     // year
     ldrb w0, [x19, #4]
@@ -4812,7 +4813,7 @@ tc_parse_fixed_datetime:
     uxtw x22, w0                    // sep
     add x0, x19, #5
     mov x1, #1
-    bl tc_read_digits_range
+    bl cli_read_digits_range
     cbz x1, .Lpfd_fail
     mov x23, x0                     // month
     mov x24, x2                     // ptr after month
@@ -4821,7 +4822,7 @@ tc_parse_fixed_datetime:
     b.ne .Lpfd_fail
     add x0, x24, #1
     mov x1, #1
-    bl tc_read_digits_range
+    bl cli_read_digits_range
     cbz x1, .Lpfd_fail
     mov x24, x0                     // day
     mov x25, x2                     // ptr after day
@@ -4845,7 +4846,7 @@ tc_parse_fixed_datetime:
     b.ne .Lpfd_fail
     add x0, x25, #1
     mov x1, #1
-    bl tc_read_digits_range
+    bl cli_read_digits_range
     cbz x1, .Lpfd_fail
     mov x26, x0
     mov x25, x2
@@ -4855,7 +4856,7 @@ tc_parse_fixed_datetime:
     b.ne .Lpfd_fail
     add x0, x25, #1
     mov x1, #1
-    bl tc_read_digits_range
+    bl cli_read_digits_range
     cbz x1, .Lpfd_fail
     mov x27, x0
     mov x25, x2
@@ -4865,7 +4866,7 @@ tc_parse_fixed_datetime:
     b.ne .Lpfd_fail
     add x0, x25, #1
     mov x1, #1
-    bl tc_read_digits_range
+    bl cli_read_digits_range
     cbz x1, .Lpfd_fail
     mov x28, x0
     mov x25, x2
@@ -4915,11 +4916,11 @@ tc_parse_fixed_datetime:
 tc_parse_duration:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
+    bl cli_strip_copy
     mov x19, x0
-    bl tc_lowercase
+    bl cli_lowercase
     mov x20, #0                     // total
     mov x21, #0                     // parts
     mov x22, x19
@@ -4999,10 +5000,10 @@ tc_parse_duration:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_lowercase(x0=s)
+// cli_lowercase(x0=s)
 // ----------------------------------------------------------------------------
     .p2align 2
-tc_lowercase:
+cli_lowercase:
     mov x1, x0
 .Llc:
     ldrb w2, [x1]
@@ -5023,9 +5024,9 @@ tc_lowercase:
 // Integer parsers (Python int() semantics)
 // ============================================================================
 
-// tc_parse_int_core(x0=s) -> (x0=value, x1=ok)
+// cli_parse_int_core(x0=s) -> (x0=value, x1=ok)
     .p2align 2
-tc_parse_int_core:
+cli_parse_int_core:
     PROLOGUE 5
     mov x19, x0
     mov x20, x19
@@ -5122,10 +5123,10 @@ tc_parse_int_core:
     EPILOGUE 5
     ret
 
-// tc_parse_positive_int(x0=s) -> (x0=value, x1=status)
-tc_parse_positive_int:
+// cli_parse_positive_int(x0=s) -> (x0=value, x1=status)
+cli_parse_positive_int:
     PROLOGUE 5
-    bl tc_parse_int_core
+    bl cli_parse_int_core
     cbz x1, .Lppi_bad
     cmp x0, #1
     b.lt .Lppi_range
@@ -5143,9 +5144,9 @@ tc_parse_positive_int:
     EPILOGUE 5
     ret
 
-tc_parse_nonnegative_int:
+cli_parse_nonnegative_int:
     PROLOGUE 5
-    bl tc_parse_int_core
+    bl cli_parse_int_core
     cbz x1, .Lpni_bad
     cmp x0, #0
     b.lt .Lpni_range
@@ -5163,19 +5164,19 @@ tc_parse_nonnegative_int:
     EPILOGUE 5
     ret
 
-tc_parse_float_core:
+cli_parse_float_core:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
+    bl cli_strip_copy
     mov x19, x0
-    bl tc_remove_underscores
+    bl cli_remove_underscores
     mov x0, x19
-    LEA x1, tc_strtod_end
+    LEA x1, cli_strtod_end
     bl strtod
     fmov x20, d0
-    LEA x21, tc_strtod_end
+    LEA x21, cli_strtod_end
     ldr x22, [x21]
     cmp x22, x19
     b.eq .Lpfc_bad
@@ -5206,9 +5207,9 @@ tc_parse_float_core:
     EPILOGUE 5
     ret
 
-// tc_remove_underscores(x0=s)
+// cli_remove_underscores(x0=s)
     .p2align 2
-tc_remove_underscores:
+cli_remove_underscores:
     mov x1, x0
     mov x2, x0
 .Lru:
@@ -5222,12 +5223,12 @@ tc_remove_underscores:
     strb wzr, [x2]
     ret
 
-// tc_parse_nonnegative_float(x0=s) -> (x0=bits, x1=status)
+// cli_parse_nonnegative_float(x0=s) -> (x0=bits, x1=status)
     .p2align 2
-tc_parse_nonnegative_float:
+cli_parse_nonnegative_float:
     PROLOGUE 5
     mov x19, x0
-    bl tc_parse_float_core
+    bl cli_parse_float_core
     cbz x1, .Lpnnf_ok
     mov x0, #0
     mov x1, #1
@@ -5249,12 +5250,12 @@ tc_parse_nonnegative_float:
     EPILOGUE 5
     ret
 
-// tc_parse_positive_float(x0=s) -> (x0=bits, x1=status)
+// cli_parse_positive_float(x0=s) -> (x0=bits, x1=status)
     .p2align 2
-tc_parse_positive_float:
+cli_parse_positive_float:
     PROLOGUE 5
     mov x19, x0
-    bl tc_parse_float_core
+    bl cli_parse_float_core
     cbz x1, .Lppf_ok
     mov x0, #0
     mov x1, #1
@@ -5287,11 +5288,11 @@ tc_parse_positive_float:
 tc_parse_state:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_state_live
     mov x0, x20
     mov x1, x21
@@ -5346,11 +5347,11 @@ tc_parse_state:
 tc_parse_header:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_hdr_full
     mov x0, x20
     mov x1, x21
@@ -5391,11 +5392,11 @@ tc_parse_header:
 tc_parse_sort:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_metric_count
     mov x0, x20
     mov x1, x21
@@ -5465,11 +5466,11 @@ tc_parse_sort:
 tc_parse_curve:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_curve_linear
     mov x0, x20
     mov x1, x21
@@ -5523,11 +5524,11 @@ tc_parse_curve:
 tc_parse_users_policy:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_policy_at_least
     mov x0, x20
     mov x1, x21
@@ -5565,11 +5566,11 @@ tc_parse_users_policy:
 tc_parse_bool:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     ldrb w0, [x20]
     cmp w0, #'1'
     b.eq .Lpb_true
@@ -5626,9 +5627,9 @@ tc_parse_bool:
 tc_parse_hex_colour:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
+    bl cli_strip_copy
     mov x19, x0
     ldrb w0, [x19]
     cmp w0, #'#'
@@ -5640,7 +5641,7 @@ tc_parse_hex_colour:
 .Lphx_count:
     ldrb w0, [x20]
     cbz w0, .Lphx_count_done
-    bl tc_is_hexdigit
+    bl cli_is_hexdigit
     cbz x0, .Lphx_bad
     add x20, x20, #1
     add x21, x21, #1
@@ -5655,13 +5656,13 @@ tc_parse_hex_colour:
     b .Lphx_bad
 .Lphx_three:
     ldrb w0, [x19]
-    bl tc_hexval
+    bl cli_hexval
     mov x22, x0
     ldrb w0, [x19, #1]
-    bl tc_hexval
+    bl cli_hexval
     mov x23, x0
     ldrb w0, [x19, #2]
-    bl tc_hexval
+    bl cli_hexval
     mov x24, x0
     lsl x22, x22, #4
     orr x22, x22, x22, lsr #4
@@ -5674,22 +5675,22 @@ tc_parse_hex_colour:
     // int(digits[i:i + 2], 16): the first digit of each pair is the high
     // nibble ("6f" is 0x6f, not 0xf6)
     ldrb w0, [x19]
-    bl tc_hexval
+    bl cli_hexval
     lsl x22, x0, #4
     ldrb w0, [x19, #1]
-    bl tc_hexval
+    bl cli_hexval
     orr x22, x22, x0
     ldrb w0, [x19, #2]
-    bl tc_hexval
+    bl cli_hexval
     lsl x23, x0, #4
     ldrb w0, [x19, #3]
-    bl tc_hexval
+    bl cli_hexval
     orr x23, x23, x0
     ldrb w0, [x19, #4]
-    bl tc_hexval
+    bl cli_hexval
     lsl x24, x0, #4
     ldrb w0, [x19, #5]
-    bl tc_hexval
+    bl cli_hexval
     orr x24, x24, x0
 .Lphx_pack:
     lsl x22, x22, #16
@@ -5706,9 +5707,9 @@ tc_parse_hex_colour:
     EPILOGUE 5
     ret
 
-// tc_is_hexdigit(x0=char) -> x0 = 1/0
+// cli_is_hexdigit(x0=char) -> x0 = 1/0
     .p2align 2
-tc_is_hexdigit:
+cli_is_hexdigit:
     cmp w0, #'0'
     b.lt .Lihx_no
     cmp w0, #'9'
@@ -5728,9 +5729,9 @@ tc_is_hexdigit:
     mov x0, #1
     ret
 
-// tc_hexval(x0=char) -> x0 = hex value
+// cli_hexval(x0=char) -> x0 = hex value
     .p2align 2
-tc_hexval:
+cli_hexval:
     cmp w0, #'0'
     b.lt .Lhv_zero
     cmp w0, #'9'
@@ -5749,16 +5750,16 @@ tc_hexval:
     mov w0, #0
     ret
 
-// tc_parse_color_choice(x0=s) -> (x0=id, x1=status)
+// cli_parse_color_choice(x0=s) -> (x0=id, x1=status)
     .p2align 2
-tc_parse_color_choice:
+cli_parse_color_choice:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_color_auto
     mov x0, x20
     mov x1, x21
@@ -5789,16 +5790,16 @@ tc_parse_color_choice:
     EPILOGUE 5
     ret
 
-// tc_parse_complete_choice(x0=s) -> (x0=id, x1=status)
+// cli_parse_complete_choice(x0=s) -> (x0=id, x1=status)
     .p2align 2
-tc_parse_complete_choice:
+cli_parse_complete_choice:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
-    bl tc_lowercase
-    LEA x20, tc_scratch2
+    bl cli_strip_copy
+    bl cli_lowercase
+    LEA x20, cli_scratch2
     LEA x21, s_comp_channels
     mov x0, x20
     mov x1, x21
@@ -5870,11 +5871,11 @@ tc_parse_complete_choice:
 tc_parse_metrics:
     PROLOGUE 5
     mov x19, x0
-    LEA x0, tc_scratch2
+    LEA x0, cli_scratch2
     mov x1, x19
-    bl tc_strip_copy
+    bl cli_strip_copy
     mov x19, x0
-    LEA x20, tc_metrics_tmp
+    LEA x20, cli_metrics_tmp
     mov x21, #0
     mov x22, x19
 .Lpm_skip:
@@ -5914,9 +5915,9 @@ tc_parse_metrics:
     add x23, x23, #1
 .Lpm_item_checked:
     mov x0, x22
-    bl tc_lowercase
+    bl cli_lowercase
     mov x0, x22
-    bl tc_metric_id
+    bl cli_metric_id
     cmn x0, #1
     b.eq .Lpm_bad
     mov x24, x0
@@ -5943,7 +5944,7 @@ tc_parse_metrics:
     mov x2, x22
     b .Lpm_ret
 .Lpm_done:
-    LEA x0, tc_metrics_tmp_n
+    LEA x0, cli_metrics_tmp_n
     str x21, [x0]
     mov x0, x21
     mov x1, #0
@@ -5952,9 +5953,9 @@ tc_parse_metrics:
     EPILOGUE 5
     ret
 
-// tc_metric_id(x0=s) -> x0 = metric id or -1
+// cli_metric_id(x0=s) -> x0 = metric id or -1
     .p2align 2
-tc_metric_id:
+cli_metric_id:
     PROLOGUE 5
     mov x19, x0
     LEA x20, s_metric_count
@@ -6043,32 +6044,32 @@ tc_source_str:
     b.lt .Lss_none
     cmp x19, #TC_SRC_COUNT
     b.ge .Lss_none
-    LEA x0, tc_source_table
+    LEA x0, cli_source_table
     ldr x0, [x0, x19, lsl #3]
     cbz x0, .Lss_none
     mov x1, x0
     bl tc_strlen
     mov x1, x0
-    LEA x2, tc_source_table
+    LEA x2, cli_source_table
     ldr x0, [x2, x19, lsl #3]
     b .Lss_ret
 .Lss_dyn_win:
     mov x0, #TC_O_WIN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     mov x1, x0
     bl tc_strlen
     mov x1, x0
     mov x0, #TC_O_WIN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     b .Lss_ret
 .Lss_dyn_chan:
     mov x0, #TC_O_CHAN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     mov x1, x0
     bl tc_strlen
     mov x1, x0
     mov x0, #TC_O_CHAN_SRC
-    bl tc_opts_off
+    bl cli_opts_off
     b .Lss_ret
 .Lss_none:
     mov x0, #0
@@ -6132,7 +6133,7 @@ s_week_suffix:  .asciz " (weeks run 1-52, or 1-53 in long years)"
 
 // message body table: one 24-byte record per parser id {pre, suf, alt}
     .p2align 3
-tc_msg_table:
+cli_msg_table:
     .skip 24                        // P_NONE
     .quad s_empty
     .quad s_m_int_suf
@@ -6297,7 +6298,7 @@ s_canon_help:       .asciz "-h/--help"
 // The val table — one 40-byte record per val (index = val).
 // ============================================================================
     .p2align 3
-tc_val_table:
+cli_val_table:
     .skip 40
     .quad s_canon_channel
     .quad TC_SET_CHANNEL
@@ -6483,7 +6484,7 @@ tc_val_table:
 // ============================================================================
 // Short option map: {char, val} pairs, 0-terminated
 // ============================================================================
-tc_short_pairs:
+cli_short_pairs:
     .byte 'B', VAL_BY_STATE
     .byte 'L', VAL_LIVE
     .byte 'O', VAL_OFFLINE
@@ -6507,7 +6508,7 @@ tc_short_pairs:
 // Entry: {name, has_arg, pad, flag, val, pad} = 32 bytes.
 // ============================================================================
     .p2align 3
-tc_longopts:
+cli_longopts:
     .quad lopt_help
     .word 0, 0
     .quad 0
@@ -6734,7 +6735,7 @@ optstring:
 // The settings spec table — one 96-byte record per TC_SET id.
 // ============================================================================
     .p2align 3
-tc_spec_table:
+cli_spec_table:
     // TC_SET_CHANNEL
     .quad s_env_channel
     .quad s_key_channel
@@ -7138,7 +7139,7 @@ tc_spec_table:
     .quad 0
     .quad s_flag_seed_lookback
     .quad 0
-    // TC_SET_BEGIN (window-start; resolved by tc_resolve_window)
+    // TC_SET_BEGIN (window-start; resolved by cli_resolve_window)
     .quad s_env_begin
     .quad s_key_begin
     .quad TC_SEC_NONE
@@ -7344,7 +7345,7 @@ s_key_seed_lookback:.asciz "seed_lookback"
     s_hl_pat_long:       .asciz "pattern too long (max 255 characters)"
     s_hl_color_bad:      .asciz "color must be a string or a 3-integer array"
     .p2align 3
-tc_hl_dbl_neg1:   .double -1.0
+cli_hl_dbl_neg1:   .double -1.0
 s_def_at_least:     .asciz "at-least"
 s_def_24h:          .asciz "24h"
 s_def_1:            .asciz "1"
@@ -7409,7 +7410,7 @@ s_flag_color:       .asciz "--color"
 // The source-string table (indexed by TC_SRC_* id)
 // ============================================================================
     .p2align 3
-tc_source_table:
+cli_source_table:
     .quad 0
     .quad s_src_cli_channel
     .quad s_src_cli_users_policy
@@ -7593,7 +7594,7 @@ s_src_config_since:  .asciz "config since"
 // separators attached, so a group may break across lines at a '|'.
 // ============================================================================
     .p2align 3
-tc_usage_parts:
+cli_usage_parts:
     .quad up_00
     .quad up_01
     .quad up_02

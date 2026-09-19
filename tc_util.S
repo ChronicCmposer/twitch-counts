@@ -255,13 +255,13 @@ tc_ioctl_p:
 
     .bss
     .p2align 3
-tc_path_scratch:    .skip PATH_SCRATCH_SZ   // tc_shorten_path result
-tc_path_scratch2:   .skip PATH_SCRATCH_SZ   // expanded home / user name
+util_path_scratch:    .skip PATH_SCRATCH_SZ   // tc_shorten_path result
+util_path_scratch2:   .skip PATH_SCRATCH_SZ   // expanded home / user name
     .text
 
-// pu_copy_n(x0=dst, x1=src, x2=n) -- copy n bytes and a NUL (clobbers x0-x3)
+// util_pu_copy_n(x0=dst, x1=src, x2=n) -- copy n bytes and a NUL (clobbers x0-x3)
     .p2align 2
-pu_copy_n:
+util_pu_copy_n:
     mov x3, #0
 .Lpuc_loop:
     cmp x3, x2
@@ -274,9 +274,9 @@ pu_copy_n:
     strb wzr, [x0, x2]
     ret
 
-// pu_cat(x0=dst, x1=src) -> x0 = end (at the NUL); clobbers x0-x2
+// util_pu_cat(x0=dst, x1=src) -> x0 = end (at the NUL); clobbers x0-x2
     .p2align 2
-pu_cat:
+util_pu_cat:
 .Lpuk_loop:
     ldrb w2, [x1], #1
     strb w2, [x0], #1
@@ -334,15 +334,15 @@ tc_expanduser:
     cbz x23, .Lxpu_unchanged
     b .Lxpu_have_home
 .Lxpu_named:
-    // the user name src[1:i] goes into tc_path_scratch2 for getpwnam
+    // the user name src[1:i] goes into util_path_scratch2 for getpwnam
     sub x9, x22, #1                 // name length
     cmp x9, #PATH_SCRATCH_SZ - 1
     b.ge .Lxpu_unchanged
-    LEA x0, tc_path_scratch2
+    LEA x0, util_path_scratch2
     add x1, x19, #1
     mov x2, x9
-    bl pu_copy_n
-    LEA x0, tc_path_scratch2
+    bl util_pu_copy_n
+    LEA x0, util_path_scratch2
     bl getpwnam
     cbz x0, .Lxpu_unchanged
     ldr x23, [x0, #PW_DIR_OFF]
@@ -371,10 +371,10 @@ tc_expanduser:
     mov x0, x20
     mov x1, x23
     mov x2, x24
-    bl pu_copy_n                   // the stripped home
+    bl util_pu_copy_n                   // the stripped home
     add x0, x20, x24
     add x1, x19, x22
-    bl pu_cat                     // + src[i:]  (x0 = end)
+    bl util_pu_cat                     // + src[i:]  (x0 = end)
     sub x0, x0, x20
     b .Lxpu_out
 .Lxpu_root:
@@ -393,7 +393,7 @@ tc_expanduser:
     mov x0, x20
     mov x1, x19
     mov x2, x24
-    bl pu_copy_n
+    bl util_pu_copy_n
     mov x0, x24
 .Lxpu_out:
     EPILOGUE 3
@@ -456,7 +456,7 @@ tc_default_config_path:
     mov x0, x19
     mov x1, x21
     mov x2, x22
-    bl pu_copy_n
+    bl util_pu_copy_n
     add x0, x19, x22
     sub x9, x22, #1
     ldrb w9, [x21, x9]
@@ -465,7 +465,7 @@ tc_default_config_path:
     b.ne .Ldcp_join
     add x1, x1, #1                  // "twitch-counts.toml"
 .Ldcp_join:
-    bl pu_cat
+    bl util_pu_cat
     sub x0, x0, x19
     b .Ldcp_out
 .Ldcp_too_long:
@@ -487,7 +487,7 @@ tc_default_config_path:
 //   when path.startswith(home), else path.  With an empty HOME the home is
 //   "/" and every absolute path shortens to "~" + the rest without its
 //   leading slash -- that is what the Python prints, so it is mirrored.
-//   The result lives in tc_path_scratch (or is the input pointer itself).
+//   The result lives in util_path_scratch (or is the input pointer itself).
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_shorten_path
@@ -496,7 +496,7 @@ tc_shorten_path:
     PROLOGUE 2
     mov x19, x0                     // path
     LEA x0, pu_s_tilde
-    LEA x1, tc_path_scratch2
+    LEA x1, util_path_scratch2
     mov x2, #PATH_SCRATCH_SZ
     bl tc_expanduser
     mov x20, x0                     // home length
@@ -507,7 +507,7 @@ tc_shorten_path:
     cmp x21, x20
     b.lt .Lsp_orig
     // path.startswith(home)?
-    LEA x22, tc_path_scratch2
+    LEA x22, util_path_scratch2
     mov x9, #0
 .Lsp_cmp:
     cmp x9, x20
@@ -523,13 +523,13 @@ tc_shorten_path:
     add x9, x9, #2                  // + '~' + NUL
     cmp x9, #PATH_SCRATCH_SZ
     b.gt .Lsp_orig
-    LEA x0, tc_path_scratch
+    LEA x0, util_path_scratch
     mov w1, #'~'
     strb w1, [x0], #1
     add x1, x19, x20
     sub x2, x21, x20
-    bl pu_copy_n
-    LEA x0, tc_path_scratch
+    bl util_pu_copy_n
+    LEA x0, util_path_scratch
     b .Lsp_done
 .Lsp_orig:
     mov x0, x19
@@ -582,7 +582,7 @@ tc_env_int:
     mov x19, x0
 .Lei_lead:
     ldrb w0, [x19]
-    bl ei_is_space
+    bl util_ei_is_space
     cbz w0, .Lei_sign
     add x19, x19, #1
     b .Lei_lead
@@ -630,7 +630,7 @@ tc_env_int:
 .Lei_trail:
     ldrb w0, [x19]
     cbz w0, .Lei_done
-    bl ei_is_space
+    bl util_ei_is_space
     cbz w0, .Lei_none               // junk after the number
     add x19, x19, #1
     b .Lei_trail
@@ -643,9 +643,9 @@ tc_env_int:
     EPILOGUE 2
     ret
 
-// ei_is_space(w0=byte) -> w0 = 1 for ASCII whitespace (space, \t\n\v\f\r)
+// util_ei_is_space(w0=byte) -> w0 = 1 for ASCII whitespace (space, \t\n\v\f\r)
     .p2align 2
-ei_is_space:
+util_ei_is_space:
     cmp w0, #' '
     b.eq .Leis_yes
     cmp w0, #9
@@ -674,7 +674,7 @@ tc_term_columns:
     bl tc_env_int
     cbnz x0, .Ltc_ret
     mov x0, #2                      // ws_col offset
-    bl ts_winsize_field
+    bl util_ts_winsize_field
     cbnz x0, .Ltc_ret
     mov x0, #80
 .Ltc_ret:
@@ -690,16 +690,16 @@ tc_term_lines:
     bl tc_env_int
     cbnz x0, .Ltl_ret
     mov x0, #0                      // ws_row offset
-    bl ts_winsize_field
+    bl util_ts_winsize_field
     cbnz x0, .Ltl_ret
     mov x0, #24
 .Ltl_ret:
     EPILOGUE 0
     ret
 
-// ts_winsize_field(x0=offset) -> x0 = that u16 of TIOCGWINSZ on fd 1, or 0
+// util_ts_winsize_field(x0=offset) -> x0 = that u16 of TIOCGWINSZ on fd 1, or 0
     .p2align 2
-ts_winsize_field:
+util_ts_winsize_field:
     PROLOGUE 1
     sub sp, sp, #16
     mov x19, x0
@@ -1030,7 +1030,7 @@ tc_days_in_month:
     stp x2, x3, [sp, #-16]!
     cmp x1, #2
     b.eq .Ldim_feb
-    LEA x2, tc_month_days
+    LEA x2, util_month_days
     sub x3, x1, #1
     ldrb w0, [x2, x3]
     b .Ldim_ret
@@ -1096,7 +1096,7 @@ tc_epoch_to_ymd_sod:
     ret
 
     RODATA
-tc_month_days:  .byte 31,28,31,30,31,30,31,31,30,31,30,31
+util_month_days:  .byte 31,28,31,30,31,30,31,31,30,31,30,31
     .text
 
     .end

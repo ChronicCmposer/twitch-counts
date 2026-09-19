@@ -16,7 +16,7 @@
 //
 //  The exclusion compare is case-insensitive (the logins stored by the
 //  counting pass are already lowercase; the option tokens are lowercased
-//  here, matching Python's split_names()).
+//  here, matching Python's cfg_split_names()).
 // ============================================================================
 
 #include "tc_platform.h"

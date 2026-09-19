@@ -30,19 +30,19 @@
 //
 //  How the loop keeps state between frames (the Python LiveReaders)
 //  ----------------------------------------------------------------
-//    * tc_watch_readers: one TailReader per in-range path.  Each reader keeps
+//    * watch_readers: one TailReader per in-range path.  Each reader keeps
 //      a byte offset, a sorted per-second bucket array keyed
 //      (second-of-day, login, state), the per-login highlight matches, the
 //      live/offline state entering/exiting, and the last window/day output
 //      records (stable pointers -> the fold-reuse shortcut works).
-//    * tc_watch_days: whole-day memo (ymd, size, mtime_ns, enter) ->
+//    * watch_days: whole-day memo (ymd, size, mtime_ns, enter) ->
 //      (flattened counts, exit), served from the SQLite rollup via
 //      tc_cache_day / tc_cache_put_day exactly like Python's readers.days +
 //      Cache.get/put (partial days are never written or memoized).
-//    * tc_watch_fold_wins: the last fold's window pointers + shape; when the
+//    * watch_fold_wins: the last fold's window pointers + shape; when the
 //      new gather returns the identical pointer list and no SQLite hit
 //      occurred, the per-user table (tc_users) is reused instead of rebuilt.
-//    * tc_watch_list_mtime: the listing memo (directory mtime_ns).
+//    * watch_list_mtime: the listing memo (directory mtime_ns).
 //    * tc_watch_seed_*: the stream-state seed memo keyed
 //      (begin_ymd, earlier_last_ymd, size, mtime_ns).
 //
@@ -61,7 +61,7 @@
 //    * [[watch.highlight]] rules were NOT parsed by the CLI when this phase
 //      shipped (P_HIGHLIGHTS unimplemented), so TC_O_HL_COUNT was 0 and
 //      highlights were inert; Wave E's tc_cli.S fills the contract fields
-//      (tc_resolve_highlights) and this machinery is live.  The pcre2 compile
+//      (cli_resolve_highlights) and this machinery is live.  The pcre2 compile
 //      + matching machinery carries the rules the contract can hold.
 //    * The stream-state seed scans the day-before files directly (the Python
 //      may use the rollup's stored exit state; same result, one file read).
@@ -126,8 +126,8 @@
     .globl tc_resolve_channel
     .globl tc_channel_name
     .globl tc_count_column
-    .globl find_user
-    .globl add_user
+    .globl tc_find_user
+    .globl tc_add_user
     .globl tc_cache_day
     .globl tc_cache_put_day
     .globl tc_cache_discard_day
@@ -287,27 +287,27 @@
     .bss
     .p2align 4
     // resolved watch settings (mirrors the Python WatchSettings + sources)
-tc_watch_interval:   .skip 8             // double
-tc_watch_hold:       .skip 8             // double
-tc_watch_min_redraw: .skip 8             // double
-tc_watch_min_interval:.skip 8            // double
-tc_watch_fade_k:     .skip 8             // double
-tc_watch_retain_seconds: .skip 8         // double (replay horizon)
-tc_watch_match_seconds:  .skip 8         // double (max(hold,0))
-tc_watch_shades:     .skip 8             // u64
-tc_watch_replay_steps:.skip 8            // u64
-tc_watch_full_repaint:.skip 8            // u64
-tc_watch_show_timing:.skip 8             // u64 0/1
-tc_watch_tint_falling:.skip 8            // u64 0/1
-tc_watch_fade_curve: .skip 8             // u64 TC_CURVE_*
-tc_watch_user_width: .skip 8             // u64
-tc_watch_streamer:   .skip 8             // u64 0/1
-tc_watch_interval_src:.skip 8            // u64 source id
-tc_watch_hold_src:   .skip 8             // u64 source id
-tc_watch_notify:     .skip 8             // u64 0/1
-tc_watch_max_events: .skip 8
-tc_watch_seed_lookback:.skip 8
-    // Byte offsets of the settings block fields from tc_watch_interval (its
+watch_interval:   .skip 8             // double
+watch_hold:       .skip 8             // double
+watch_min_redraw: .skip 8             // double
+watch_min_interval:.skip 8            // double
+watch_fade_k:     .skip 8             // double
+watch_retain_seconds: .skip 8         // double (replay horizon)
+watch_match_seconds:  .skip 8         // double (max(hold,0))
+watch_shades:     .skip 8             // u64
+watch_replay_steps:.skip 8            // u64
+watch_full_repaint:.skip 8            // u64
+watch_show_timing:.skip 8             // u64 0/1
+watch_tint_falling:.skip 8            // u64 0/1
+watch_fade_curve: .skip 8             // u64 TC_CURVE_*
+watch_user_width: .skip 8             // u64
+watch_streamer:   .skip 8             // u64 0/1
+watch_interval_src:.skip 8            // u64 source id
+watch_hold_src:   .skip 8             // u64 source id
+watch_notify:     .skip 8             // u64 0/1
+watch_max_events: .skip 8
+watch_seed_lookback:.skip 8
+    // Byte offsets of the settings block fields from watch_interval (its
     // base).  Apple's assembler cannot fold a label difference inside an
     // operand, so code addresses siblings through these constants; the
     // .if guard below fails the build on either platform if they drift.
@@ -332,198 +332,198 @@ tc_watch_seed_lookback:.skip 8
     .equ WS_MAX_EVENTS,             144
     .equ WS_SEED_LOOKBACK,          152
     .equ WS_SETTINGS_SIZE,       160
-    .if (tc_watch_interval - tc_watch_interval) != WS_INTERVAL
-    .error "tc_watch settings block drifted: tc_watch_interval"
+    .if (watch_interval - watch_interval) != WS_INTERVAL
+    .error "tc_watch settings block drifted: watch_interval"
     .endif
-    .if (tc_watch_hold - tc_watch_interval) != WS_HOLD
-    .error "tc_watch settings block drifted: tc_watch_hold"
+    .if (watch_hold - watch_interval) != WS_HOLD
+    .error "tc_watch settings block drifted: watch_hold"
     .endif
-    .if (tc_watch_min_redraw - tc_watch_interval) != WS_MIN_REDRAW
-    .error "tc_watch settings block drifted: tc_watch_min_redraw"
+    .if (watch_min_redraw - watch_interval) != WS_MIN_REDRAW
+    .error "tc_watch settings block drifted: watch_min_redraw"
     .endif
-    .if (tc_watch_min_interval - tc_watch_interval) != WS_MIN_INTERVAL
-    .error "tc_watch settings block drifted: tc_watch_min_interval"
+    .if (watch_min_interval - watch_interval) != WS_MIN_INTERVAL
+    .error "tc_watch settings block drifted: watch_min_interval"
     .endif
-    .if (tc_watch_fade_k - tc_watch_interval) != WS_FADE_K
-    .error "tc_watch settings block drifted: tc_watch_fade_k"
+    .if (watch_fade_k - watch_interval) != WS_FADE_K
+    .error "tc_watch settings block drifted: watch_fade_k"
     .endif
-    .if (tc_watch_retain_seconds - tc_watch_interval) != WS_RETAIN_SECONDS
-    .error "tc_watch settings block drifted: tc_watch_retain_seconds"
+    .if (watch_retain_seconds - watch_interval) != WS_RETAIN_SECONDS
+    .error "tc_watch settings block drifted: watch_retain_seconds"
     .endif
-    .if (tc_watch_match_seconds - tc_watch_interval) != WS_MATCH_SECONDS
-    .error "tc_watch settings block drifted: tc_watch_match_seconds"
+    .if (watch_match_seconds - watch_interval) != WS_MATCH_SECONDS
+    .error "tc_watch settings block drifted: watch_match_seconds"
     .endif
-    .if (tc_watch_shades - tc_watch_interval) != WS_SHADES
-    .error "tc_watch settings block drifted: tc_watch_shades"
+    .if (watch_shades - watch_interval) != WS_SHADES
+    .error "tc_watch settings block drifted: watch_shades"
     .endif
-    .if (tc_watch_replay_steps - tc_watch_interval) != WS_REPLAY_STEPS
-    .error "tc_watch settings block drifted: tc_watch_replay_steps"
+    .if (watch_replay_steps - watch_interval) != WS_REPLAY_STEPS
+    .error "tc_watch settings block drifted: watch_replay_steps"
     .endif
-    .if (tc_watch_full_repaint - tc_watch_interval) != WS_FULL_REPAINT
-    .error "tc_watch settings block drifted: tc_watch_full_repaint"
+    .if (watch_full_repaint - watch_interval) != WS_FULL_REPAINT
+    .error "tc_watch settings block drifted: watch_full_repaint"
     .endif
-    .if (tc_watch_show_timing - tc_watch_interval) != WS_SHOW_TIMING
-    .error "tc_watch settings block drifted: tc_watch_show_timing"
+    .if (watch_show_timing - watch_interval) != WS_SHOW_TIMING
+    .error "tc_watch settings block drifted: watch_show_timing"
     .endif
-    .if (tc_watch_tint_falling - tc_watch_interval) != WS_TINT_FALLING
-    .error "tc_watch settings block drifted: tc_watch_tint_falling"
+    .if (watch_tint_falling - watch_interval) != WS_TINT_FALLING
+    .error "tc_watch settings block drifted: watch_tint_falling"
     .endif
-    .if (tc_watch_fade_curve - tc_watch_interval) != WS_FADE_CURVE
-    .error "tc_watch settings block drifted: tc_watch_fade_curve"
+    .if (watch_fade_curve - watch_interval) != WS_FADE_CURVE
+    .error "tc_watch settings block drifted: watch_fade_curve"
     .endif
-    .if (tc_watch_user_width - tc_watch_interval) != WS_USER_WIDTH
-    .error "tc_watch settings block drifted: tc_watch_user_width"
+    .if (watch_user_width - watch_interval) != WS_USER_WIDTH
+    .error "tc_watch settings block drifted: watch_user_width"
     .endif
-    .if (tc_watch_streamer - tc_watch_interval) != WS_STREAMER
-    .error "tc_watch settings block drifted: tc_watch_streamer"
+    .if (watch_streamer - watch_interval) != WS_STREAMER
+    .error "tc_watch settings block drifted: watch_streamer"
     .endif
-    .if (tc_watch_interval_src - tc_watch_interval) != WS_INTERVAL_SRC
-    .error "tc_watch settings block drifted: tc_watch_interval_src"
+    .if (watch_interval_src - watch_interval) != WS_INTERVAL_SRC
+    .error "tc_watch settings block drifted: watch_interval_src"
     .endif
-    .if (tc_watch_hold_src - tc_watch_interval) != WS_HOLD_SRC
-    .error "tc_watch settings block drifted: tc_watch_hold_src"
+    .if (watch_hold_src - watch_interval) != WS_HOLD_SRC
+    .error "tc_watch settings block drifted: watch_hold_src"
     .endif
-    .if (tc_watch_notify - tc_watch_interval) != WS_NOTIFY
-    .error "tc_watch settings block drifted: tc_watch_notify"
+    .if (watch_notify - watch_interval) != WS_NOTIFY
+    .error "tc_watch settings block drifted: watch_notify"
     .endif
-    .if (tc_watch_max_events - tc_watch_interval) != WS_MAX_EVENTS
-    .error "tc_watch settings block drifted: tc_watch_max_events"
+    .if (watch_max_events - watch_interval) != WS_MAX_EVENTS
+    .error "tc_watch settings block drifted: watch_max_events"
     .endif
-    .if (tc_watch_seed_lookback - tc_watch_interval) != WS_SEED_LOOKBACK
-    .error "tc_watch settings block drifted: tc_watch_seed_lookback"
+    .if (watch_seed_lookback - watch_interval) != WS_SEED_LOOKBACK
+    .error "tc_watch settings block drifted: watch_seed_lookback"
     .endif
 
     // loop / window state
-tc_watch_win_width:  .skip 8             // u64 sliding width in seconds
-tc_watch_end_given:  .skip 8             // u64 1 = explicit --end
-tc_watch_first:      .skip 8             // u64 1 until the first loop tick
-tc_watch_color_on:   .skip 8             // u64 color_enabled(args): tints drawn
+watch_win_width:  .skip 8             // u64 sliding width in seconds
+watch_end_given:  .skip 8             // u64 1 = explicit --end
+watch_first:      .skip 8             // u64 1 until the first loop tick
+watch_color_on:   .skip 8             // u64 color_enabled(args): tints drawn
 // change notification (the Python's KqueueWatcher; Darwin only)
     .equ KQ_EVENTS_MAX,  64              // cap on [tail] max_events
-tc_watch_kq_on:      .skip 8             // u64 1 when the kqueue watcher runs
-tc_watch_kq:         .skip 8             // u64 kqueue fd
-tc_watch_woke_write: .skip 8             // u64 wakes by a vnode event (cumulative)
-tc_watch_woke_timer: .skip 8             // u64 wakes by the timeout
-tc_watch_kts:        .skip 16            // struct timespec for kevent()
+watch_kq_on:      .skip 8             // u64 1 when the kqueue watcher runs
+watch_kq:         .skip 8             // u64 kqueue fd
+watch_woke_write: .skip 8             // u64 wakes by a vnode event (cumulative)
+watch_woke_timer: .skip 8             // u64 wakes by the timeout
+watch_kts:        .skip 16            // struct timespec for kevent()
     .p2align 3
-tc_watch_kev1:       .skip 32            // one struct kevent (registration)
-tc_watch_kevents:    .skip KQ_EVENTS_MAX * 32
-tc_watch_painted_at: .skip 8             // double monotonic (0 = never)
-tc_watch_started:    .skip 8             // double monotonic (tick start)
-tc_watch_elapsed:    .skip 8             // double
-tc_watch_cur_state:  .skip 8             // u64 0 unknown / 1 live / 2 offline
-tc_watch_interrupted:.skip 8             // u64 set by the SIGINT handler
-tc_watch_seeking:    .skip 8             // u64 1 during --users sizing probes
-tc_watch_prev_n:     .skip 8
-tc_watch_tint_count: .skip 8
-tc_watch_now:        .skip 8             // double monotonic scratch
-tc_watch_dtmp:       .skip 8             // double scratch (d-regs die on bl)
+watch_kev1:       .skip 32            // one struct kevent (registration)
+watch_kevents:    .skip KQ_EVENTS_MAX * 32
+watch_painted_at: .skip 8             // double monotonic (0 = never)
+watch_started:    .skip 8             // double monotonic (tick start)
+watch_elapsed:    .skip 8             // double
+watch_cur_state:  .skip 8             // u64 0 unknown / 1 live / 2 offline
+watch_interrupted:.skip 8             // u64 set by the SIGINT handler
+watch_seeking:    .skip 8             // u64 1 during --users sizing probes
+watch_prev_n:     .skip 8
+watch_tint_count: .skip 8
+watch_now:        .skip 8             // double monotonic scratch
+watch_dtmp:       .skip 8             // double scratch (d-regs die on bl)
 
     // ramps: descriptor array {base, count} + one contiguous arena
-tc_watch_ramp_count: .skip 8
-tc_watch_ramps:      .skip RAMP_MAX * 16
-tc_watch_ramp_arena: .skip RAMP_MAX * SHADES_MAX * SHADE_SZ
+watch_ramp_count: .skip 8
+watch_ramps:      .skip RAMP_MAX * 16
+watch_ramp_arena: .skip RAMP_MAX * SHADES_MAX * SHADE_SZ
 
     // tints (carried): login -> (direction, when-monotonic)
-tc_watch_tints:      .skip TINT_MAX * TT_SZ
+watch_tints:      .skip TINT_MAX * TT_SZ
     // previous frame counts: login -> count-column
-tc_watch_prev:       .skip PREV_MAX * PV_SZ
+watch_prev:       .skip PREV_MAX * PV_SZ
 
     // frame capture (grows via realloc; tc_frame_begin arms these)
-tc_watch_lines:      .skip 8             // ptr to array of char*
-tc_watch_linebuf:    .skip 8             // ptr to contiguous line storage
-tc_watch_frame_cap:  .skip 8             // current line count capacity
+watch_lines:      .skip 8             // ptr to array of char*
+watch_linebuf:    .skip 8             // ptr to contiguous line storage
+watch_frame_cap:  .skip 8             // current line count capacity
 
     // screen state
-tc_watch_painted:    .skip 8             // ptr to array of char* (copies)
-tc_watch_painted_block:.skip 8           // ptr to the copy storage
-tc_watch_painted_cap:.skip 8
-tc_watch_painted_n:  .skip 8
-tc_watch_screen_width:.skip 8
-tc_watch_since_full: .skip 8
-tc_watch_burst:      .skip 8             // ptr to the write burst buffer
-tc_watch_burst_cap:  .skip 8
+watch_painted:    .skip 8             // ptr to array of char* (copies)
+watch_painted_block:.skip 8           // ptr to the copy storage
+watch_painted_cap:.skip 8
+watch_painted_n:  .skip 8
+watch_screen_width:.skip 8
+watch_since_full: .skip 8
+watch_burst:      .skip 8             // ptr to the write burst buffer
+watch_burst_cap:  .skip 8
 
     // readers: array of reader pointers
-tc_watch_readers:    .skip 8
-tc_watch_reader_n:   .skip 8
-tc_watch_reader_cap: .skip 8
+watch_readers:    .skip 8
+watch_reader_n:   .skip 8
+watch_reader_cap: .skip 8
 
     // days memo: array of DM records
-tc_watch_days:       .skip 8
-tc_watch_days_n:     .skip 8
-tc_watch_days_cap:   .skip 8
+watch_days:       .skip 8
+watch_days_n:     .skip 8
+watch_days_cap:   .skip 8
 
     // listing memo
-tc_watch_list_mtime: .skip 8
-tc_watch_list_have:  .skip 8
+watch_list_mtime: .skip 8
+watch_list_have:  .skip 8
 
     // fold reuse (previous shape + window pointers)
-tc_watch_fold_n:     .skip 8
-tc_watch_fold_shape: .skip 8             // state_filter
-tc_watch_fold_sqlite:.skip 8
-tc_watch_fold_wins:  .skip 256 * 8
+watch_fold_n:     .skip 8
+watch_fold_shape: .skip 8             // state_filter
+watch_fold_sqlite:.skip 8
+watch_fold_wins:  .skip 256 * 8
 
     // current gather windows list
-tc_watch_wins:       .skip 8             // ptr to malloc'd ptr array
-tc_watch_wins_cap:   .skip 8
-tc_watch_win_n:      .skip 8
-tc_watch_sqlite_hit: .skip 8
+watch_wins:       .skip 8             // ptr to malloc'd ptr array
+watch_wins_cap:   .skip 8
+watch_win_n:      .skip 8
+watch_sqlite_hit: .skip 8
 
     // seed memo
-tc_watch_seed_key1:  .skip 8
-tc_watch_seed_key2:  .skip 8
-tc_watch_seed_key3:  .skip 8
-tc_watch_seed_key4:  .skip 8
-tc_watch_seed_val:   .skip 8
+watch_seed_key1:  .skip 8
+watch_seed_key2:  .skip 8
+watch_seed_key3:  .skip 8
+watch_seed_key4:  .skip 8
+watch_seed_val:   .skip 8
 
     // gather bookkeeping (written into tc_tally after the fold)
-tc_watch_g_files:    .skip 8
-tc_watch_g_parsed:   .skip 8
-tc_watch_g_reused:   .skip 8
-tc_watch_g_unr_n:    .skip 8
-tc_watch_g_unr:      .skip 64 * 96       // {name[64], reason[32]}
+watch_g_files:    .skip 8
+watch_g_parsed:   .skip 8
+watch_g_reused:   .skip 8
+watch_g_unr_n:    .skip 8
+watch_g_unr:      .skip 64 * 96       // {name[64], reason[32]}
     // gather shared state (set by watch_gather, read by watch_gather_file)
-tc_watch_g_begin:    .skip 8             // begin epoch
-tc_watch_g_end:      .skip 8             // end epoch
-tc_watch_g_begin_ymd:.skip 8
-tc_watch_g_end_ymd:  .skip 8
-tc_watch_g_enter:    .skip 8             // entering state (in/out per file)
-tc_watch_g_cache:    .skip 8             // cache_used
+watch_g_begin:    .skip 8             // begin epoch
+watch_g_end:      .skip 8             // end epoch
+watch_g_begin_ymd:.skip 8
+watch_g_end_ymd:  .skip 8
+watch_g_enter:    .skip 8             // entering state (in/out per file)
+watch_g_cache:    .skip 8             // cache_used
 
     // --users sizing probe memo
-tc_watch_search_n:   .skip 8
-tc_watch_search_w:   .skip SEARCH_MAX * 8
-tc_watch_search_r:   .skip SEARCH_MAX * 8
+watch_search_n:   .skip 8
+watch_search_w:   .skip SEARCH_MAX * 8
+watch_search_r:   .skip SEARCH_MAX * 8
 
     // pcre2 compiled patterns (TC_HL_MAX rules x TC_HL_PAT_MAX patterns)
-tc_watch_patterns:   .skip TC_HL_MAX * TC_HL_PAT_MAX * 8
-tc_watch_match_data: .skip TC_HL_MAX * TC_HL_PAT_MAX * 8
+watch_patterns:   .skip TC_HL_MAX * TC_HL_PAT_MAX * 8
+watch_match_data: .skip TC_HL_MAX * TC_HL_PAT_MAX * 8
 
     // scratch buffers
-tc_watch_dirpath:    .skip 704
-tc_watch_fpath:      .skip 704
-tc_watch_scratch:    .skip 2048
-tc_watch_scratch2:   .skip 8192
-tc_watch_replay_map: .skip PREV_MAX * PV_SZ  // launch replay: this step's counts, tc_watch_prev's layout
-tc_watch_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped file
-tc_watch_tintbuf:    .skip 4096
-tc_watch_clipbuf:    .skip 4096
-tc_watch_status:     .skip 256
-tc_watch_errbuf:     .skip 512
-tc_watch_want:       .skip 16            // "HH:MM:SS" for the cold-read seek
-tc_watch_ts:         .skip 16            // clock_gettime / nanosleep ts
-tc_watch_ts2:        .skip 16
-tc_watch_join_old:   .skip 8             // old chunk base during remainder join
-tc_watch_tm:         .skip 64            // struct tm (localtime_r)
-tc_watch_stat:       .skip STAT_SZ       // struct stat buffer (platform-sized;
+watch_dirpath:    .skip 704
+watch_fpath:      .skip 704
+watch_scratch:    .skip 2048
+watch_scratch2:   .skip 8192
+watch_replay_map: .skip PREV_MAX * PV_SZ  // launch replay: this step's counts, watch_prev's layout
+watch_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped file
+watch_tintbuf:    .skip 4096
+watch_clipbuf:    .skip 4096
+watch_status:     .skip 256
+watch_errbuf:     .skip 512
+watch_want:       .skip 16            // "HH:MM:SS" for the cold-read seek
+watch_ts:         .skip 16            // clock_gettime / nanosleep ts
+watch_ts2:        .skip 16
+watch_join_old:   .skip 8             // old chunk base during remainder join
+watch_tm:         .skip 64            // struct tm (localtime_r)
+watch_stat:       .skip STAT_SZ       // struct stat buffer (platform-sized;
                                           // Darwin's struct stat is 144 bytes,
                                           // wider than musl's 128, so a fixed
                                           // 128 would overrun the two fields
                                           // that follow)
-tc_watch_choose_wall:.skip 8             // epoch seconds (palette chooser)
-tc_watch_choose_hold:.skip 8             // double
-tc_watch_highlight_on:.skip 8            // u64 1 when highlight rules exist
+watch_choose_wall:.skip 8             // epoch seconds (palette chooser)
+watch_choose_hold:.skip 8             // double
+watch_highlight_on:.skip 8            // u64 1 when highlight rules exist
 
 // ----------------------------------------------------------------------------
 // .rodata
@@ -639,7 +639,7 @@ tc_watch_run:
     bl watch_build_ramps
     bl watch_compile_patterns
     bl watch_load_tail
-    LEA x9, tc_watch_notify
+    LEA x9, watch_notify
     ldr x9, [x9]
     cbz x9, .Lwr_notify_ok
 #ifdef __APPLE__
@@ -648,9 +648,9 @@ tc_watch_run:
     bl kqueue
     cmp w0, #0
     b.lt .Lwr_notify_ok               // no kqueue: fall back to polling
-    LEA x9, tc_watch_kq
+    LEA x9, watch_kq
     str x0, [x9]
-    LEA x9, tc_watch_kq_on
+    LEA x9, watch_kq_on
     mov x10, #1
     str x10, [x9]
 #else
@@ -675,11 +675,11 @@ tc_watch_run:
     ldrb w1, [x0]
     cbz w1, .Lwr_color_on
 .Lwr_color_off:
-    LEA x9, tc_watch_color_on
+    LEA x9, watch_color_on
     str xzr, [x9]
     b .Lwr_color_done
 .Lwr_color_on:
-    LEA x9, tc_watch_color_on
+    LEA x9, watch_color_on
     mov x10, #1
     str x10, [x9]
 .Lwr_color_done:
@@ -692,7 +692,7 @@ tc_watch_run:
     bl watch_init_window
     bl watch_size_users               // --users bisection (no-op otherwise)
     bl watch_seed_state               // -> x0 entering state
-    LEA x9, tc_watch_cur_state
+    LEA x9, watch_cur_state
     str x0, [x9]
     // ---- prime the readers (cold read) ------------------------------------
     bl watch_roll_window              // end = now, begin slides
@@ -707,35 +707,35 @@ tc_watch_run:
     bl signal
     mov x19, #0                       // x19 = loop flag (0 running)
 .Lwr_loop:
-    LEA x9, tc_watch_interrupted
+    LEA x9, watch_interrupted
     ldr x9, [x9]
     cbnz x9, .Lwr_done
     // min_redraw floor
-    LEA x9, tc_watch_painted_at
+    LEA x9, watch_painted_at
     ldr d0, [x9]
     fcvtzu x10, d0
     cbz x10, .Lwr_minredraw_done      // never painted
-    LEA x9, tc_watch_min_redraw
+    LEA x9, watch_min_redraw
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwr_minredraw_done
     bl watch_monotonic                // d0 = now
-    LEA x9, tc_watch_painted_at
+    LEA x9, watch_painted_at
     ldr d1, [x9]
     fsub d0, d0, d1
-    LEA x9, tc_watch_min_redraw
+    LEA x9, watch_min_redraw
     ldr d1, [x9]
     fsub d0, d1, d0                   // early
     fcmp d0, #0.0
     b.le .Lwr_minredraw_done
     bl watch_sleep
 .Lwr_minredraw_done:
-    LEA x9, tc_watch_interrupted
+    LEA x9, watch_interrupted
     ldr x9, [x9]
     cbnz x9, .Lwr_done
     // ---- tick -------------------------------------------------------------
     bl watch_monotonic
-    LEA x9, tc_watch_started
+    LEA x9, watch_started
     str d0, [x9]
     // config memo: reload + re-resolve when the file changed
     bl tc_config_changed
@@ -753,32 +753,32 @@ tc_watch_run:
     bl tc_plan_presentation
     // ---- frame capture ----------------------------------------------------
     bl watch_prepare_frame           // allocate line buffers for this frame
-    LEA x9, tc_watch_user_width
+    LEA x9, watch_user_width
     ldr x0, [x9]
     bl tc_frame_set_pin
     LEA x0, watch_tint_hook
     mov x1, #0
     bl tc_frame_set_tint
-    LEA x0, tc_watch_lines
+    LEA x0, watch_lines
     ldr x0, [x0]
-    LEA x1, tc_watch_frame_cap
+    LEA x1, watch_frame_cap
     ldr x1, [x1]
     bl tc_frame_begin
     // Frame(now=started): the clock the colorizer ages tints by.  The slot
     // doubles as scratch for the sleep computation, so it is set per frame.
-    LEA x9, tc_watch_started
+    LEA x9, watch_started
     ldr d0, [x9]
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     str d0, [x9]
     // palette_chooser(readers, highlights, datetime.now(), hold): a match
     // counts while it lies within [now - hold, now] by the wall clock
     bl watch_local_now               // x0 = ymd, x1 = sod
     bl tc_ymd_sod_to_epoch
-    LEA x9, tc_watch_choose_wall
+    LEA x9, watch_choose_wall
     str x0, [x9]
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d0, [x9]
-    LEA x9, tc_watch_choose_hold
+    LEA x9, watch_choose_hold
     str d0, [x9]
     bl watch_filter_tints            // expire carried tints (now)
     bl tc_render_text
@@ -787,19 +787,19 @@ tc_watch_run:
     // before the paint, so the status line ("tick Nms", "slower than the
     // interval") describes THIS frame and the sleep is interval - elapsed
     bl watch_monotonic
-    LEA x9, tc_watch_started
+    LEA x9, watch_started
     ldr d1, [x9]
     fsub d0, d0, d1
-    LEA x9, tc_watch_elapsed
+    LEA x9, watch_elapsed
     str d0, [x9]
     // ---- status line + paint ----------------------------------------------
     bl watch_build_status
     bl watch_screen_paint
     bl watch_monotonic
-    LEA x9, tc_watch_painted_at
+    LEA x9, watch_painted_at
     str d0, [x9]
     bl watch_build_prev
-    LEA x9, tc_watch_first
+    LEA x9, watch_first
     str xzr, [x9]
     // ---- wait --------------------------------------------------------------
     bl watch_next_wait
@@ -823,7 +823,7 @@ tc_watch_run:
     .p2align 2
 watch_sigint_handler:
     stp x19, x30, [sp, #-16]!
-    LEA x9, tc_watch_interrupted
+    LEA x9, watch_interrupted
     mov x10, #1
     str x10, [x9]
     ldp x19, x30, [sp], #16
@@ -836,9 +836,9 @@ watch_sigint_handler:
 watch_monotonic:
     stp x19, x30, [sp, #-16]!
     mov x0, #CLOCK_MONOTONIC
-    LEA x1, tc_watch_ts
+    LEA x1, watch_ts
     bl clock_gettime
-    LEA x9, tc_watch_ts
+    LEA x9, watch_ts
     ldr x10, [x9]                    // tv_sec (u64)
     ldr x11, [x9, #8]                // tv_nsec
     scvtf d0, x10
@@ -862,15 +862,15 @@ watch_local_now:
     stp x20, x21, [sp, #-16]!
     stp x22, x23, [sp, #-16]!
     mov x0, #CLOCK_REALTIME
-    LEA x1, tc_watch_ts
+    LEA x1, watch_ts
     bl clock_gettime
-    LEA x19, tc_watch_ts
+    LEA x19, watch_ts
     mov x0, x19
-    LEA x1, tc_watch_tm
+    LEA x1, watch_tm
     bl localtime_r
     // struct tm (musl aarch64): tm_sec@0, tm_min@4, tm_hour@8, tm_mday@12,
     // tm_mon@16, tm_year@20 — all 32-bit ints
-    LEA x19, tc_watch_tm
+    LEA x19, watch_tm
     ldr w20, [x19, #20]               // tm_year
     add x20, x20, #1900
     ldr w21, [x19, #16]               // tm_mon
@@ -910,11 +910,11 @@ watch_sleep:
     ldr d3, [x10]
     fmul d2, d2, d3
     fcvtzu x11, d2                   // tv_nsec
-    LEA x10, tc_watch_ts
+    LEA x10, watch_ts
     str x9, [x10]
     str x11, [x10, #8]
     mov x0, x10
-    LEA x1, tc_watch_ts2
+    LEA x1, watch_ts2
     bl nanosleep
 .Lws_done:
     ldp x19, x30, [sp], #16
@@ -940,12 +940,12 @@ watch_sleep:
 watch_kq_arm:
 #ifdef __APPLE__
     PROLOGUE 2
-    LEA x9, tc_watch_kq_on
+    LEA x9, watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwka_out
-    LEA x19, tc_watch_readers
+    LEA x19, watch_readers
     ldr x19, [x19]                    // reader pointer array
-    LEA x20, tc_watch_reader_n
+    LEA x20, watch_reader_n
     ldr x20, [x20]
     mov x21, #0
 .Lwka_loop:
@@ -961,7 +961,7 @@ watch_kq_arm:
     b.lt .Lwka_next                   // unreadable: not tracked (Python: skip)
     mov w9, w0
     str x9, [x22, #RD_KQ_FD]
-    LEA x10, tc_watch_kev1
+    LEA x10, watch_kev1
     str x9, [x10, #KE_IDENT]
     mov w11, #EVFILT_VNODE
     strh w11, [x10, #KE_FILTER]
@@ -971,7 +971,7 @@ watch_kq_arm:
     str w11, [x10, #KE_FFLAGS]
     str xzr, [x10, #KE_DATA]
     str xzr, [x10, #KE_UDATA]
-    LEA x0, tc_watch_kq
+    LEA x0, watch_kq
     ldr w0, [x0]
     mov x1, x10                       // changelist
     mov x2, #1                        // nchanges
@@ -994,15 +994,15 @@ watch_kq_arm:
 watch_wait_changes:
 #ifdef __APPLE__
     PROLOGUE 1
-    LEA x9, tc_watch_kq_on
+    LEA x9, watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwwc_sleep
     fcmp d0, #0.0
     b.le .Lwwc_out
     // any handle at all?  (no handles: the timer is the only wake source)
-    LEA x19, tc_watch_readers
+    LEA x19, watch_readers
     ldr x19, [x19]
-    LEA x20, tc_watch_reader_n
+    LEA x20, watch_reader_n
     ldr x20, [x20]
     mov x9, #0
 .Lwwc_scan:
@@ -1015,13 +1015,13 @@ watch_wait_changes:
     b .Lwwc_scan
 .Lwwc_none:
     bl watch_sleep
-    LEA x9, tc_watch_woke_timer
+    LEA x9, watch_woke_timer
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
     b .Lwwc_out
 .Lwwc_have:
-    // timeout -> tc_watch_kts (seconds + nanoseconds, as watch_sleep does)
+    // timeout -> watch_kts (seconds + nanoseconds, as watch_sleep does)
     fcvtzs x9, d0
     scvtf d1, x9
     fsub d2, d0, d1
@@ -1029,11 +1029,11 @@ watch_wait_changes:
     ldr d3, [x10]
     fmul d2, d2, d3
     fcvtzu x11, d2
-    LEA x10, tc_watch_kts
+    LEA x10, watch_kts
     str x9, [x10]
     str x11, [x10, #8]
     // nevents = min([tail] max_events, KQ_EVENTS_MAX)
-    LEA x9, tc_watch_max_events
+    LEA x9, watch_max_events
     ldr x4, [x9]
     cmp x4, #KQ_EVENTS_MAX
     b.le .Lwwc_nev_ok
@@ -1043,19 +1043,19 @@ watch_wait_changes:
     b.ge .Lwwc_call
     mov x4, #1
 .Lwwc_call:
-    LEA x0, tc_watch_kq
+    LEA x0, watch_kq
     ldr w0, [x0]
     mov x1, #0                        // changelist
     mov x2, #0                        // nchanges
-    LEA x3, tc_watch_kevents
+    LEA x3, watch_kevents
     mov x5, x10                       // timeout
     bl kevent
     cmp w0, #0
     b.le .Lwwc_timer
-    LEA x9, tc_watch_woke_write
+    LEA x9, watch_woke_write
     b .Lwwc_count
 .Lwwc_timer:
-    LEA x9, tc_watch_woke_timer
+    LEA x9, watch_woke_timer
 .Lwwc_count:
     ldr x10, [x9]
     add x10, x10, #1
@@ -1075,12 +1075,12 @@ watch_wait_changes:
 watch_kq_close:
 #ifdef __APPLE__
     PROLOGUE 2
-    LEA x9, tc_watch_kq_on
+    LEA x9, watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwkc_out
-    LEA x19, tc_watch_readers
+    LEA x19, watch_readers
     ldr x19, [x19]
-    LEA x20, tc_watch_reader_n
+    LEA x20, watch_reader_n
     ldr x20, [x20]
     mov x21, #0
 .Lwkc_loop:
@@ -1095,10 +1095,10 @@ watch_kq_close:
     add x21, x21, #1
     b .Lwkc_loop
 .Lwkc_queue:
-    LEA x0, tc_watch_kq
+    LEA x0, watch_kq
     ldr w0, [x0]
     bl close
-    LEA x9, tc_watch_kq_on
+    LEA x9, watch_kq_on
     str xzr, [x9]
 .Lwkc_out:
     EPILOGUE 2
@@ -1116,7 +1116,7 @@ watch_kq_close:
 watch_load_settings:
     PROLOGUE 3
     LEA x19, tc_opts
-    LEA x20, tc_watch_interval
+    LEA x20, watch_interval
     ldr d0, [x19, #TC_O_INTERVAL]
     str d0, [x20]
     ldr d0, [x19, #TC_O_HOLD]
@@ -1173,11 +1173,11 @@ watch_load_settings:
     fcmp d0, d1
     b.ge .Lwls_ok
     // compose: {src_label}: interval must be at least {floor:g}s ({flabel})
-    LEA x19, tc_watch_errbuf
+    LEA x19, watch_errbuf
     mov x23, x19
     // interval label
     LEA x0, s_watch_flag  // "--watch"
-    LEA x21, tc_watch_interval_src
+    LEA x21, watch_interval_src
     ldr x22, [x21]
     LEA x21, s_watch_flag
     cmp x22, #TC_SRC_CLI_WATCH
@@ -1185,33 +1185,33 @@ watch_load_settings:
     // "--watch (from {src})"
     mov x0, x23
     mov x1, x21
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x23
     LEA x1, s_from_paren
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x22
     bl tc_source_str                  // (x0=ptr, x1=len)
     mov x2, x1
     mov x1, x0
     mov x0, x23
-    bl wc_catn
+    bl watch_wc_catn
     mov x23, x0
     mov x0, x23
     LEA x1, s_close_paren
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     b .Lwls_ilbl_done
 .Lwls_ilbl_plain:
     mov x0, x23
     mov x1, x21
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
 .Lwls_ilbl_done:
     mov x0, x23
     LEA x1, s_int_min_pre
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     // floor %g
     ldr d0, [x20, #WS_MIN_INTERVAL]
@@ -1224,16 +1224,16 @@ watch_load_settings:
     add x23, x23, x0
     mov x0, x23
     LEA x1, s_int_min_mid
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     // floor label: "watch.min_interval (from {src})"
     mov x0, x23
     LEA x1, s_min_interval_flag
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x23
     LEA x1, s_from_paren
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     LEA x21, tc_opts
     mov x22, #TC_O_SRC
@@ -1244,15 +1244,15 @@ watch_load_settings:
     mov x2, x1
     mov x1, x0
     mov x0, x23
-    bl wc_catn
+    bl watch_wc_catn
     mov x23, x0
     mov x0, x23
     LEA x1, s_close_paren2
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov w1, #0
     strb w1, [x23]
-    LEA x0, tc_watch_errbuf
+    LEA x0, watch_errbuf
     bl tc_report_fail                 // noreturn
 .Lwls_ok:
     EPILOGUE 3
@@ -1289,13 +1289,13 @@ watch_replay_horizon:
     ret
 
 // ============================================================================
-// watch_load_tail — copy tail settings; notify stays in tc_watch_notify.
+// watch_load_tail — copy tail settings; notify stays in watch_notify.
 // ============================================================================
     .p2align 2
 watch_load_tail:
     PROLOGUE 2
     LEA x19, tc_opts
-    LEA x20, tc_watch_notify
+    LEA x20, watch_notify
     ldr x21, [x19, #TC_O_NOTIFY]
     str x21, [x20]
     ldr x21, [x19, #TC_O_MAX_EVENTS]
@@ -1307,9 +1307,9 @@ watch_load_tail:
 
 // ============================================================================
 
-// burst_cat(dst, src) -> dst + strlen(src) (no NUL; for the write burst)
+// watch_burst_cat(dst, src) -> dst + strlen(src) (no NUL; for the write burst)
     .p2align 2
-burst_cat:
+watch_burst_cat:
     PROLOGUE 1
     mov x19, x0
     mov x20, x1
@@ -1322,10 +1322,10 @@ burst_cat:
     EPILOGUE 1
     ret
 
-// wc_cat(dst, src) -> dst after the copied NUL; wc_catn(dst, src, len).
+// watch_wc_cat(dst, src) -> dst after the copied NUL; watch_wc_catn(dst, src, len).
 // ============================================================================
     .p2align 2
-wc_cat:
+watch_wc_cat:
     mov x2, x0
 .Lwc_loop:
     ldrb w3, [x1], #1
@@ -1335,7 +1335,7 @@ wc_cat:
     ret
 
     .p2align 2
-wc_catn:
+watch_wc_catn:
     mov x3, #0
 .Lwcn_loop:
     cmp x3, x2
@@ -1349,21 +1349,21 @@ wc_catn:
     ret
 
 // ============================================================================
-// watch_build_dirpath — tc_watch_dirpath = logs_dir + "/" + channel_name.
+// watch_build_dirpath — watch_dirpath = logs_dir + "/" + channel_name.
 // ============================================================================
     .p2align 2
 watch_build_dirpath:
     PROLOGUE 1
-    LEA x0, tc_watch_dirpath
+    LEA x0, watch_dirpath
     LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0                        // cursor AT the NUL (append in place)
     mov w2, #'/'
     strb w2, [x19], #1
     bl tc_channel_name
     mov x1, x0
     mov x0, x19
-    bl wc_cat
+    bl watch_wc_cat
     mov w2, #0
     strb w2, [x0]
     EPILOGUE 1
@@ -1377,27 +1377,27 @@ watch_build_dirpath:
 watch_build_listing:
     PROLOGUE 5
     // stat the channel dir; unchanged mtime + existing listing -> memo hit
-    LEA x0, tc_watch_dirpath
-    LEA x1, tc_watch_stat
+    LEA x0, watch_dirpath
+    LEA x1, watch_stat
     bl stat
     cbnz w0, .Lwbl_rebuild
-    // BUGFIX (was: pointed at tc_watch_ts, a 16-byte timespec; on Linux the
+    // BUGFIX (was: pointed at watch_ts, a 16-byte timespec; on Linux the
     // ST_MTIM_SEC/ST_MTIM_NSEC offsets from that base landed inside
-    // tc_watch_tm instead, so the memo compared garbage, not the directory's
-    // real mtime).  x9 must point at tc_watch_stat, the struct stat that
+    // watch_tm instead, so the memo compared garbage, not the directory's
+    // real mtime).  x9 must point at watch_stat, the struct stat that
     // 'bl stat' just filled above.
-    LEA x9, tc_watch_stat
+    LEA x9, watch_stat
     ldr x10, [x9, #ST_MTIM_SEC]
     movz x11, #0xCA00, lsl #0
     movk x11, #0x3B9A, lsl #16         // 1000000000
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
-    LEA x9, tc_watch_list_mtime
+    LEA x9, watch_list_mtime
     ldr x11, [x9]
     cmp x10, x11
     b.ne .Lwbl_rebuild
-    LEA x9, tc_watch_list_have
+    LEA x9, watch_list_have
     ldr x9, [x9]
     cbnz x9, .Lwbl_done
 .Lwbl_rebuild:
@@ -1411,7 +1411,7 @@ watch_build_listing:
     str xzr, [x9, #TC_L_ENTRIES]
     str xzr, [x9, #TC_L_CAP]
 .Lwbl_open:
-    LEA x0, tc_watch_dirpath
+    LEA x0, watch_dirpath
     bl opendir
     cbz x0, .Lwbl_memo_nodir         // dir vanished: keep an empty listing
     mov x19, x0                       // DIR*
@@ -1486,27 +1486,27 @@ watch_build_listing:
     bl qsort
 .Lwbl_memo:
     // record the dir mtime memo
-    LEA x0, tc_watch_dirpath
-    LEA x1, tc_watch_stat
+    LEA x0, watch_dirpath
+    LEA x1, watch_stat
     bl stat
     cbnz w0, .Lwbl_memo_skip
-    // BUGFIX: same tc_watch_ts -> tc_watch_stat fix as above.
-    LEA x9, tc_watch_stat
+    // BUGFIX: same watch_ts -> watch_stat fix as above.
+    LEA x9, watch_stat
     ldr x10, [x9, #ST_MTIM_SEC]
     movz x11, #0xCA00, lsl #0
     movk x11, #0x3B9A, lsl #16
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
-    LEA x9, tc_watch_list_mtime
+    LEA x9, watch_list_mtime
     str x10, [x9]
 .Lwbl_memo_skip:
-    LEA x9, tc_watch_list_have
+    LEA x9, watch_list_have
     mov x10, #1
     str x10, [x9]
     b .Lwbl_done
 .Lwbl_memo_nodir:
-    LEA x9, tc_watch_list_have
+    LEA x9, watch_list_have
     mov x10, #1
     str x10, [x9]
 .Lwbl_done:
@@ -1671,7 +1671,7 @@ watch_init_window:
 .Lwiw_end_default:
     mov x20, #0
 .Lwiw_end_store:
-    LEA x9, tc_watch_end_given
+    LEA x9, watch_end_given
     str x20, [x9]
     // kind dispatch
     LEA x19, tc_window
@@ -1701,11 +1701,11 @@ watch_init_window:
     ldr x1, [x9, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
     sub x0, x0, x20
-    LEA x9, tc_watch_win_width
+    LEA x9, watch_win_width
     str x0, [x9]
     b .Lwiw_done
 .Lwiw_fixed:
-    LEA x9, tc_watch_win_width
+    LEA x9, watch_win_width
     str xzr, [x9]
     b .Lwiw_done
 .Lwiw_earliest:
@@ -1713,12 +1713,12 @@ watch_init_window:
     LEA x20, tc_listing
     ldr x21, [x20, #TC_L_COUNT]
     cbnz x21, .Lwiw_earliest_ok
-    LEA x0, tc_watch_errbuf
+    LEA x0, watch_errbuf
     LEA x1, s_no_logs_pre
-    bl wc_cat
-    LEA x1, tc_watch_dirpath
-    bl wc_cat
-    LEA x0, tc_watch_errbuf
+    bl watch_wc_cat
+    LEA x1, watch_dirpath
+    bl watch_wc_cat
+    LEA x0, watch_errbuf
     bl tc_report_fail
 .Lwiw_earliest_ok:
     ldr x22, [x20, #TC_L_ENTRIES]
@@ -1726,7 +1726,7 @@ watch_init_window:
     LEA x19, tc_window
     str x23, [x19, #TC_W_BEGIN_YMD]
     str xzr, [x19, #TC_W_BEGIN_SOD]
-    LEA x9, tc_watch_win_width
+    LEA x9, watch_win_width
     str xzr, [x9]
     b .Lwiw_done
 .Lwiw_users:
@@ -1748,10 +1748,10 @@ watch_init_window:
     ldr x1, [x19, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
     sub x0, x0, x20
-    LEA x9, tc_watch_win_width
+    LEA x9, watch_win_width
     str x0, [x9]
 .Lwiw_done:
-    // fill the threshold + state filter from the options (mirror tc_complete_window)
+    // fill the threshold + state filter from the options (mirror core_complete_window)
     LEA x9, tc_window
     LEA x10, tc_opts
     ldr x11, [x10, #TC_O_MIN_COUNT]
@@ -1767,7 +1767,7 @@ watch_init_window:
     .p2align 2
 watch_roll_window:
     PROLOGUE 2
-    LEA x9, tc_watch_end_given
+    LEA x9, watch_end_given
     ldr x9, [x9]
     cbnz x9, .Lwrw_slide
     bl watch_local_now                // x0=ymd, x1=sod (local: logs are local)
@@ -1784,7 +1784,7 @@ watch_roll_window:
     mov x0, x21
     mov x1, x22
     bl tc_ymd_sod_to_epoch
-    LEA x9, tc_watch_win_width
+    LEA x9, watch_win_width
     ldr x20, [x9]
     sub x0, x0, x20
     bl tc_epoch_to_ymd_sod         // x0=ymd, x1=sod
@@ -1809,9 +1809,9 @@ s_no_logs_pre:      .asciz "no log files found in "
 watch_reader_find:
     PROLOGUE 3
     mov x19, x0                        // path
-    LEA x9, tc_watch_reader_n
+    LEA x9, watch_reader_n
     ldr x20, [x9]
-    LEA x9, tc_watch_readers
+    LEA x9, watch_readers
     ldr x21, [x9]
     mov x22, #0
 .Lwrf_loop:
@@ -1854,12 +1854,12 @@ watch_reader_get:
     bl memset
     add x0, x21, #RD_PATH
     mov x1, x19
-    bl wc_cat
+    bl watch_wc_cat
     str x20, [x21, #RD_FDATE]
     // append to the reader array (grow)
-    LEA x9, tc_watch_reader_n
+    LEA x9, watch_reader_n
     ldr x22, [x9]
-    LEA x10, tc_watch_reader_cap
+    LEA x10, watch_reader_cap
     ldr x11, [x10]
     cmp x22, x11
     b.lt .Lwrg_append
@@ -1870,24 +1870,24 @@ watch_reader_get:
     mov x11, #READER_INIT
 .Lwrg_alloc:
     mov x23, x11
-    LEA x9, tc_watch_readers
+    LEA x9, watch_readers
     ldr x0, [x9]
     mov x1, #8
     mul x1, x11, x1
     bl realloc
     cbz x0, .Lwrg_oom
-    LEA x9, tc_watch_readers
+    LEA x9, watch_readers
     str x0, [x9]
-    LEA x9, tc_watch_reader_cap
+    LEA x9, watch_reader_cap
     str x23, [x9]
-    LEA x9, tc_watch_reader_n
+    LEA x9, watch_reader_n
     ldr x22, [x9]
 .Lwrg_append:
-    LEA x9, tc_watch_readers
+    LEA x9, watch_readers
     ldr x10, [x9]
     str x21, [x10, x22, lsl #3]
     add x22, x22, #1
-    LEA x9, tc_watch_reader_n
+    LEA x9, watch_reader_n
     str x22, [x9]
     mov x0, x21
 .Lwrg_have:
@@ -2400,7 +2400,7 @@ watch_reader_refresh:
     ldr x28, [x19, #RD_REM_LEN]
     cbz x26, .Lwrrf_text
     // stash the old chunk base, join, then free it (it is not reused)
-    LEA x9, tc_watch_join_old
+    LEA x9, watch_join_old
     str x24, [x9]
     mov x0, x24                        // chunk (a)
     mov x1, x26                        // remainder (b)
@@ -2409,11 +2409,11 @@ watch_reader_refresh:
     bl watch_join_bufs                 // x0 = combined, x1 = total len
     mov x26, x0                        // combined (x26: remainder was dead)
     mov x25, x1                        // total len
-    LEA x9, tc_watch_join_old
+    LEA x9, watch_join_old
     ldr x0, [x9]
     cbz x0, .Lwrrf_join_free_done
     bl free
-    LEA x9, tc_watch_join_old  // free() clobbers x9: recompute
+    LEA x9, watch_join_old  // free() clobbers x9: recompute
     str xzr, [x9]
 .Lwrrf_join_free_done:
     mov x24, x26
@@ -2632,7 +2632,7 @@ watch_seek_window:
     mov x21, x2                        // floor
     cbz x21, .Lwsw_zero
     // want = "%02d:%02d:%02d"
-    LEA x22, tc_watch_want
+    LEA x22, watch_want
     mov x9, #3600
     udiv x23, x21, x9                  // h
     msub x10, x23, x9, x21
@@ -3153,7 +3153,7 @@ watch_fold_lines:
 
 // ============================================================================
 // watch_fold_line(rd, line, len, state) — classify one message line
-//   (LINE_RE + speaker_login + bucket + highlight matches).
+//   (LINE_RE + core_speaker_login + bucket + highlight matches).
 // ============================================================================
     .p2align 2
 watch_fold_line:
@@ -3162,7 +3162,7 @@ watch_fold_line:
     mov x20, x1                        // line
     mov x21, x2                        // len
     mov x22, x3                        // state
-    // LINE_RE shape (mirror process_message)
+    // LINE_RE shape (mirror core_process_message)
     cmp x21, #11
     b.lt .Lwfln_skip
     ldrb w3, [x20]
@@ -3262,10 +3262,10 @@ watch_fold_line:
     sub w5, w5, #'0'
     add x9, x9, x5
     add x28, x28, x9                   // second
-    // speaker_login
+    // core_speaker_login
     mov x0, x25
     mov x1, x26
-    bl speaker_login2                  // x0 = login ptr or 0, x1 = len
+    bl watch_speaker_login2                  // x0 = login ptr or 0, x1 = len
     cbz x0, .Lwfln_skip
     mov x23, x0                        // login ptr
     mov x24, x1                        // login len
@@ -3292,7 +3292,7 @@ watch_fold_line:
     add x9, x9, #1
     str x9, [x0, #BK_N]
     // highlight matching (only when rules exist)
-    LEA x9, tc_watch_highlight_on
+    LEA x9, watch_highlight_on
     ldr x9, [x9]
     cbz x9, .Lwfln_skip
     // msg = [first ": " colon + 2, end) — re-derive the colon
@@ -3367,12 +3367,12 @@ watch_fold_line:
     bl tc_fail
 
 // ============================================================================
-// speaker_login2(speaker, slen) -> (x0 = login ptr or 0, x1 = login len).
-//   Port of tc_core.S's speaker_login (LOGIN_RE then LOCALIZED_RE); writes
-//   the lowercased login into tc_watch_scratch2.
+// watch_speaker_login2(speaker, slen) -> (x0 = login ptr or 0, x1 = login len).
+//   Port of tc_core.S's core_speaker_login (LOGIN_RE then LOCALIZED_RE); writes
+//   the lowercased login into watch_scratch2.
 // ============================================================================
     .p2align 2
-speaker_login2:
+watch_speaker_login2:
     PROLOGUE 1
     mov x19, x0                        // speaker
     mov x20, x1                        // slen
@@ -3405,7 +3405,7 @@ speaker_login2:
     b .Lsl2_login
 .Lsl2_login_ok:
     // lowercase into scratch2
-    LEA x4, tc_watch_scratch2
+    LEA x4, watch_scratch2
     mov x2, #0
 .Lsl2_lower:
     cmp x2, x20
@@ -3495,7 +3495,7 @@ speaker_login2:
 .Lsl2_left_ok:
     cbz x7, .Lsl2_fail
     // login = right (already lowercase); copy into scratch2
-    LEA x8, tc_watch_scratch2
+    LEA x8, watch_scratch2
     mov x2, #0
 .Lsl2_copy:
     cmp x2, x4
@@ -3526,7 +3526,7 @@ watch_highlight_match:
     PROLOGUE 4
     mov x19, x0                        // msg
     mov x20, x1                        // len
-    LEA x9, tc_watch_highlight_on
+    LEA x9, watch_highlight_on
     ldr x9, [x9]
     cbz x9, .Lwhm_none
     LEA x21, tc_opts
@@ -3546,15 +3546,15 @@ watch_highlight_match:
 .Lwhm_pat:
     cmp x26, x25
     b.ge .Lwhm_rule_next
-    // compiled pattern ptr = tc_watch_patterns[rule*PAT_MAX + pat]
-    LEA x9, tc_watch_patterns
+    // compiled pattern ptr = watch_patterns[rule*PAT_MAX + pat]
+    LEA x9, watch_patterns
     mov x10, #TC_HL_PAT_MAX
     mul x10, x24, x10
     add x10, x10, x26
     ldr x9, [x9, x10, lsl #3]
     cbz x9, .Lwhm_pat_next
     // match data for this pattern slot
-    LEA x5, tc_watch_match_data
+    LEA x5, watch_match_data
     ldr x5, [x5, x10, lsl #3]
     cbz x5, .Lwhm_pat_next
     // pcre2_match_8(code, subject, length, 0, 0, md, 0)
@@ -4255,9 +4255,9 @@ watch_memo_find:
     mov x20, x1                        // size
     mov x21, x2                        // mtime
     mov x22, x3                        // enter
-    LEA x9, tc_watch_days_n
+    LEA x9, watch_days_n
     ldr x10, [x9]
-    LEA x9, tc_watch_days
+    LEA x9, watch_days
     ldr x11, [x9]
     mov x12, #0
 .Lwmf_loop:
@@ -4301,9 +4301,9 @@ watch_memo_put:
     mov x24, x5                        // counts ptr
     mov x25, x6                        // count
     // grow the memo array when full
-    LEA x9, tc_watch_days_n
+    LEA x9, watch_days_n
     ldr x10, [x9]
-    LEA x11, tc_watch_days_cap
+    LEA x11, watch_days_cap
     ldr x12, [x11]
     cmp x10, x12
     b.lt .Lwmp_append
@@ -4314,20 +4314,20 @@ watch_memo_put:
     mov x12, #DAYS_INIT
 .Lwmp_alloc:
     mov x26, x12
-    LEA x9, tc_watch_days
+    LEA x9, watch_days
     ldr x0, [x9]
     mov x1, #DM_SZ
     mul x1, x12, x1
     bl realloc
     cbz x0, .Lwmp_oom
-    LEA x9, tc_watch_days
+    LEA x9, watch_days
     str x0, [x9]
-    LEA x9, tc_watch_days_cap
+    LEA x9, watch_days_cap
     str x26, [x9]
 .Lwmp_append:
-    LEA x9, tc_watch_days_n
+    LEA x9, watch_days_n
     ldr x10, [x9]
-    LEA x11, tc_watch_days
+    LEA x11, watch_days
     ldr x11, [x11]
     mov x12, #DM_SZ
     mul x12, x10, x12
@@ -4355,9 +4355,9 @@ watch_memo_retain:
     PROLOGUE 3
     mov x19, x0                        // live count
     mov x20, x1                        // live array
-    LEA x9, tc_watch_days_n
+    LEA x9, watch_days_n
     ldr x21, [x9]                      // memo count
-    LEA x9, tc_watch_days
+    LEA x9, watch_days
     ldr x22, [x9]                      // memo array
     mov x23, #0                        // out
     mov x24, #0                        // i
@@ -4400,7 +4400,7 @@ watch_memo_retain:
     add x24, x24, #1
     b .Lwmr_loop
 .Lwmr_done:
-    LEA x9, tc_watch_days_n
+    LEA x9, watch_days_n
     str x23, [x9]
     EPILOGUE 3
     ret
@@ -4415,7 +4415,7 @@ watch_count_tick:
     PROLOGUE 5
     bl watch_refresh_listing
     bl watch_seed_state                // x0 = entering state
-    LEA x9, tc_watch_cur_state
+    LEA x9, watch_cur_state
     str x0, [x9]
     // gather
     bl watch_gather
@@ -4423,22 +4423,22 @@ watch_count_tick:
     bl watch_fold
     // bookkeeping into the tally
     LEA x9, tc_tally
-    LEA x10, tc_watch_g_files
+    LEA x10, watch_g_files
     ldr x11, [x10]
     str x11, [x9, #TC_T_FILES]
-    LEA x10, tc_watch_g_parsed
+    LEA x10, watch_g_parsed
     ldr x11, [x10]
     str x11, [x9, #TC_T_PARSED]
-    LEA x10, tc_watch_g_reused
+    LEA x10, watch_g_reused
     ldr x11, [x10]
     str x11, [x9, #TC_T_REUSED]
     // unreadable list
-    LEA x10, tc_watch_g_unr_n
+    LEA x10, watch_g_unr_n
     ldr x11, [x10]
     str x11, [x9, #TC_T_UNR_COUNT]
     cbz x11, .Lwct_unr_done
     add x12, x9, #TC_T_UNR_ENTRIES
-    LEA x13, tc_watch_g_unr
+    LEA x13, watch_g_unr
     mov x14, #0
 .Lwct_unr_loop:
     cmp x14, x11
@@ -4468,10 +4468,10 @@ watch_count_tick:
     b .Lwct_unr_loop
 .Lwct_unr_done:
     // retain readers + day memos to the in-range paths/dates
-    LEA x9, tc_watch_win_n
+    LEA x9, watch_win_n
     ldr x9, [x9]
     cbz x9, .Lwct_retain_done
-    LEA x0, tc_watch_wins
+    LEA x0, watch_wins
     ldr x0, [x0]
     // (the windows list is handled in watch_gather; readers are retained below)
 .Lwct_retain_done:
@@ -4491,7 +4491,7 @@ watch_refresh_listing:
 
 // ============================================================================
 // watch_gather — walk the in-range listing entries and build the windows list
-//   (tc_watch_wins), applying whole-day cache/memo logic and reader refreshes.
+//   (watch_wins), applying whole-day cache/memo logic and reader refreshes.
 //   Bookkeeping lands in tc_watch_g_*.  Per-file processing is delegated to
 //   watch_gather_file so each file gets a clean register allocation.
 //   Register roles: x19=i, x20=begin_epoch, x21=end_epoch, x22=begin_ymd,
@@ -4501,15 +4501,15 @@ watch_refresh_listing:
 watch_gather:
     PROLOGUE 5
     // reset bookkeeping + windows
-    LEA x9, tc_watch_g_files
+    LEA x9, watch_g_files
     str xzr, [x9]
     str xzr, [x9, #8]                  // parsed
     str xzr, [x9, #16]                 // reused
-    LEA x9, tc_watch_g_unr_n
+    LEA x9, watch_g_unr_n
     str xzr, [x9]
-    LEA x9, tc_watch_win_n
+    LEA x9, watch_win_n
     str xzr, [x9]
-    LEA x9, tc_watch_sqlite_hit
+    LEA x9, watch_sqlite_hit
     str xzr, [x9]
     // window epochs + shared state
     LEA x19, tc_window
@@ -4523,24 +4523,24 @@ watch_gather:
     mov x21, x0
     ldr x22, [x19, #TC_W_BEGIN_YMD]
     ldr x23, [x19, #TC_W_END_YMD]
-    LEA x9, tc_watch_cur_state
+    LEA x9, watch_cur_state
     ldr x25, [x9]
     bl tc_cache_used
     mov x26, x0
     LEA x27, tc_listing
     ldr x27, [x27, #TC_L_COUNT]
     // stash the shared state for the per-file helper
-    LEA x9, tc_watch_g_begin
+    LEA x9, watch_g_begin
     str x20, [x9]
-    LEA x9, tc_watch_g_end
+    LEA x9, watch_g_end
     str x21, [x9]
-    LEA x9, tc_watch_g_begin_ymd
+    LEA x9, watch_g_begin_ymd
     str x22, [x9]
-    LEA x9, tc_watch_g_end_ymd
+    LEA x9, watch_g_end_ymd
     str x23, [x9]
-    LEA x9, tc_watch_g_enter
+    LEA x9, watch_g_enter
     str x25, [x9]
-    LEA x9, tc_watch_g_cache
+    LEA x9, watch_g_cache
     str x26, [x9]
     mov x19, #0                        // i
 .Lwg_loop:
@@ -4548,12 +4548,12 @@ watch_gather:
     b.ge .Lwg_done
     mov x0, x19
     bl watch_gather_file
-    LEA x9, tc_watch_g_enter
+    LEA x9, watch_g_enter
     ldr x25, [x9]
     add x19, x19, #1
     b .Lwg_loop
 .Lwg_done:
-    LEA x9, tc_watch_cur_state
+    LEA x9, watch_cur_state
     str x25, [x9]
     EPILOGUE 5
     ret
@@ -4562,7 +4562,7 @@ watch_gather:
 // watch_gather_file(i) — process one in-range listing entry.
 //   Register roles: x19=listing entry, x20=stat ptr, x21=ymd, x22=day_start,
 //   x23=lo, x24=hi, x25=whole_day, x26=enter, x27=size, x28=mtime_ns.
-//   Reads the shared state from tc_watch_g_*; writes tc_watch_g_enter and
+//   Reads the shared state from tc_watch_g_*; writes watch_g_enter and
 //   the bookkeeping counters.
 // ============================================================================
     .p2align 2
@@ -4577,16 +4577,16 @@ watch_gather_file:
     add x19, x10, x11                  // listing entry (x19)
     ldr x21, [x19, #TC_L_YMD]
     // range check
-    LEA x9, tc_watch_g_begin_ymd
+    LEA x9, watch_g_begin_ymd
     ldr x10, [x9]
     cmp x21, x10
     b.lt .Lwgf_done
-    LEA x9, tc_watch_g_end_ymd
+    LEA x9, watch_g_end_ymd
     ldr x10, [x9]
     cmp x21, x10
     b.gt .Lwgf_done
     // files++
-    LEA x9, tc_watch_g_files
+    LEA x9, watch_g_files
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -4595,9 +4595,9 @@ watch_gather_file:
     mov x1, #0
     bl tc_ymd_sod_to_epoch
     mov x22, x0                        // day_start
-    LEA x9, tc_watch_g_begin
+    LEA x9, watch_g_begin
     ldr x10, [x9]                      // begin_epoch
-    LEA x11, tc_watch_g_end
+    LEA x11, watch_g_end
     ldr x11, [x11]                     // end_epoch
     cmp x10, x22
     b.le .Lwgf_lo0
@@ -4627,16 +4627,16 @@ watch_gather_file:
     mov x25, #1                        // whole_day
 .Lwgf_wd_done:
     // build the file path
-    LEA x0, tc_watch_fpath
-    LEA x1, tc_watch_dirpath
-    bl wc_cat
+    LEA x0, watch_fpath
+    LEA x1, watch_dirpath
+    bl watch_wc_cat
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x19, #TC_L_NAME
-    bl wc_cat
+    bl watch_wc_cat
     // stat
-    LEA x0, tc_watch_fpath
-    LEA x20, tc_watch_stat
+    LEA x0, watch_fpath
+    LEA x20, watch_stat
     mov x1, x20
     bl stat
     cbnz w0, .Lwgf_stat_fail
@@ -4679,9 +4679,9 @@ watch_gather_file:
     mul x9, x9, x10
     ldr x10, [x20, #ST_MTIM_NSEC]
     add x28, x9, x10                    // mtime_ns
-    LEA x9, tc_watch_g_enter
+    LEA x9, watch_g_enter
     ldr x26, [x9]                       // enter
-    LEA x9, tc_watch_g_cache
+    LEA x9, watch_g_cache
     ldr x10, [x9]                       // cache_used
     // ---- whole-day cache/memo --------------------------------------------
     cbz x25, .Lwgf_reader
@@ -4693,7 +4693,7 @@ watch_gather_file:
     bl watch_memo_find
     cbz x0, .Lwgf_memo_miss
     // memo hit: reused++, window = memo counts, enter = memo exit
-    LEA x9, tc_watch_g_reused
+    LEA x9, watch_g_reused
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -4703,11 +4703,11 @@ watch_gather_file:
     bl watch_win_add                   // which clobbers x9-x17
     ldr x11, [sp], #16
     ldr x9, [x11, #DM_EXIT]
-    LEA x10, tc_watch_g_enter
+    LEA x10, watch_g_enter
     str x9, [x10]
     b .Lwgf_done
 .Lwgf_memo_miss:
-    LEA x0, tc_watch_fpath
+    LEA x0, watch_fpath
     mov x1, x23                        // lo
     mov x2, x24                        // hi
     mov x3, x26
@@ -4719,15 +4719,15 @@ watch_gather_file:
     b.eq .Lwgf_sqlite_hit
     b .Lwgf_reader
 .Lwgf_sqlite_hit:
-    LEA x9, tc_watch_sqlite_hit
+    LEA x9, watch_sqlite_hit
     mov x10, #1
     str x10, [x9]
-    LEA x9, tc_watch_g_reused
+    LEA x9, watch_g_reused
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
     // build the memo counts from the reader (cold read once per session)
-    LEA x0, tc_watch_fpath
+    LEA x0, watch_fpath
     mov x1, x21
     bl watch_reader_get
     mov x19, x0                        // rd
@@ -4766,21 +4766,21 @@ watch_gather_file:
     bl watch_win_add                   // which clobbers x9-x17
     ldr x11, [sp], #16
     ldr x9, [x11, #DM_EXIT]
-    LEA x10, tc_watch_g_enter
+    LEA x10, watch_g_enter
     str x9, [x10]
     b .Lwgf_done
 .Lwgf_reader:
-    LEA x0, tc_watch_fpath
+    LEA x0, watch_fpath
     mov x1, x21
     bl watch_reader_get
     mov x19, x0                        // rd
     // floor = max(0, int(lo - retain)) unless seeking
 
     mov x3, #0
-    LEA x9, tc_watch_seeking
+    LEA x9, watch_seeking
     ldr x9, [x9]
     cbnz x9, .Lwgf_floor_done
-    LEA x9, tc_watch_retain_seconds
+    LEA x9, watch_retain_seconds
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwgf_floor_done
@@ -4798,7 +4798,7 @@ watch_gather_file:
     b.lt .Lwgf_unreadable
 
     cbz x0, .Lwgf_parsed_done
-    LEA x9, tc_watch_g_parsed
+    LEA x9, watch_g_parsed
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -4812,7 +4812,7 @@ watch_gather_file:
 
     // put whole day (cold read, no appends, not partial)
     cbz x25, .Lwgf_put_done
-    LEA x9, tc_watch_g_cache
+    LEA x9, watch_g_cache
     ldr x9, [x9]
     cbz x9, .Lwgf_put_done
     ldr x9, [x19, #RD_APPENDS]
@@ -4823,11 +4823,11 @@ watch_gather_file:
     bl tc_cache_put_day
 .Lwgf_put_done:
     ldr x9, [x19, #RD_EXIT]
-    LEA x10, tc_watch_g_enter
+    LEA x10, watch_g_enter
     str x9, [x10]
     // memo the whole day (never partial)
     cbz x25, .Lwgf_win_add
-    LEA x9, tc_watch_g_cache
+    LEA x9, watch_g_cache
     ldr x9, [x9]
     cbz x9, .Lwgf_win_add
     ldr x9, [x19, #RD_PARTIAL]
@@ -4858,27 +4858,27 @@ watch_gather_file:
     bl tc_capture_errno
 .Lwgf_unreadable:
     // skip(): the errno captured at the failing call, as tc_core.S
-    LEA x0, tc_watch_reason
+    LEA x0, watch_reason
     bl tc_errno_reason
     mov x1, x0
     add x0, x19, #TC_L_NAME
     bl watch_record_unreadable
-    LEA x9, tc_watch_g_enter
+    LEA x9, watch_g_enter
     str xzr, [x9]
 .Lwgf_done:
     EPILOGUE 5
     ret
 
 // ============================================================================
-// watch_win_add(win_ptr) — append a window pointer to tc_watch_wins (grow).
+// watch_win_add(win_ptr) — append a window pointer to watch_wins (grow).
 // ============================================================================
     .p2align 2
 watch_win_add:
     PROLOGUE 1
     mov x19, x0                        // win ptr
-    LEA x9, tc_watch_win_n
+    LEA x9, watch_win_n
     ldr x10, [x9]
-    LEA x11, tc_watch_wins_cap
+    LEA x11, watch_wins_cap
     ldr x12, [x11]
     cmp x10, x12
     b.lt .Lwina_append
@@ -4889,20 +4889,20 @@ watch_win_add:
     mov x12, #WINLIST_INIT
 .Lwina_alloc:
     mov x20, x12
-    LEA x9, tc_watch_wins
+    LEA x9, watch_wins
     ldr x0, [x9]
     mov x1, #8
     mul x1, x12, x1
     bl realloc
     cbz x0, .Lwina_oom
-    LEA x9, tc_watch_wins
+    LEA x9, watch_wins
     str x0, [x9]
-    LEA x9, tc_watch_wins_cap
+    LEA x9, watch_wins_cap
     str x20, [x9]
 .Lwina_append:
-    LEA x9, tc_watch_win_n
+    LEA x9, watch_win_n
     ldr x10, [x9]
-    LEA x11, tc_watch_wins
+    LEA x11, watch_wins
     ldr x11, [x11]
     str x19, [x11, x10, lsl #3]
     add x10, x10, #1
@@ -4922,12 +4922,12 @@ watch_record_unreadable:
     PROLOGUE 1
     mov x19, x0                        // name
     mov x20, x1                        // reason
-    LEA x9, tc_watch_g_unr_n
+    LEA x9, watch_g_unr_n
     ldr x10, [x9]
     ldr x11, =64
     cmp x10, x11
     b.ge .Lwru_done
-    LEA x11, tc_watch_g_unr
+    LEA x11, watch_g_unr
     mov x12, #96
     mul x12, x10, x12
     add x11, x11, x12
@@ -4972,26 +4972,26 @@ watch_fold:
     PROLOGUE 5
     LEA x9, tc_window
     ldr x19, [x9, #TC_W_STATE_FILTER]  // shape
-    LEA x9, tc_watch_sqlite_hit
+    LEA x9, watch_sqlite_hit
     ldr x20, [x9]
-    LEA x9, tc_watch_win_n
+    LEA x9, watch_win_n
     ldr x21, [x9]                      // n
     // reuse?
-    LEA x9, tc_watch_fold_n
+    LEA x9, watch_fold_n
     ldr x10, [x9]
     cmp x10, x21
     b.ne .Lwf_rebuild
-    LEA x9, tc_watch_fold_shape
+    LEA x9, watch_fold_shape
     ldr x10, [x9]
     cmp x10, x19
     b.ne .Lwf_rebuild
-    LEA x9, tc_watch_fold_sqlite
+    LEA x9, watch_fold_sqlite
     ldr x10, [x9]
     cmp x10, x20
     b.ne .Lwf_rebuild
     // compare the pointer lists
-    LEA x9, tc_watch_fold_wins
-    LEA x10, tc_watch_wins
+    LEA x9, watch_fold_wins
+    LEA x10, watch_wins
     ldr x10, [x10]
     mov x22, #0
 .Lwf_cmp:
@@ -5009,16 +5009,16 @@ watch_fold:
 .Lwf_rebuild:
     bl watch_reset_count
     // apply every window
-    LEA x9, tc_watch_win_n
+    LEA x9, watch_win_n
     ldr x21, [x9]
-    LEA x9, tc_watch_wins
+    LEA x9, watch_wins
     ldr x10, [x9]
     mov x22, #0
 .Lwf_apply:
     cmp x22, x21
     b.ge .Lwf_finish
     // reload the windows base: watch_apply below clobbers caller-saved x10
-    LEA x9, tc_watch_wins
+    LEA x9, watch_wins
     ldr x10, [x9]
     ldr x24, [x10, x22, lsl #3]
     // iterate the WW record: each {login, state, n}
@@ -5051,14 +5051,14 @@ watch_fold:
     bl watch_finish
 .Lwf_store:
     // remember the shape + pointers
-    LEA x9, tc_watch_fold_shape
+    LEA x9, watch_fold_shape
     str x19, [x9]
-    LEA x9, tc_watch_fold_sqlite
+    LEA x9, watch_fold_sqlite
     str x20, [x9]
-    LEA x9, tc_watch_fold_n
+    LEA x9, watch_fold_n
     str x21, [x9]
-    LEA x9, tc_watch_fold_wins
-    LEA x10, tc_watch_wins
+    LEA x9, watch_fold_wins
+    LEA x10, watch_wins
     ldr x10, [x10]
     mov x22, #0
 .Lwf_copy:
@@ -5073,7 +5073,7 @@ watch_fold:
     ret
 
 // ============================================================================
-// watch_reset_count — zero the tally and the user table (mirror tc_reset_count
+// watch_reset_count — zero the tally and the user table (mirror core_reset_count
 //   minus the core-global totals, which this module computes itself).
 // ============================================================================
     .p2align 2
@@ -5104,13 +5104,13 @@ watch_apply:
     LEA x2, tc_users
     mov x0, x19
     mov x1, x20
-    bl find_user
+    bl tc_find_user
     cmp x0, #0
     b.ge .Lwapp_have
     mov x0, x19
     mov x1, x20
     LEA x2, tc_users
-    bl add_user
+    bl tc_add_user
 .Lwapp_have:
     LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
@@ -5139,7 +5139,7 @@ watch_apply:
     ret
 
 // ============================================================================
-// watch_finish — mirror tc_finish_tally: exclusions subtract out of the
+// watch_finish — mirror core_finish_tally: exclusions subtract out of the
 //   all-state totals, non-excluded entries sum into the messages total.
 // ============================================================================
     .p2align 2
@@ -5219,9 +5219,9 @@ watch_retain_readers:
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     // keep readers whose path matches an entry
-    LEA x22, tc_watch_reader_n
+    LEA x22, watch_reader_n
     ldr x23, [x22]
-    LEA x24, tc_watch_readers
+    LEA x24, watch_readers
     ldr x24, [x24]
     mov x25, #0                        // out
     mov x26, #0                        // i
@@ -5257,7 +5257,7 @@ watch_retain_readers:
     // memo retain: live ymd list
     cbz x20, .Lwret_memo_none
     // build the live ymd array in the scratch
-    LEA x0, tc_watch_scratch
+    LEA x0, watch_scratch
     mov x1, #0
     mov x2, #2048
     bl memset
@@ -5269,17 +5269,17 @@ watch_retain_readers:
     mul x9, x19, x9
     add x10, x21, x9
     ldr x11, [x10, #TC_L_YMD]
-    LEA x12, tc_watch_scratch
+    LEA x12, watch_scratch
     str x11, [x12, x19, lsl #3]
     add x19, x19, #1
     b .Lwret_live
 .Lwret_live_done:
     mov x0, x20
-    LEA x1, tc_watch_scratch
+    LEA x1, watch_scratch
     bl watch_memo_retain
     b .Lwret_out
 .Lwret_memo_none:
-    LEA x9, tc_watch_days_n
+    LEA x9, watch_days_n
     str xzr, [x9]
 .Lwret_out:
     EPILOGUE 5
@@ -5373,18 +5373,18 @@ watch_seed_state:
     mul x9, x24, x9
     add x25, x22, x9                   // last entry
     // build its path
-    LEA x0, tc_watch_fpath
-    LEA x1, tc_watch_dirpath
-    bl wc_cat
+    LEA x0, watch_fpath
+    LEA x1, watch_dirpath
+    bl watch_wc_cat
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x25, #TC_L_NAME
-    bl wc_cat
-    LEA x0, tc_watch_fpath
-    LEA x1, tc_watch_stat
+    bl watch_wc_cat
+    LEA x0, watch_fpath
+    LEA x1, watch_stat
     bl stat
     cbnz w0, .Lwss_none_earlier
-    LEA x1, tc_watch_stat  // reload: bl stat clobbered caller-saved x1
+    LEA x1, watch_stat  // reload: bl stat clobbered caller-saved x1
     ldr x26, [x25, #TC_L_YMD]          // earlier_last_ymd
     ldr x27, [x1, #ST_SIZE]            // size
     ldr x9, [x1, #ST_MTIM_SEC]
@@ -5404,7 +5404,7 @@ watch_seed_state:
     mov x20, #1                        // memoizable
 .Lwss_key_skip:
     // memo key match?
-    LEA x9, tc_watch_seed_key1
+    LEA x9, watch_seed_key1
     ldr x10, [x9]
     cmp x10, x19
     b.ne .Lwss_scan
@@ -5421,7 +5421,7 @@ watch_seed_state:
     b .Lwss_out
 .Lwss_scan:
     // scan reversed(earlier[-lookback:]) — the last min(count, lookback) files
-    LEA x9, tc_watch_seed_lookback
+    LEA x9, watch_seed_lookback
     ldr x10, [x9]
     cmp x23, x10
     b.le .Lwss_start
@@ -5440,14 +5440,14 @@ watch_seed_state:
     mul x9, x24, x9
     add x10, x22, x9                   // entry
     // build the path
-    LEA x0, tc_watch_fpath
-    LEA x1, tc_watch_dirpath
-    bl wc_cat
+    LEA x0, watch_fpath
+    LEA x1, watch_dirpath
+    bl watch_wc_cat
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x10, #TC_L_NAME
-    bl wc_cat
-    LEA x0, tc_watch_fpath
+    bl watch_wc_cat
+    LEA x0, watch_fpath
     bl watch_scan_markers              // x0 = state 0/1/2 (0 = none found)
     cbnz x0, .Lwss_found
     sub x21, x21, #1
@@ -5457,9 +5457,9 @@ watch_seed_state:
 .Lwss_done:
     // memoize only when the earlier-file stat succeeded (Python: key None)
     cbz x20, .Lwss_out
-    LEA x9, tc_watch_seed_key1
+    LEA x9, watch_seed_key1
     // store the key (begin_ymd, earlier_ymd, size, mtime)
-    LEA x9, tc_watch_seed_key1
+    LEA x9, watch_seed_key1
     LEA x10, tc_window
     ldr x10, [x10, #TC_W_BEGIN_YMD]
     str x10, [x9]
@@ -5597,7 +5597,7 @@ watch_scan_markers:
 // ============================================================================
 // watch_size_users — the --users bisection (Python _search_width).  Only for
 //   TC_WIN_USERS; otherwise a no-op.  Sets TC_W_USERS_WIDTH / _FOUND and
-//   begin = end - width.  Probes run with tc_watch_seeking = 1 so readers
+//   begin = end - width.  Probes run with watch_seeking = 1 so readers
 //   never seek or prune during the search.
 // ============================================================================
     .p2align 2
@@ -5622,10 +5622,10 @@ watch_size_users:
     bl watch_eff_threshold
     mov x22, x0                        // eff
     // search memo reset
-    LEA x9, tc_watch_search_n
+    LEA x9, watch_search_n
     str xzr, [x9]
     // seeking flag on
-    LEA x9, tc_watch_seeking
+    LEA x9, watch_seeking
     mov x10, #1
     str x10, [x9]
     // widest = reported(ceiling)
@@ -5733,7 +5733,7 @@ watch_size_users:
     LEA x9, tc_window
     str x1, [x9, #TC_W_USERS_WIDTH]
     str x2, [x9, #TC_W_USERS_FOUND]
-    LEA x9, tc_watch_win_width
+    LEA x9, watch_win_width
     str x1, [x9]
     sub x0, x19, x1
     bl tc_epoch_to_ymd_sod
@@ -5741,10 +5741,10 @@ watch_size_users:
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
 .Lwsu_done:
-    LEA x9, tc_watch_seeking
+    LEA x9, watch_seeking
     str xzr, [x9]
     // clear the fold-reuse state: the probes perturbed the tables
-    LEA x9, tc_watch_fold_n
+    LEA x9, watch_fold_n
     str xzr, [x9]
     EPILOGUE 5
     ret
@@ -5843,7 +5843,7 @@ watch_eff_threshold:
     .p2align 2
 watch_build_ramps:
     PROLOGUE 5
-    LEA x19, tc_watch_shades
+    LEA x19, watch_shades
     ldr x20, [x19]                     // shades
     ldr x9, =SHADES_MAX
     cmp x20, x9
@@ -5855,7 +5855,7 @@ watch_build_ramps:
     b.ge .Lwbr_shades_ge
     mov x20, #1                        // steps = max(1, shades)
 .Lwbr_shades_ge:
-    LEA x21, tc_watch_ramp_count
+    LEA x21, watch_ramp_count
     mov x22, #0                        // ramp index
     // ramp 0: up
     LEA_OFF x0, tc_opts, TC_O_FADE_UP_RGB
@@ -5866,7 +5866,7 @@ watch_build_ramps:
     // ramp 1: down when tint_falling.  Key RAMP_DOWN stays reserved either
     // way, so highlight i is always key 2 + i -- the key watch_choose
     // returns and watch_ramp_key_str names ("highlight{i}").
-    LEA x9, tc_watch_tint_falling
+    LEA x9, watch_tint_falling
     ldr x9, [x9]
     cbz x9, .Lwbr_no_down
     LEA_OFF x0, tc_opts, TC_O_FADE_DOWN_RGB
@@ -5878,7 +5878,7 @@ watch_build_ramps:
     // no "down" ramp (Python: "down" not in ramps): an empty descriptor at
     // the reserved key, so a reload that turned tint_falling off leaves
     // nothing readable behind
-    LEA x9, tc_watch_ramps
+    LEA x9, watch_ramps
     str xzr, [x9, #(RAMP_DOWN * 16)]
     str xzr, [x9, #(RAMP_DOWN * 16 + 8)]
 .Lwbr_highlights:
@@ -5923,30 +5923,30 @@ watch_build_ramps:
     bl watch_ramp_distinct             // x0 = 1 when all shades identical
     cbz x0, .Lwbr_degen_next
     // raise the ConfigError
-    LEA x19, tc_watch_errbuf
+    LEA x19, watch_errbuf
     mov x23, x19
     mov x0, x23
     LEA x1, s_watch_fade_curve
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     // {curve!r}
     mov w1, #'\''
     strb w1, [x23], #1
-    LEA x9, tc_watch_fade_curve
+    LEA x9, watch_fade_curve
     ldr x9, [x9]
     LEA x10, watch_curve_names
     ldr x1, [x10, x9, lsl #3]
     mov x0, x23
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov w1, #'\''
     strb w1, [x23], #1
     mov x0, x23
     LEA x1, s_collapse_mid2
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     // {k:g}
-    LEA x9, tc_watch_fade_k
+    LEA x9, watch_fade_k
     ldr d0, [x9]
     mov x0, x23
     mov x1, #128
@@ -5957,21 +5957,21 @@ watch_build_ramps:
     add x23, x23, x0
     mov x0, x23
     LEA x1, s_collapse_mid
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     // the ramp key
     mov x0, x24
     bl watch_ramp_key_str              // x0 = key string
     mov x1, x0
     mov x0, x23
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x23
     LEA x1, s_collapse_post
-    bl wc_cat
+    bl watch_wc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_watch_errbuf
+    LEA x0, watch_errbuf
     bl tc_report_fail                  // noreturn
 .Lwbr_degen_next:
     add x24, x24, #1
@@ -5990,7 +5990,7 @@ watch_rule_curve_k:
     ldr x2, [x0, #TC_HL_CURVE]
     cmp x2, #-1
     b.ne .Lwrck_curve_ok
-    LEA x9, tc_watch_fade_curve
+    LEA x9, watch_fade_curve
     ldr x2, [x9]
 .Lwrck_curve_ok:
     ldr d0, [x0, #TC_HL_K]
@@ -5998,13 +5998,13 @@ watch_rule_curve_k:
     ldr d1, [x9]
     fcmp d0, d1
     b.ne .Lwrck_k_ok
-    LEA x9, tc_watch_fade_k
+    LEA x9, watch_fade_k
     ldr d0, [x9]
 .Lwrck_k_ok:
     mov x0, x2
     mov x1, x0                        // (k bits are stored as an x-reg below)
     // store the double bits in x1
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str d0, [x9]
     ldr x1, [x9]
     mov x0, x2
@@ -6019,11 +6019,11 @@ watch_rule_curve_k:
     .p2align 2
 watch_build_one_ramp:
     PROLOGUE 1
-    LEA x9, tc_watch_fade_curve
+    LEA x9, watch_fade_curve
     ldr x3, [x9]
-    LEA x9, tc_watch_fade_k
+    LEA x9, watch_fade_k
     ldr d4, [x9]
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str d4, [x9]
     ldr x4, [x9]
     bl watch_build_one_ramp_full
@@ -6038,20 +6038,20 @@ watch_build_one_ramp_full:
     mov x20, x1                        // steps
     mov x21, x2                        // key
     mov x22, x3                        // curve
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str x4, [x9]                       // k bits
     ldr d5, [x9]                       // k (double)
-    LEA x9, tc_watch_dtmp2  // the curve branches read k from here; / a stale dtmp2 would silently use k=0
+    LEA x9, watch_dtmp2  // the curve branches read k from here; / a stale dtmp2 would silently use k=0
     str x4, [x9]
     // ramp base = arena + key * shades_max * shade_sz
-    LEA x23, tc_watch_ramp_arena
+    LEA x23, watch_ramp_arena
     mov x9, #SHADES_MAX
     mul x9, x21, x9
     mov x10, #SHADE_SZ
     mul x9, x9, x10
     add x23, x23, x9                   // base
     // register the ramp descriptor
-    LEA x9, tc_watch_ramps
+    LEA x9, watch_ramps
     mov x10, #16
     mul x10, x21, x10
     add x9, x9, x10
@@ -6085,19 +6085,19 @@ watch_build_one_ramp_full:
     b .Lwbrf_clamp
 .Lwbrf_bend_power:
     // pow(x, k) — every d-reg dies on the call, so x and k live in memory
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     str d0, [x9]                       // save x
-    LEA x9, tc_watch_dtmp2
+    LEA x9, watch_dtmp2
     ldr d1, [x9]                       // k
     bl pow                             // pow(x, k)
     b .Lwbrf_clamp
 .Lwbrf_bend_ease_out:
     // 1 - (1-x)^k
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     str d0, [x9]                       // save x
     fmov d1, #1.0
     fsub d0, d1, d0                    // 1-x
-    LEA x9, tc_watch_dtmp2
+    LEA x9, watch_dtmp2
     ldr d1, [x9]                       // k
     bl pow                             // (1-x)^k
     fmov d1, #1.0
@@ -6105,7 +6105,7 @@ watch_build_one_ramp_full:
     b .Lwbrf_clamp
 .Lwbrf_bend_bias:
     // x / (k*(1-x) + x)
-    LEA x9, tc_watch_dtmp2
+    LEA x9, watch_dtmp2
     ldr d1, [x9]                       // k
     fmov d2, #1.0
     fsub d2, d2, d0                    // 1-x
@@ -6120,21 +6120,21 @@ watch_build_one_ramp_full:
     fmov d1, #1.0
     fcmp d0, d1
     b.ge .Lwbrf_clamp
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     str d0, [x9]                       // save x
-    LEA x9, tc_watch_dtmp2
+    LEA x9, watch_dtmp2
     ldr d1, [x9]                       // k
     bl pow                             // x^k
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     str d0, [x9]                       // save x^k
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]                       // x
     fmov d1, #1.0
     fsub d0, d1, d0                    // 1-x
-    LEA x9, tc_watch_dtmp2
+    LEA x9, watch_dtmp2
     ldr d1, [x9]                       // k
     bl pow                             // (1-x)^k
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d1, [x9]                       // x^k
     fadd d2, d1, d0                    // x^k + (1-x)^k
     fdiv d0, d1, d2
@@ -6152,7 +6152,7 @@ watch_build_one_ramp_full:
     fmov d0, #1.0
 .Lwbrf_clamp_done:
     // save towards in a scratch slot (caller-saved d0 dies on snprintf)
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     str d0, [x9]
     // shade dst = base + step * SHADE_SZ
     mov x9, #SHADE_SZ
@@ -6161,10 +6161,10 @@ watch_build_one_ramp_full:
     // "\033[38;2;R;G;Bm"
     mov x0, x28
     LEA x1, s_esc_38
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0                        // cursor AT the NUL (append in place)
     // r channel
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]
     mov x9, #255
     scvtf d1, x9
@@ -6182,7 +6182,7 @@ watch_build_one_ramp_full:
     strb w1, [x0], #1
     mov x19, x0
     // g
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]
     mov x9, #255
     scvtf d1, x9
@@ -6200,7 +6200,7 @@ watch_build_one_ramp_full:
     strb w1, [x0], #1
     mov x19, x0
     // b
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]
     mov x9, #255
     scvtf d1, x9
@@ -6262,7 +6262,7 @@ watch_fmt_u64:
     .p2align 2
 watch_ramp_distinct:
     PROLOGUE 2
-    LEA x9, tc_watch_ramps
+    LEA x9, watch_ramps
     mov x10, #16
     mul x10, x0, x10
     add x9, x9, x10
@@ -6302,14 +6302,14 @@ watch_ramp_key_str:
     cmp x0, #1
     b.eq .Lwrks_down
     // "highlight" + (key-2)
-    LEA x0, tc_watch_scratch
+    LEA x0, watch_scratch
     LEA x1, s_highlight
-    bl wc_cat
+    bl watch_wc_cat
     sub x1, x19, #2
     bl watch_fmt_u64
     mov w2, #0
     strb w2, [x0]
-    LEA x0, tc_watch_scratch
+    LEA x0, watch_scratch
     EPILOGUE 1
     ret
 .Lwrks_up:
@@ -6328,10 +6328,10 @@ s_collapse_mid2:    .asciz " with fade_k "
     .text
     .bss
     .p2align 3
-tc_watch_dtmp2:     .skip 8
-tc_watch_dtmp3:     .skip 8
-tc_watch_dtmp4:     .skip 8
-tc_watch_wait:      .skip 8             // double: interval - elapsed (watch_next_wait)
+watch_dtmp2:     .skip 8
+watch_dtmp3:     .skip 8
+watch_dtmp4:     .skip 8
+watch_wait:      .skip 8             // double: interval - elapsed (watch_next_wait)
     .text
 
 // ============================================================================
@@ -6343,10 +6343,10 @@ tc_watch_wait:      .skip 8             // double: interval - elapsed (watch_nex
 watch_compile_patterns:
     PROLOGUE 5
     // streamer mode: highlights = () (Python resolve_watch)
-    LEA x9, tc_watch_streamer
+    LEA x9, watch_streamer
     ldr x9, [x9]
     cbz x9, .Lwcp_streamer_ok
-    LEA x9, tc_watch_highlight_on
+    LEA x9, watch_highlight_on
     str xzr, [x9]
     b .Lwcp_done
 .Lwcp_streamer_ok:
@@ -6381,13 +6381,13 @@ watch_compile_patterns:
     ldr w2, =PCRE2_OPTS                // Python re on str: Unicode classes and
                                        // case folding; invalid UTF-8 in a log
                                        // line just never matches
-    LEA_OFF x3, tc_watch_scratch, 0  // errcode
-    LEA x4, tc_watch_scratch2  // erroffset
+    LEA_OFF x3, watch_scratch, 0  // errcode
+    LEA x4, watch_scratch2  // erroffset
     mov x5, #0
     bl pcre2_compile_8
     cbz x0, .Lwcp_bad
     // store the code; create its match data once
-    LEA x9, tc_watch_patterns
+    LEA x9, watch_patterns
     mov x10, #TC_HL_PAT_MAX
     mul x10, x21, x10
     add x10, x10, x23
@@ -6403,7 +6403,7 @@ watch_compile_patterns:
     mov x10, #TC_HL_PAT_MAX
     mul x10, x21, x10
     add x10, x10, x23                 // slot index (no call between here and store)
-    LEA x11, tc_watch_match_data
+    LEA x11, watch_match_data
     str x9, [x11, x10, lsl #3]
 .Lwcp_md_skip:
     add x23, x23, #1
@@ -6413,56 +6413,56 @@ watch_compile_patterns:
     b .Lwcp_rule
 .Lwcp_bad:
     // "rule {index}: '{pattern}' is not a valid regex ({msg})"
-    LEA x19, tc_watch_errbuf
+    LEA x19, watch_errbuf
     mov x23, x19
     mov x0, x23
     LEA x1, s_rule_pre
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x21
     bl watch_fmt_u64                   // rule index
     mov x23, x0
     mov x0, x23
     LEA x1, s_rule_mid
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x23
     mov x1, x24
-    bl wc_cat                          // the pattern (single-quoted)
+    bl watch_wc_cat                          // the pattern (single-quoted)
     mov x23, x0
     mov x0, x23
     LEA x1, s_rule_bad_regex
-    bl wc_cat
+    bl watch_wc_cat
     mov x23, x0
     // pcre2 error message
-    LEA x9, tc_watch_scratch
+    LEA x9, watch_scratch
     ldr w0, [x9]                       // errcode
-    LEA x1, tc_watch_scratch2
+    LEA x1, watch_scratch2
     mov x2, #512
     bl pcre2_get_error_message_8
     mov x0, x23
-    LEA x1, tc_watch_scratch2
-    bl wc_cat
+    LEA x1, watch_scratch2
+    bl watch_wc_cat
     mov x23, x0
     mov x0, x23
     LEA x1, s_rule_post
-    bl wc_cat
+    bl watch_wc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_watch_errbuf
+    LEA x0, watch_errbuf
     bl tc_report_fail                  // noreturn
 .Lwcp_none:
-    LEA x9, tc_watch_highlight_on
+    LEA x9, watch_highlight_on
     str xzr, [x9]
 .Lwcp_done:
     // highlight_on = (TC_O_HL_COUNT > 0 and not streamer)
     LEA x9, tc_opts
     ldr x10, [x9, #TC_O_HL_COUNT]
-    LEA x11, tc_watch_streamer
+    LEA x11, watch_streamer
     ldr x11, [x11]
     cbnz x11, .Lwcp_on_off
     cbz x10, .Lwcp_on_off
-    LEA x9, tc_watch_highlight_on
+    LEA x9, watch_highlight_on
     mov x10, #1
     str x10, [x9]
 .Lwcp_on_off:
@@ -6701,7 +6701,7 @@ watch_reresolve_hex:
     ret
 
 // watch_parse_for_store(parser, raw) -> (x0 = value, x1 = status)
-//   Mirrors tc_cli's tc_parse_for_store for the parsers this module needs.
+//   Mirrors tc_cli's cli_parse_for_store for the parsers this module needs.
 //   The numeric parsers use strtod/strtol directly (tc_cli's versions are
 //   not exported).
     .p2align 2
@@ -6727,11 +6727,11 @@ watch_parse_for_store:
     ret
 .Lwpfs_nnf:
     mov x0, x20
-    LEA x1, tc_watch_scratch
+    LEA x1, watch_scratch
     bl strtod                        // d0 = value
     fcmp d0, #0.0
     b.lt .Lwpfs_bad
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str d0, [x9]
     ldr x0, [x9]
     mov x1, #0
@@ -6739,11 +6739,11 @@ watch_parse_for_store:
     ret
 .Lwpfs_pf:
     mov x0, x20
-    LEA x1, tc_watch_scratch
+    LEA x1, watch_scratch
     bl strtod
     fcmp d0, #0.0
     b.le .Lwpfs_bad
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str d0, [x9]
     ldr x0, [x9]
     mov x1, #0
@@ -6751,7 +6751,7 @@ watch_parse_for_store:
     ret
 .Lwpfs_pos:
     mov x0, x20
-    LEA x1, tc_watch_scratch
+    LEA x1, watch_scratch
     bl strtol
     cmp x0, #0
     b.le .Lwpfs_bad
@@ -6760,7 +6760,7 @@ watch_parse_for_store:
     ret
 .Lwpfs_nonneg:
     mov x0, x20
-    LEA x1, tc_watch_scratch
+    LEA x1, watch_scratch
     bl strtol
     cmp x0, #0
     b.lt .Lwpfs_bad
@@ -6798,31 +6798,31 @@ watch_parse_channel_value:
 // watch_launch_tints — launch_tints + replay_tints (Python 3636-3692).
 //   Skips when an explicit --end was given.  Steps a virtual clock from the
 //   replay horizon back to now, folding the readers' windows and running the
-//   colorizer per step; the resulting carried tints land in tc_watch_tints.
+//   colorizer per step; the resulting carried tints land in watch_tints.
 // ============================================================================
     .p2align 2
 watch_launch_tints:
     PROLOGUE 5
     // explicit end -> no replay (nothing moves)
-    LEA x9, tc_watch_end_given
+    LEA x9, watch_end_given
     ldr x9, [x9]
     cbnz x9, .Lwlt_done
     // no readers or no max_steps -> {}
-    LEA x9, tc_watch_reader_n
+    LEA x9, watch_reader_n
     ldr x9, [x9]
     cbz x9, .Lwlt_done
-    LEA x9, tc_watch_replay_steps
+    LEA x9, watch_replay_steps
     ldr x9, [x9]
     cbz x9, .Lwlt_done
     // steps = max(1, int(replay_horizon(hold, interval, steps) / interval))
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d0, [x9]
-    LEA x10, tc_watch_interval
+    LEA x10, watch_interval
     ldr d1, [x10]
-    LEA x0, tc_watch_replay_steps
+    LEA x0, watch_replay_steps
     ldr x0, [x0]
     bl watch_replay_horizon           // d0 = horizon
-    LEA x9, tc_watch_interval
+    LEA x9, watch_interval
     ldr d1, [x9]
     fdiv d0, d0, d1
     fcvtzs x19, d0                    // int()
@@ -6832,12 +6832,12 @@ watch_launch_tints:
 .Lwlt_steps_ok:
     // now (monotonic)
     bl watch_monotonic
-    LEA x9, tc_watch_now
+    LEA x9, watch_now
     str d0, [x9]
     // clear tints + previous
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     str xzr, [x9]
-    LEA x9, tc_watch_prev_n
+    LEA x9, watch_prev_n
     str xzr, [x9]
     // window epochs
     LEA x9, tc_window
@@ -6861,11 +6861,11 @@ watch_launch_tints:
     cmp x24, #0
     b.lt .Lwlt_done
     // back = step * interval
-    LEA x9, tc_watch_interval
+    LEA x9, watch_interval
     ldr d0, [x9]
     scvtf d1, x24
     fmul d2, d1, d0                    // back
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str d2, [x9]                       // back (double)
     // at_end = end_epoch - back
     fcvtzs x9, d2
@@ -6876,18 +6876,18 @@ watch_launch_tints:
     sub x26, x20, x9                   // begin_rolls: begin - back
 .Lwlt_begin_done:
     // fold every reader's window into a scratch counts map
-    LEA x9, tc_watch_scratch
+    LEA x9, watch_scratch
     mov x0, x9
     mov x1, #0
     mov x2, #2048
     bl memset
-    LEA x27, tc_watch_reader_n
+    LEA x27, watch_reader_n
     ldr x27, [x27]
-    LEA x28, tc_watch_readers
+    LEA x28, watch_readers
     ldr x28, [x28]
     // counts = Counter(): the replay map, {login[26], n u64} records in
-    // tc_watch_prev's layout so it can become `previous` by a straight copy
-    LEA x9, tc_watch_replay_map
+    // watch_prev's layout so it can become `previous` by a straight copy
+    LEA x9, watch_replay_map
     mov x0, x9
     mov x1, #0
     mov x2, #(PREV_MAX * PV_SZ)
@@ -6940,29 +6940,29 @@ watch_launch_tints:
     add x19, x19, #1
     b .Lwlt_rd
 .Lwlt_fold_done:
-    // colorize this step: previous = tc_watch_prev, carried = tints,
+    // colorize this step: previous = watch_prev, carried = tints,
     // now = now - back, wall = at_end (UTC epoch)
     mov x0, x25                        // at_end (wall)
-    LEA x1, tc_watch_hold
+    LEA x1, watch_hold
     ldr d0, [x1]
-    LEA x1, tc_watch_dtmp2
+    LEA x1, watch_dtmp2
     str d0, [x1]
-    LEA x1, tc_watch_choose_hold
+    LEA x1, watch_choose_hold
     str d0, [x1]
-    LEA x1, tc_watch_choose_wall
+    LEA x1, watch_choose_wall
     str x0, [x1]
     // replay now = now - back
-    LEA x0, tc_watch_now
+    LEA x0, watch_now
     ldr d0, [x0]
-    LEA x0, tc_watch_dtmp
+    LEA x0, watch_dtmp
     ldr d1, [x0]                       // back
     fsub d0, d0, d1
-    LEA x0, tc_watch_dtmp3
+    LEA x0, watch_dtmp3
     str d0, [x0]                       // replay now
     bl watch_colorize_step
     // previous = counts: count the replay map's records, then copy exactly
-    // those into tc_watch_prev (same record layout)
-    LEA x0, tc_watch_replay_map
+    // those into watch_prev (same record layout)
+    LEA x0, watch_replay_map
     mov x9, #0                         // count
 .Lwlt_cnt:
     cmp x9, #PREV_MAX
@@ -6975,13 +6975,13 @@ watch_launch_tints:
     add x9, x9, #1
     b .Lwlt_cnt
 .Lwlt_cnt_done:
-    LEA x10, tc_watch_prev_n
+    LEA x10, watch_prev_n
     str x9, [x10]
     mov x2, #PV_SZ
     mul x2, x9, x2                     // bytes: count * PV_SZ
-    LEA x0, tc_watch_prev
-    LEA x1, tc_watch_replay_map
-    bl memcpy_copy                     // (dst, src, len)
+    LEA x0, watch_prev
+    LEA x1, watch_replay_map
+    bl watch_memcpy_copy                     // (dst, src, len)
     sub x24, x24, #1
     b .Lwlt_step
 .Lwlt_done:
@@ -6990,8 +6990,8 @@ watch_launch_tints:
 
 // ============================================================================
 // watch_replay_add(n, login) — counts[login] += n in the replay map
-//   (tc_watch_replay_map: PREV_MAX records of {login[26], n u64 at
-//   PV_COUNT}, tc_watch_prev's layout).
+//   (watch_replay_map: PREV_MAX records of {login[26], n u64 at
+//   PV_COUNT}, watch_prev's layout).
 // ============================================================================
     .p2align 2
 watch_replay_add:
@@ -7000,7 +7000,7 @@ watch_replay_add:
     stp x16, x17, [sp, #-16]!
     mov x19, x0                        // n
     mov x20, x1                        // login
-    LEA x21, tc_watch_replay_map
+    LEA x21, watch_replay_map
     mov x22, #0
 .Lwra_loop:
     cmp x22, #PREV_MAX
@@ -7054,21 +7054,21 @@ watch_replay_add:
 // watch_colorize_step — the colorizer for one replay step: filter carried
 //   tints by expiry, then for every (login, n) in the replay map run the
 //   tint logic (Python colorizer + tinting.tint("", login, count)).
-//   The replay map is tc_watch_replay_map (records {login[26], n u64}).
+//   The replay map is watch_replay_map (records {login[26], n u64}).
 // ============================================================================
     .p2align 2
 watch_colorize_step:
     PROLOGUE 4
     // filter carried tints: keep when hold <= 0 or now - when < hold
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]                       // replay now
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwcs_keep_all
-    LEA x19, tc_watch_tint_count
+    LEA x19, watch_tint_count
     ldr x19, [x19]
-    LEA x20, tc_watch_tints
+    LEA x20, watch_tints
     mov x21, #0                        // out
     mov x22, #0                        // i
 .Lwcs_filter:
@@ -7100,11 +7100,11 @@ watch_colorize_step:
     add x22, x22, #1
     b .Lwcs_filter
 .Lwcs_filter_done:
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     str x21, [x9]
 .Lwcs_keep_all:
     // walk the replay map
-    LEA x19, tc_watch_replay_map
+    LEA x19, watch_replay_map
     mov x20, #0                        // i
 .Lwcs_loop:
     cmp x20, #PREV_MAX
@@ -7117,22 +7117,22 @@ watch_colorize_step:
     ldr x10, [x19, #PV_COUNT]          // n
     add x0, x19, #0                    // login ptr
     mov x1, x10                        // count
-    LEA x2, tc_watch_scratch  // text ptr ("" — unused)
+    LEA x2, watch_scratch  // text ptr ("" — unused)
     mov x3, x2
     mov w4, #0
     strb w4, [x3]                      // text = ""
     bl watch_tint_apply                // tints only; text is ignored
     add x20, x20, #1
     // recompute the base (x19 was advanced to the record)
-    LEA x19, tc_watch_replay_map
+    LEA x19, watch_replay_map
     b .Lwcs_loop
 .Lwcs_done:
     EPILOGUE 4
     ret
 
-// memcpy_copy(dst, src, len) — byte copy helper
+// watch_memcpy_copy(dst, src, len) — byte copy helper
     .p2align 2
-memcpy_copy:
+watch_memcpy_copy:
     mov x3, #0
 .Lmcc_loop:
     cmp x3, x2
@@ -7154,9 +7154,9 @@ watch_tint_find:
     PROLOGUE 1
     mov x19, x0                        // login
     mov x20, x1                        // len
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     ldr x10, [x9]
-    LEA x11, tc_watch_tints
+    LEA x11, watch_tints
     mov x12, #0
 .Lwtf_loop:
     cmp x12, x10
@@ -7192,23 +7192,23 @@ watch_tint_set:
     mov x19, x0                        // login
     mov x20, x1                        // len
     mov x21, x2                        // dir
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     str d0, [x9]                       // when (double)
     mov x0, x19
     mov x1, x20
     bl watch_tint_find
     cbz x0, .Lwts_new
     strb w21, [x0, #TT_DIR]
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]
     str d0, [x0, #TT_WHEN]
     b .Lwts_done
 .Lwts_new:
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     ldr x10, [x9]
     cmp x10, #TINT_MAX
     b.ge .Lwts_done                    // full: drop (very unlikely)
-    LEA x11, tc_watch_tints
+    LEA x11, watch_tints
     mov x12, #TT_SZ
     mul x12, x10, x12
     add x11, x11, x12
@@ -7225,11 +7225,11 @@ watch_tint_set:
     mov w14, #0
     strb w14, [x11, x13]
     strb w21, [x11, #TT_DIR]
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]
     str d0, [x11, #TT_WHEN]
     add x10, x10, #1
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     str x10, [x9]
 .Lwts_done:
     EPILOGUE 3
@@ -7244,9 +7244,9 @@ watch_tint_remove:
     bl watch_tint_find
     cbz x0, .Lwtr_done
     // shift the tail down
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     ldr x10, [x9]
-    LEA x11, tc_watch_tints
+    LEA x11, watch_tints
     sub x10, x10, #1
     // index of the removed record
     sub x12, x0, x11
@@ -7280,7 +7280,7 @@ watch_tint_remove:
     add x14, x14, #1
     b .Lwtr_shift
 .Lwtr_store:
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     str x10, [x9]
 .Lwtr_done:
     EPILOGUE 1
@@ -7292,9 +7292,9 @@ watch_prev_find:
     PROLOGUE 1
     mov x19, x0
     mov x20, x1
-    LEA x9, tc_watch_prev_n
+    LEA x9, watch_prev_n
     ldr x10, [x9]
-    LEA x11, tc_watch_prev
+    LEA x11, watch_prev
     mov x12, #0
 .Lwpf_loop:
     cmp x12, x10
@@ -7323,12 +7323,12 @@ watch_prev_find:
     EPILOGUE 1
     ret
 
-// watch_build_prev — rebuild tc_watch_prev from the tally's users:
+// watch_build_prev — rebuild watch_prev from the tally's users:
 //   {login: count-column} for non-excluded users with count > 0.
     .p2align 2
 watch_build_prev:
     PROLOGUE 3
-    LEA x9, tc_watch_prev_n
+    LEA x9, watch_prev_n
     str xzr, [x9]
     LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]
@@ -7350,11 +7350,11 @@ watch_build_prev:
     bl tc_count_column
     cbz x0, .Lwbp_next
     // append {login, count}
-    LEA x9, tc_watch_prev_n
+    LEA x9, watch_prev_n
     ldr x10, [x9]
     cmp x10, #PREV_MAX
     b.ge .Lwbp_done
-    LEA x11, tc_watch_prev
+    LEA x11, watch_prev
     mov x12, #PV_SZ
     mul x12, x10, x12
     add x11, x11, x12
@@ -7382,20 +7382,20 @@ watch_build_prev:
 
 // ============================================================================
 // watch_filter_tints — expire carried tints: keep when hold <= 0 or
-//   now - when < hold.  now comes from tc_watch_dtmp3 (set per frame/replay).
+//   now - when < hold.  now comes from watch_dtmp3 (set per frame/replay).
 // ============================================================================
     .p2align 2
 watch_filter_tints:
     PROLOGUE 3
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwft_done
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]                       // now
-    LEA x19, tc_watch_tint_count
+    LEA x19, watch_tint_count
     ldr x19, [x19]
-    LEA x20, tc_watch_tints
+    LEA x20, watch_tints
     mov x21, #0                        // out
     mov x22, #0                        // i
 .Lwft_filter:
@@ -7427,7 +7427,7 @@ watch_filter_tints:
     add x22, x22, #1
     b .Lwft_filter
 .Lwft_store:
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     str x21, [x9]
 .Lwft_done:
     EPILOGUE 3
@@ -7441,13 +7441,13 @@ watch_filter_tints:
 watch_fade_color:
     PROLOGUE 1
     mov x19, x0                        // key
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     str d0, [x9]                       // age
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwfc_indef
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]
     fcmp d0, d1                        // age >= hold?
     b.lt .Lwfc_index
@@ -7457,7 +7457,7 @@ watch_fade_color:
     ret
 .Lwfc_index:
     // shades = ramps[key]; hold / len(shades)
-    LEA x9, tc_watch_ramps
+    LEA x9, watch_ramps
     mov x10, #16
     mul x10, x19, x10
     add x9, x9, x10
@@ -7466,10 +7466,10 @@ watch_fade_color:
     cbz x12, .Lwfc_expired             // no such ramp: nothing to wear
     // step = hold / len
     scvtf d1, x12
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d0, [x9]                       // hold
     fdiv d1, d0, d1                    // hold/len
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]                       // age
     fdiv d0, d0, d1                    // age / step
     fcvtzs x13, d0                     // int()
@@ -7485,7 +7485,7 @@ watch_fade_color:
     ret
 .Lwfc_indef:
     // hold <= 0: shades[0]
-    LEA x9, tc_watch_ramps
+    LEA x9, watch_ramps
     mov x10, #16
     mul x10, x19, x10
     add x9, x9, x10
@@ -7502,12 +7502,12 @@ watch_fade_color:
 watch_choose:
     PROLOGUE 5
     mov x19, x0                        // login
-    LEA x9, tc_watch_highlight_on
+    LEA x9, watch_highlight_on
     ldr x9, [x9]
     cbz x9, .Lwch_none
-    LEA x9, tc_watch_choose_wall
+    LEA x9, watch_choose_wall
     ldr x20, [x9]                      // at_wall (epoch)
-    LEA x9, tc_watch_choose_hold
+    LEA x9, watch_choose_hold
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwch_cut_none
@@ -7518,9 +7518,9 @@ watch_choose:
     mov x21, #-1                       // no cutoff
 .Lwch_cut_done:
     mov x22, #-1                       // best rule
-    LEA x23, tc_watch_reader_n
+    LEA x23, watch_reader_n
     ldr x23, [x23]
-    LEA x24, tc_watch_readers
+    LEA x24, watch_readers
     ldr x24, [x24]
     mov x25, #0                        // reader index
 .Lwch_rd:
@@ -7590,7 +7590,7 @@ watch_choose:
 // watch_tint_apply(login, count, text) -> x0 = tinted text ptr (or text).
 //   The Python colorizer.tint(): compare against the previous frame, assign
 //   up/down, apply the palette + fade, wrap in the escape + ANSI_RESET.
-//   now comes from tc_watch_dtmp3.
+//   now comes from watch_dtmp3.
 // ============================================================================
     .p2align 2
 watch_tint_apply:
@@ -7599,12 +7599,12 @@ watch_tint_apply:
     mov x20, x1                        // count
     mov x21, x2                        // text
     // now (double)
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     str d0, [x9]                       // now
     // previous?
-    LEA x9, tc_watch_prev_n
+    LEA x9, watch_prev_n
     ldr x10, [x9]
     cbz x10, .Lwta_no_prev
     // before = prev_find(login)
@@ -7625,7 +7625,7 @@ watch_tint_apply:
     mov x1, x0
     mov x0, x19
     mov x2, #1                         // up
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]
     bl watch_tint_set
     b .Lwta_entry
@@ -7633,7 +7633,7 @@ watch_tint_apply:
     cmp x20, x22
     b.ge .Lwta_no_before
     // count < before: down only when tint_falling and the held dir is down
-    LEA x9, tc_watch_tint_falling
+    LEA x9, watch_tint_falling
     ldr x9, [x9]
     cbz x9, .Lwta_no_before
     mov x0, x19
@@ -7654,7 +7654,7 @@ watch_tint_apply:
     mov x1, x0
     mov x0, x19
     mov x2, #2                         // down
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]
     bl watch_tint_set
     b .Lwta_entry
@@ -7679,7 +7679,7 @@ watch_tint_apply:
     sub x24, x24, #1                   // -> ramp key RAMP_UP / RAMP_DOWN
 .Lwta_palette_ok:
     // color = fade_color(palette, now - when, hold)
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d0, [x9]                       // now
     ldr d1, [x23, #TT_WHEN]
     fsub d0, d0, d1                    // age
@@ -7688,19 +7688,19 @@ watch_tint_apply:
     cbz x0, .Lwta_expired
     mov x25, x0                        // shade
     // build: {shade}{text}\033[0m
-    LEA x26, tc_watch_tintbuf
+    LEA x26, watch_tintbuf
     mov x0, x26
     mov x1, x25
-    bl wc_cat
+    bl watch_wc_cat
     mov x26, x0
     mov x0, x26
     mov x1, x21
-    bl wc_cat
+    bl watch_wc_cat
     mov x26, x0
     mov x0, x26
     LEA x1, s_reset
-    bl wc_cat
-    LEA x0, tc_watch_tintbuf
+    bl watch_wc_cat
+    LEA x0, watch_tintbuf
     b .Lwta_out
 .Lwta_expired:
     // tints.pop(login); return text
@@ -7718,7 +7718,7 @@ watch_tint_apply:
 
 // ============================================================================
 // watch_tint_hook(ctx, rec, text) -> x0 = tinted text.  Called by
-//   tc_render.S's emit_table_row for each displayed row; implements the
+//   tc_render.S's render_emit_table_row for each displayed row; implements the
 //   live-frame colorizer.  Must preserve x19-x28.
 // ============================================================================
     .p2align 2
@@ -7728,7 +7728,7 @@ watch_tint_hook:
     mov x20, x2                        // text
     // colorizer(frame, enabled=False): the row stays plain and no tint is
     // assigned (carried tints still expire in watch_filter_tints)
-    LEA x9, tc_watch_color_on
+    LEA x9, watch_color_on
     ldr x9, [x9]
     cbnz x9, .Lwth_apply
     mov x0, x20
@@ -7750,24 +7750,24 @@ watch_tint_hook:
 watch_next_wait:
     PROLOGUE 2
     // elapsed: the value measured before the paint (Python computes it once)
-    LEA x9, tc_watch_elapsed
+    LEA x9, watch_elapsed
     ldr d0, [x9]
     // wait = interval - elapsed (kept in memory: the d-regs die on the calls)
-    LEA x9, tc_watch_interval
+    LEA x9, watch_interval
     ldr d1, [x9]
     fsub d2, d1, d0
-    LEA x9, tc_watch_wait
+    LEA x9, watch_wait
     str d2, [x9]
     // due = next_tint_change(carried, hold, shades, clock.monotonic())
     bl watch_monotonic
-    LEA x9, tc_watch_now
+    LEA x9, watch_now
     str d0, [x9]
     bl watch_next_tint_change          // d0 = due or -1 (none)
-    LEA x9, tc_watch_wait
+    LEA x9, watch_wait
     ldr d2, [x9]                       // wait
     fcmp d0, #0.0
     b.lt .Lwnw_sleep
-    LEA x9, tc_watch_now
+    LEA x9, watch_now
     ldr d1, [x9]
     fsub d0, d0, d1                    // due - now
     fcmp d0, d2
@@ -7775,10 +7775,10 @@ watch_next_wait:
     fmov d2, d0                        // wait = min(wait, due - now)
 .Lwnw_sleep:
     // changes.arm(readers.paths()); changes.wait(max(wait, 0.0))
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     str d2, [x9]
     bl watch_kq_arm
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d2, [x9]
     fcmp d2, #0.0
     b.le .Lwnw_done
@@ -7796,17 +7796,17 @@ watch_next_wait:
     .p2align 2
 watch_next_tint_change:
     PROLOGUE 3
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     str d0, [x9]                       // now
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwntc_none
-    LEA x9, tc_watch_tint_count
+    LEA x9, watch_tint_count
     ldr x10, [x9]
     cbz x10, .Lwntc_none
     // step = hold / max(1, shades)
-    LEA x9, tc_watch_shades
+    LEA x9, watch_shades
     ldr x11, [x9]
     cmp x11, #1
     b.ge .Lwntc_shades_ok
@@ -7814,16 +7814,16 @@ watch_next_tint_change:
 .Lwntc_shades_ok:
     scvtf d2, x11
     fdiv d2, d1, d2                    // step
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     str d2, [x9]                       // step (double)
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     mov x10, #-1
     // encode "no soonest" as -1 bits in dtmp3
     scvtf d3, x10
     str d3, [x9]                       // soonest = -1 (sentinel)
-    LEA x19, tc_watch_tint_count
+    LEA x19, watch_tint_count
     ldr x19, [x19]
-    LEA x20, tc_watch_tints
+    LEA x20, watch_tints
     mov x21, #0                        // i
 .Lwntc_loop:
     cmp x21, x19
@@ -7832,22 +7832,22 @@ watch_next_tint_change:
     mul x9, x21, x9
     add x22, x20, x9
     ldr d0, [x22, #TT_WHEN]
-    LEA x9, tc_watch_dtmp4
+    LEA x9, watch_dtmp4
     ldr d1, [x9]                       // now
     fsub d3, d1, d0                    // age
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d4, [x9]
     fcmp d3, d4
     b.ge .Lwntc_next                   // age >= hold: plain
     // k = int(age/step)
-    LEA x9, tc_watch_dtmp
+    LEA x9, watch_dtmp
     ldr d2, [x9]                       // step
     fdiv d3, d3, d2
     fcvtzs x23, d3                     // int(age/step)
     add x23, x23, #1
     scvtf d3, x23
     fmul d3, d3, d2                    // (int+1)*step
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d4, [x9]
     fcmp d3, d4
     b.le .Lwntc_min_ok
@@ -7855,7 +7855,7 @@ watch_next_tint_change:
 .Lwntc_min_ok:
     fadd d3, d0, d3                    // due = when + ...
     // soonest = min(soonest, due)
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d4, [x9]
     fcmp d4, #0.0
     b.lt .Lwntc_first
@@ -7867,12 +7867,12 @@ watch_next_tint_change:
     add x21, x21, #1
     b .Lwntc_loop
 .Lwntc_done:
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     ldr d0, [x9]
     EPILOGUE 3
     ret
 .Lwntc_none:
-    LEA x9, tc_watch_dtmp3
+    LEA x9, watch_dtmp3
     mov x10, #-1
     scvtf d0, x10
     str d0, [x9]
@@ -7883,7 +7883,7 @@ watch_next_tint_change:
 // watch_build_status — the two status lines appended to every frame:
 //   "" then "watching -- every {interval:g}s ({src}), hold {held} ({src})
 //   [-- Ctrl-C to stop]" with the optional timing tail (Python watch_status).
-//   Appends to the captured frame (tc_watch_lines/tc_watch_frame_cap).
+//   Appends to the captured frame (watch_lines/watch_frame_cap).
 // ============================================================================
     .p2align 2
 watch_build_status:
@@ -7891,7 +7891,7 @@ watch_build_status:
     // blank line (append at the captured line count)
     LEA x9, tc_frame_count
     ldr x10, [x9]
-    LEA x11, tc_watch_lines
+    LEA x11, watch_lines
     ldr x11, [x11]
     ldr x12, [x11, x10, lsl #3]
     mov w13, #0
@@ -7903,14 +7903,14 @@ watch_build_status:
     mov x19, x12                       // dst
     mov x0, x19
     LEA x1, s_watching_pre
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     mov x0, x19
     LEA x1, s_every
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // interval %g
-    LEA x9, tc_watch_interval
+    LEA x9, watch_interval
     ldr d0, [x9]
     mov x0, x19
     mov x1, #128
@@ -7921,23 +7921,23 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_s_paren
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // interval source
-    LEA x9, tc_watch_interval_src
+    LEA x9, watch_interval_src
     ldr x0, [x9]
     bl tc_source_str
     mov x2, x1
     mov x1, x0
     mov x0, x19
-    bl wc_catn
+    bl watch_wc_catn
     mov x19, x0
     mov x0, x19
     LEA x1, s_hold_mid
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // held
-    LEA x9, tc_watch_hold
+    LEA x9, watch_hold
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwbs_indef
@@ -7950,42 +7950,42 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_hold_s
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     b .Lwbs_hold_done
 .Lwbs_indef:
     mov x0, x19
     LEA x1, s_indefinite
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
 .Lwbs_hold_done:
     mov x0, x19
     LEA x1, s_open_paren
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // hold source
-    LEA x9, tc_watch_hold_src
+    LEA x9, watch_hold_src
     ldr x0, [x9]
     bl tc_source_str
     mov x2, x1
     mov x1, x0
     mov x0, x19
-    bl wc_catn
+    bl watch_wc_catn
     mov x19, x0
     mov x0, x19
     LEA x1, s_close_paren2
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // show_timing
-    LEA x9, tc_watch_show_timing
+    LEA x9, watch_show_timing
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
     mov x0, x19
     LEA x1, s_tick_ms
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // elapsed*1000 %.0f
-    LEA x9, tc_watch_elapsed
+    LEA x9, watch_elapsed
     ldr d0, [x9]
     ldr x10, =1000
     scvtf d1, x10
@@ -7999,22 +7999,22 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_ms
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
     // ", woke on write|timer" only for a watcher that is enabled (kqueue);
     // the Python's woke_on_write counter is cumulative, so once any write
     // has woken the loop every later frame says "write" (mirrored as is)
-    LEA x9, tc_watch_kq_on
+    LEA x9, watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
     mov x0, x19
     LEA x1, s_woke_on
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
-    LEA x9, tc_watch_woke_write
+    LEA x9, watch_woke_write
     ldr x9, [x9]
     cbz x9, .Lwbs_woke_timer
-    LEA x9, tc_watch_first
+    LEA x9, watch_first
     ldr x9, [x9]
     cbnz x9, .Lwbs_woke_timer
     LEA x1, s_woke_write
@@ -8023,21 +8023,21 @@ watch_build_status:
     LEA x1, s_woke_timer
 .Lwbs_woke_emit:
     mov x0, x19
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
 .Lwbs_slower:
     // elapsed > interval?
-    LEA x9, tc_watch_elapsed
+    LEA x9, watch_elapsed
     ldr d0, [x9]
-    LEA x9, tc_watch_interval
+    LEA x9, watch_interval
     ldr d1, [x9]
     fcmp d0, d1
     b.le .Lwbs_post
     mov x0, x19
     LEA x1, s_slower
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
-    LEA x9, tc_watch_elapsed
+    LEA x9, watch_elapsed
     ldr d0, [x9]
     ldr x10, =1000
     scvtf d1, x10
@@ -8051,12 +8051,12 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_ms_slower
-    bl wc_cat
+    bl watch_wc_cat
     mov x19, x0
 .Lwbs_post:
     mov x0, x19
     LEA x1, s_watching_post
-    bl wc_cat
+    bl watch_wc_cat
     mov w1, #0
     strb w1, [x0]
     // bump the captured count
@@ -8135,7 +8135,7 @@ watch_prepare_frame:
     add x23, x23, #8                  // slack
     mov x19, x23                       // need
     // grow the line pointer array + storage
-    LEA x20, tc_watch_frame_cap
+    LEA x20, watch_frame_cap
     ldr x21, [x20]
     cmp x19, x21
     b.le .Lwpf_alloc_done
@@ -8163,16 +8163,16 @@ watch_prepare_frame:
     add x23, x23, #1
     b .Lwpf_fill
 .Lwpf_fill_done:
-    LEA x9, tc_watch_lines
+    LEA x9, watch_lines
     str x21, [x9]
-    LEA x9, tc_watch_linebuf
+    LEA x9, watch_linebuf
     str x22, [x9]
     str x19, [x20]
 .Lwpf_alloc_done:
     // grow the painted storage
-    LEA x19, tc_watch_frame_cap
+    LEA x19, watch_frame_cap
     ldr x19, [x19]
-    LEA x20, tc_watch_painted_cap
+    LEA x20, watch_painted_cap
     ldr x21, [x20]
     cmp x19, x21
     b.le .Lwpf_paint_done
@@ -8199,31 +8199,31 @@ watch_prepare_frame:
     add x23, x23, #1
     b .Lwpf_pfill
 .Lwpf_pfill_done:
-    LEA x9, tc_watch_painted
+    LEA x9, watch_painted
     str x21, [x9]
-    LEA x9, tc_watch_painted_block
+    LEA x9, watch_painted_block
     str x22, [x9]
     str x19, [x20]
 .Lwpf_paint_done:
     // grow the burst buffer
-    LEA x19, tc_watch_frame_cap
+    LEA x19, watch_frame_cap
     ldr x19, [x19]
     ldr x9, =FRAME_LINE_SZ
     add x19, x19, #1
     mul x19, x19, x9
     add x19, x19, #64
-    LEA x20, tc_watch_burst_cap
+    LEA x20, watch_burst_cap
     ldr x21, [x20]
     cmp x19, x21
     b.le .Lwpf_burst_done
-    LEA x9, tc_watch_burst
+    LEA x9, watch_burst
     ldr x0, [x9]
     mov x1, x19
     bl realloc
     cbz x0, .Lwpf_oom
-    LEA x9, tc_watch_burst
+    LEA x9, watch_burst
     str x0, [x9]
-    LEA x9, tc_watch_burst_cap
+    LEA x9, watch_burst_cap
     str x19, [x9]
 .Lwpf_burst_done:
     EPILOGUE 3
@@ -8272,27 +8272,27 @@ watch_screen_paint:
     mov x19, x0                        // width
     LEA x9, tc_frame_count
     ldr x20, [x9]                      // frame line count
-    LEA x9, tc_watch_lines
+    LEA x9, watch_lines
     ldr x21, [x9]                      // lines array
-    LEA x9, tc_watch_painted
+    LEA x9, watch_painted
     ldr x22, [x9]                      // painted ptrs
-    LEA x9, tc_watch_painted_n
+    LEA x9, watch_painted_n
     ldr x26, [x9]                      // old painted n
     // full = painted_n == 0 or width != screen_width or (full_every and
     // since_full >= full_every)
     mov x23, #0
     cbz x26, .Lwsp_full
-    LEA x9, tc_watch_screen_width
+    LEA x9, watch_screen_width
     ldr x10, [x9]
     cmp x10, x19
     b.ne .Lwsp_full
-    LEA x9, tc_watch_full_repaint
+    LEA x9, watch_full_repaint
     ldr x10, [x9]
     cbz x10, .Lwsp_diff
-    LEA x9, tc_watch_full_repaint
+    LEA x9, watch_full_repaint
     ldr x11, [x9]
     cbz x11, .Lwsp_diff
-    LEA x9, tc_watch_since_full
+    LEA x9, watch_since_full
     ldr x10, [x9]
     cmp x10, x11
     b.lt .Lwsp_diff
@@ -8301,7 +8301,7 @@ watch_screen_paint:
     mov x23, #1
 .Lwsp_diff:
     // build the burst
-    LEA x24, tc_watch_burst
+    LEA x24, watch_burst
     ldr x24, [x24]
     mov x25, x24                       // cursor
     cbnz x23, .Lwsp_build_full
@@ -8329,17 +8329,17 @@ watch_screen_paint:
     add x25, x25, x0
     mov x0, x25
     mov x1, x28
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
     mov x0, x25
     LEA x1, s_clr_eol
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
 .Lwsp_diff_copy:
     // copy the clipped text into the painted slot (x28 survives? no —
     // reload: the slot is x22[row]; copy from the clip result)
-    // (x28 is caller-saved and died in wc_cat; the clipped text lives in
-    //  tc_watch_clipbuf or the line buffer; both are stable — reload it)
+    // (x28 is caller-saved and died in watch_wc_cat; the clipped text lives in
+    //  watch_clipbuf or the line buffer; both are stable — reload it)
     ldr x0, [x21, x27, lsl #3]
     mov x1, x19
     bl watch_clip                      // recompute the clipped ptr
@@ -8365,14 +8365,14 @@ watch_screen_paint:
     add x25, x25, x0
     mov x0, x25
     LEA x1, s_clr_below
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
 .Lwsp_diff_done2:
     b .Lwsp_burst_done
 .Lwsp_build_full:
     mov x0, x25
     LEA x1, s_full_pre
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
     mov x27, #0
 .Lwsp_full_row:
@@ -8384,11 +8384,11 @@ watch_screen_paint:
     mov x28, x0
     mov x0, x25
     mov x1, x28
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
     mov x0, x25
     LEA x1, s_line_k
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
     // copy into the painted slot
     ldr x1, [x22, x27, lsl #3]
@@ -8401,7 +8401,7 @@ watch_screen_paint:
 .Lwsp_full_done:
     mov x0, x25
     LEA x1, s_full_post
-    bl burst_cat
+    bl watch_burst_cat
     mov x25, x0
 .Lwsp_burst_done:
     // write the burst (one write after flushing stdio)
@@ -8414,18 +8414,18 @@ watch_screen_paint:
     mov x2, x9
     bl write
 .Lwsp_no_write:
-    LEA x9, tc_watch_painted_n
+    LEA x9, watch_painted_n
     str x20, [x9]
-    LEA x9, tc_watch_screen_width
+    LEA x9, watch_screen_width
     str x19, [x9]
     cbnz x23, .Lwsp_full_reset
-    LEA x9, tc_watch_since_full
+    LEA x9, watch_since_full
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
     b .Lwsp_done
 .Lwsp_full_reset:
-    LEA x9, tc_watch_since_full
+    LEA x9, watch_since_full
     str xzr, [x9]
 .Lwsp_done:
     EPILOGUE 5
@@ -8453,7 +8453,7 @@ watch_strcpy:
     ret
 
 // ============================================================================
-// watch_clip(text, width) -> x0 = clipped text ptr (tc_watch_clipbuf when
+// watch_clip(text, width) -> x0 = clipped text ptr (watch_clipbuf when
 //   clipped, else the original).  Python clip (3439-3459).
 // ============================================================================
     .p2align 2
@@ -8471,7 +8471,7 @@ watch_clip:
     cmp x0, x20
     b.le .Lwcl_ret                     // fits: return the original
     // walk
-    LEA x21, tc_watch_clipbuf
+    LEA x21, watch_clipbuf
     mov x22, x21                       // out cursor
     mov x23, #0                        // shown
     mov x24, #0                        // index
@@ -8513,7 +8513,7 @@ watch_clip:
     cbz x25, .Lwcl_nul
     mov x0, x22
     LEA x1, s_reset
-    bl wc_cat
+    bl watch_wc_cat
     mov x22, x0
 .Lwcl_nul:
     mov w9, #0

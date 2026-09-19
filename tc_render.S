@@ -8,7 +8,7 @@
 //  Linking:    musl-gcc -static — musl libc + crt1.o
 //
 //  Byte-for-byte port of the Python reference's presentation half:
-//    rank_users / choose_columns / choose_limit / plan_presentation
+//    rank_users / choose_columns / render_choose_limit / plan_presentation
 //    (4507-4791), provenance_rows / window_span / state_row / exclude_row /
 //    share_floor_row / users_row / cache_row / unreadable_row (4550-4686),
 //    header_lines / compact_header / column_widths / align_row (4811-4869),
@@ -181,10 +181,10 @@ tc_plan_rows:        .skip HDR_MAX * HDR_DESC_SZ
 tc_plan_arena:       .skip ARENA_SZ
 tc_plan_arena_cur:   .skip 8
 tc_plan_src_join:    .skip 8
-tc_render_compact:   .skip LINE_SZ
-tc_render_line:      .skip LINE_SZ
-tc_render_cell:      .skip CELL_SZ
-tc_render_errbuf:    .skip ERR_SZ
+render_compact:   .skip LINE_SZ
+render_line:      .skip LINE_SZ
+render_cell:      .skip CELL_SZ
+render_errbuf:    .skip ERR_SZ
     .p2align 4
     .global tc_frame_capture
     .global tc_frame_lines
@@ -361,31 +361,31 @@ tc_report_fail:
 // String helpers
 // ============================================================================
 
-// line_zero() / compact_zero() — clear a render buffer so strlen-based padding
+// render_line_zero() / render_compact_zero() — clear a render buffer so strlen-based padding
 // never reads stale bytes from the previous line.
-line_zero:
+render_line_zero:
     PROLOGUE 0
-    LEA x0, tc_render_line
+    LEA x0, render_line
     mov x1, #0
     mov x2, #LINE_SZ
     bl memset
     EPILOGUE 0
     ret
 
-compact_zero:
+render_compact_zero:
     PROLOGUE 0
-    LEA x0, tc_render_compact
+    LEA x0, render_compact
     mov x1, #0
     mov x2, #LINE_SZ
     bl memset
     EPILOGUE 0
     ret
 
-// line_puts(s) — print s to stdout followed by a newline (every rendered line
+// render_line_puts(s) — print s to stdout followed by a newline (every rendered line
 // in this module ends with one, exactly like Python's print).  While frame
 // capture is armed, copies the line into the next capture slot instead.
     .p2align 2
-line_puts:
+render_line_puts:
     stp x19, x30, [sp, #-16]!
     mov x19, x0
     LEA x9, tc_frame_capture
@@ -403,7 +403,7 @@ line_puts:
     ldr x11, [x11, x10, lsl #3]
     mov x0, x11
     mov x1, x19
-    bl str_cat
+    bl render_str_cat
     add x10, x10, #1
     str x10, [x9]
 .Llp_cap_done:
@@ -416,9 +416,9 @@ line_puts:
     ldp x19, x30, [sp], #16
     ret
 
-// line_blank() — the blank separator line (Python's header_lines trailing "").
+// render_line_blank() — the blank separator line (Python's header_lines trailing "").
     .p2align 2
-line_blank:
+render_line_blank:
     stp x19, x30, [sp, #-16]!
     LEA x9, tc_frame_capture
     ldr x9, [x9]
@@ -498,15 +498,15 @@ tc_frame_set_tint:
     ret
 
 // ============================================================================
-// pin_cell(dst, src, width) -> dst after the login cell (Phase 7).
+// render_pin_cell(dst, src, width) -> dst after the login cell (Phase 7).
 //   With tc_frame_pin_width > 0 and strlen(src) > width, writes width-1 bytes
 //   of src then U+2026 (no padding: the ellipsis is one visible column).  In
 //   the unclipped case copies src and pads to `width` exactly like the
-//   existing pad_left_to callers.  The pinned width is applied to the widths
+//   existing render_pad_left_to callers.  The pinned width is applied to the widths
 //   table by render_table before any emit, so `width` is already the pin.
 // ============================================================================
     .p2align 2
-pin_cell:
+render_pin_cell:
     PROLOGUE 2
     mov x19, x0                        // dst
     mov x20, x1                        // src
@@ -522,7 +522,7 @@ pin_cell:
     mov x0, x19
     mov x1, x20
     mov x2, x22
-    bl str_cat_n
+    bl render_str_cat_n
     mov w3, #0xE2
     strb w3, [x0], #1
     mov w3, #0x80
@@ -534,16 +534,16 @@ pin_cell:
 .Lpc_pad:
     mov x0, x19
     mov x1, x20
-    bl str_cat
+    bl render_str_cat
     mov x0, x19
     mov x1, x21
-    bl pad_left_to
+    bl render_pad_left_to
     EPILOGUE 2
     ret
 
-// str_cat(dst, src) -> dst after the copied NUL
+// render_str_cat(dst, src) -> dst after the copied NUL
     .p2align 2
-str_cat:
+render_str_cat:
     mov x2, x0
 .Lsc_loop:
     ldrb w3, [x1], #1
@@ -552,9 +552,9 @@ str_cat:
     mov x0, x2
     ret
 
-// str_cat_n(dst, src, len) -> dst + len (no NUL)
+// render_str_cat_n(dst, src, len) -> dst + len (no NUL)
     .p2align 2
-str_cat_n:
+render_str_cat_n:
     mov x3, #0
 .Lscn_loop:
     cmp x3, x2
@@ -567,9 +567,9 @@ str_cat_n:
     add x0, x0, x2
     ret
 
-// fmt_u64_plain(dst, v) -> dst after digits (no NUL)
+// render_fmt_u64_plain(dst, v) -> dst after digits (no NUL)
     .p2align 2
-fmt_u64_plain:
+render_fmt_u64_plain:
     PROLOGUE 0
     sub sp, sp, #32
     add x2, sp, #20
@@ -600,9 +600,9 @@ fmt_u64_plain:
     EPILOGUE 0
     ret
 
-// fmt_u64_commas(dst, v) -> dst after digits (no NUL), thousands commas
+// render_fmt_u64_commas(dst, v) -> dst after digits (no NUL), thousands commas
     .p2align 2
-fmt_u64_commas:
+render_fmt_u64_commas:
     PROLOGUE 0
     sub sp, sp, #40
     add x2, sp, #28
@@ -645,9 +645,9 @@ fmt_u64_commas:
     EPILOGUE 0
     ret
 
-// fmt_datetime(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
+// render_fmt_datetime(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
     .p2align 2
-fmt_datetime:
+render_fmt_datetime:
     PROLOGUE 2
     mov x19, x0
     mov x20, x1
@@ -703,9 +703,9 @@ fmt_datetime:
     EPILOGUE 2
     ret
 
-// fmt_hhmm(dst, sod) -> dst+5, "HH:MM"  (sod survives the fmt2 calls)
+// render_fmt_hhmm(dst, sod) -> dst+5, "HH:MM"  (sod survives the fmt2 calls)
     .p2align 2
-fmt_hhmm:
+render_fmt_hhmm:
     PROLOGUE 1
     mov x19, x1                        // sod
     mov x2, #3600
@@ -724,9 +724,9 @@ fmt_hhmm:
     EPILOGUE 1
     ret
 
-// fmt_mmdd_hhmm(dst, ymd, sod) -> dst+11, "MM-DD HH:MM"
+// render_fmt_mmdd_hhmm(dst, ymd, sod) -> dst+11, "MM-DD HH:MM"
     .p2align 2
-fmt_mmdd_hhmm:
+render_fmt_mmdd_hhmm:
     PROLOGUE 2
     mov x19, x0                        // dst
     mov x20, x1                        // ymd
@@ -748,13 +748,13 @@ fmt_mmdd_hhmm:
     mov w3, #' '
     strb w3, [x0], #1
     mov x1, x21
-    bl fmt_hhmm
+    bl render_fmt_hhmm
     EPILOGUE 2
     ret
 
-// fmt_ymd(dst, ymd) -> dst+10, "YYYY-MM-DD"  (ymd survives the fmt calls)
+// render_fmt_ymd(dst, ymd) -> dst+10, "YYYY-MM-DD"  (ymd survives the fmt calls)
     .p2align 2
-fmt_ymd:
+render_fmt_ymd:
     PROLOGUE 1
     mov x19, x0                        // dst
     mov x20, x1                        // ymd
@@ -781,9 +781,9 @@ fmt_ymd:
     EPILOGUE 1
     ret
 
-// fmt_human_duration(dst, seconds) -> dst after NUL (Python human_duration)
+// render_fmt_human_duration(dst, seconds) -> dst after NUL (Python human_duration)
     .p2align 2
-fmt_human_duration:
+render_fmt_human_duration:
     PROLOGUE 1
     mov x19, x0
     mov x20, x1
@@ -804,7 +804,7 @@ fmt_human_duration:
     msub x20, x3, x2, x20
     mov x0, x19
     mov x1, x3
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     mov w2, #'d'
     strb w2, [x0], #1
     mov x19, x0
@@ -816,7 +816,7 @@ fmt_human_duration:
     msub x20, x3, x2, x20
     mov x0, x19
     mov x1, x3
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     mov w2, #'h'
     strb w2, [x0], #1
     mov x19, x0
@@ -828,7 +828,7 @@ fmt_human_duration:
     msub x20, x3, x2, x20
     mov x0, x19
     mov x1, x3
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     mov w2, #'m'
     strb w2, [x0], #1
     mov x19, x0
@@ -837,7 +837,7 @@ fmt_human_duration:
     b.lt .Lfhd_nul
     mov x0, x19
     mov x1, x20
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     mov w2, #'s'
     strb w2, [x0], #1
     mov x19, x0
@@ -849,9 +849,9 @@ fmt_human_duration:
     EPILOGUE 1
     ret
 
-// fmt_share_cell(dst, state, total) -> dst + chars; "%.1f%%" of 100*state/total
+// render_fmt_share_cell(dst, state, total) -> dst + chars; "%.1f%%" of 100*state/total
     .p2align 2
-fmt_share_cell:
+render_fmt_share_cell:
     PROLOGUE 1
     mov x19, x0
     mov x20, x2
@@ -878,27 +878,27 @@ fmt_share_cell:
 // Arena helpers
 // ============================================================================
 
-// arena_get() -> x0 = current end pointer
+// render_arena_get() -> x0 = current end pointer
     .p2align 2
-arena_get:
+render_arena_get:
     LEA x1, tc_plan_arena_cur
     ldr x2, [x1]
     LEA x0, tc_plan_arena
     add x0, x0, x2
     ret
 
-// arena_set_end(x0=end ptr): cur = end - arena_base
+// render_arena_set_end(x0=end ptr): cur = end - arena_base
     .p2align 2
-arena_set_end:
+render_arena_set_end:
     LEA x1, tc_plan_arena
     sub x0, x0, x1
     LEA x2, tc_plan_arena_cur
     str x0, [x2]
     ret
 
-// hdr_add(label, value, source, compact) — append one HeaderRow descriptor
+// render_hdr_add(label, value, source, compact) — append one HeaderRow descriptor
     .p2align 2
-hdr_add:
+render_hdr_add:
     LEA x4, tc_plan_hdr_count
     ldr x5, [x4]
     cmp x5, #HDR_MAX
@@ -940,22 +940,22 @@ tc_plan_presentation:
     LEA x0, tc_plan_below_floor
     str xzr, [x0]
 
-    bl plan_degeneracy_check
-    bl plan_columns
-    bl plan_rank
-    bl plan_exclusions
-    bl plan_cache_snapshot
-    bl build_header_rows
-    bl choose_limit
-    bl plan_split_display
+    bl render_plan_degeneracy_check
+    bl render_plan_columns
+    bl render_plan_rank
+    bl render_plan_exclusions
+    bl render_plan_cache_snapshot
+    bl render_build_header_rows
+    bl render_choose_limit
+    bl render_plan_split_display
     EPILOGUE 0
     ret
 
 // ============================================================================
-// plan_degeneracy_check — exit 1 when a state filter meets state columns.
+// render_plan_degeneracy_check — exit 1 when a state filter meets state columns.
 // ============================================================================
     .p2align 2
-plan_degeneracy_check:
+render_plan_degeneracy_check:
     PROLOGUE 4
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_STATE_FILTER]
@@ -982,7 +982,7 @@ plan_degeneracy_check:
     add x24, x24, #1
     b .Lpdeg_col_loop
 .Lpdeg_fail:
-    LEA x0, tc_render_errbuf
+    LEA x0, render_errbuf
     mov w1, #'-'
     strb w1, [x0], #1
     mov w1, #'-'
@@ -990,21 +990,21 @@ plan_degeneracy_check:
     LEA x1, state_names
     sub x2, x20, #1
     ldr x1, [x1, x2, lsl #3]
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1                    // overwrite the trailing NUL
     LEA x1, s_degen_mid
-    bl str_cat
-    LEA x0, tc_render_errbuf
+    bl render_str_cat
+    LEA x0, render_errbuf
     bl tc_report_fail
 .Lpdeg_done:
     EPILOGUE 4
     ret
 
 // ============================================================================
-// plan_columns — copy TC_O_COLUMNS, sort and header mode; compute shares_shown.
+// render_plan_columns — copy TC_O_COLUMNS, sort and header mode; compute shares_shown.
 // ============================================================================
     .p2align 2
-plan_columns:
+render_plan_columns:
     PROLOGUE 5
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_COLUMN_COUNT]
@@ -1051,12 +1051,12 @@ plan_columns:
     ret
 
 // ============================================================================
-// plan_rank — walk the user table into the reported array, apply the share
+// render_plan_rank — walk the user table into the reported array, apply the share
 // floor, compute share sort keys, qsort, and join 'unknown' when --by-state
 // sees any.
 // ============================================================================
     .p2align 2
-plan_rank:
+render_plan_rank:
     PROLOGUE 5
     // pass 1: counts
     LEA x19, tc_users
@@ -1275,7 +1275,7 @@ plan_rank:
     ldr x0, [x0]
     mov x1, x22
     mov x2, #ROW_SZ
-    LEA x3, tc_render_cmp
+    LEA x3, render_cmp
     bl qsort
 .Lpr_unknown:
     // unknown joins when --by-state and any reported row has unknown > 0
@@ -1342,10 +1342,10 @@ plan_rank:
     bl tc_report_fail
 
 // ============================================================================
-// plan_exclusions — sorted exclusion logins + the ", "-joined sources.
+// render_plan_exclusions — sorted exclusion logins + the ", "-joined sources.
 // ============================================================================
     .p2align 2
-plan_exclusions:
+render_plan_exclusions:
     PROLOGUE 3
     LEA x19, tc_excl_set
     ldr x20, [x19]                   // exclusion count
@@ -1386,13 +1386,13 @@ plan_exclusions:
     ldr x0, [x0]
     mov x1, x20
     mov x2, #NAME_SZ
-    LEA x3, excl_name_cmp
+    LEA x3, render_excl_name_cmp
     bl qsort
 .Lpex_sources:
     // ", "-join the exclusion source records into the arena
     LEA x19, tc_excl_src_count
     ldr x20, [x19]
-    bl arena_get
+    bl render_arena_get
     mov x21, x0                      // dst start
     mov x22, x0                      // cursor
     mov x23, #0                      // i
@@ -1403,16 +1403,16 @@ plan_exclusions:
     cbnz x23, .Lpex_join_sep
     b .Lpex_join_src
 .Lpex_join_sep:
-    // Wave E fix: str_cat copies the source's trailing NUL, so the ", "
+    // Wave E fix: render_str_cat copies the source's trailing NUL, so the ", "
     // separator NUL-terminated the joined source early and every source after
     // the first was truncated out of the header (observed: an exclude line
     // rendered as "[--exclude, ]" instead of
-    // "[--exclude, --exclude-broadcaster]").  str_cat_n copies exactly the
+    // "[--exclude, --exclude-broadcaster]").  render_str_cat_n copies exactly the
     // separator without a NUL, matching the .Lbhr_excl_preview join below.
     mov x0, x22
     LEA x1, s_comma
     mov x2, #2
-    bl str_cat_n
+    bl render_str_cat_n
     mov x22, x0
 .Lpex_join_src:
     mov x0, #TC_EX_SRC_ENTRY_SZ
@@ -1421,7 +1421,7 @@ plan_exclusions:
     ldr x1, [x0]
     ldr x2, [x0, #8]
     mov x0, x22
-    bl str_cat_n
+    bl render_str_cat_n
     mov x22, x0
     add x23, x23, #1
     b .Lpex_join
@@ -1429,7 +1429,7 @@ plan_exclusions:
     mov w0, #0
     strb w0, [x22]
     add x0, x22, #1
-    bl arena_set_end
+    bl render_arena_set_end
     cbz x20, .Lpex_join_skip         // no source records: keep src_join = 0
     LEA x0, tc_plan_src_join
     str x21, [x0]
@@ -1440,19 +1440,19 @@ plan_exclusions:
     LEA x0, s_oom
     bl tc_report_fail
 
-// excl_name_cmp — qsort comparator for 26-byte login records
+// render_excl_name_cmp — qsort comparator for 26-byte login records
     .p2align 2
-excl_name_cmp:
+render_excl_name_cmp:
     PROLOGUE 0
     bl strcmp
     EPILOGUE 0
     ret
 
 // ============================================================================
-// tc_render_cmp — qsort comparator for reported rows: metric desc, login asc.
+// render_cmp — qsort comparator for reported rows: metric desc, login asc.
 // ============================================================================
     .p2align 2
-tc_render_cmp:
+render_cmp:
     PROLOGUE 2
     mov x19, x0
     mov x20, x1
@@ -1520,10 +1520,10 @@ tc_render_cmp:
     ret
 
 // ============================================================================
-// plan_cache_snapshot — call tc_cache_status once and remember the results.
+// render_plan_cache_snapshot — call tc_cache_status once and remember the results.
 // ============================================================================
     .p2align 2
-plan_cache_snapshot:
+render_plan_cache_snapshot:
     PROLOGUE 3
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
@@ -1557,10 +1557,10 @@ plan_cache_snapshot:
     ret
 
 // ============================================================================
-// build_header_rows — the provenance table (Python provenance_rows), in order.
+// render_build_header_rows — the provenance table (Python provenance_rows), in order.
 // ============================================================================
     .p2align 2
-build_header_rows:
+render_build_header_rows:
     PROLOGUE 5
 
     // ---- channel ---------------------------------------------------------
@@ -1574,19 +1574,19 @@ build_header_rows:
     mov x1, x20
     mov x2, x21
     mov x3, x20
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- logs dir --------------------------------------------------------
     LEA x19, s_label_logs_dir
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     bl tc_shorten_path
     mov x20, x0                       // shortened (scratch — copy now)
-    bl arena_get
+    bl render_arena_get
     mov x21, x0
     mov x0, x21
     mov x1, x20
-    bl str_cat
-    bl arena_set_end
+    bl render_str_cat
+    bl render_arena_set_end
     mov x0, #TC_SET_LOGS_DIR
     bl tc_setting_src_str
     mov x22, x0
@@ -1594,57 +1594,57 @@ build_header_rows:
     mov x1, x21
     mov x2, x22
     mov x3, #0
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- begin -----------------------------------------------------------
     LEA x19, s_label_begin
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_BEGIN_YMD]
     ldr x22, [x20, #TC_W_BEGIN_SOD]
-    bl arena_get
+    bl render_arena_get
     mov x23, x0
     mov x0, x23
     mov x1, x21
     mov x2, x22
     mov w3, #' '
-    bl fmt_datetime
+    bl render_fmt_datetime
     mov w3, #0
     strb w3, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     ldr x24, [x20, #TC_W_START_SRC]   // source ptr
-    bl arena_get
+    bl render_arena_get
     mov x25, x0
     mov x0, x25
     mov x1, x21                       // begin ymd
     mov x2, x22                       // begin sod
-    bl fmt_window_span
+    bl render_fmt_window_span
     mov w3, #0
     strb w3, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, x19
     mov x1, x23
     mov x2, x24
     mov x3, x25
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- end -------------------------------------------------------------
     LEA x19, s_label_end
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_END_YMD]
     ldr x22, [x20, #TC_W_END_SOD]
-    bl arena_get
+    bl render_arena_get
     mov x23, x0
     mov x0, x23
     mov x1, x21
     mov x2, x22
     mov w3, #' '
-    bl fmt_datetime
+    bl render_fmt_datetime
     mov w3, #0
     strb w3, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, #TC_SET_END
     bl tc_setting_src_str
     mov x24, x0
@@ -1652,36 +1652,36 @@ build_header_rows:
     mov x1, x23
     mov x2, x24
     mov x3, #0
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- threshold -------------------------------------------------------
     LEA x19, s_label_threshold
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_THRESHOLD]
-    bl arena_get
+    bl render_arena_get
     mov x22, x0
     mov x0, x22
     LEA x1, s_ge
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1                    // back to before the NUL
     mov x1, x21
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_msgs
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
-    bl arena_get
+    bl render_arena_set_end
+    bl render_arena_get
     mov x23, x0
     mov x0, x23
     LEA x1, s_ge_only
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x21
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     mov w3, #0
     strb w3, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, #TC_SET_MIN_COUNT
     bl tc_setting_src_str
     mov x24, x0
@@ -1689,7 +1689,7 @@ build_header_rows:
     mov x1, x22
     mov x2, x24
     mov x3, x23
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- users -----------------------------------------------------------
     LEA x19, tc_window
@@ -1700,31 +1700,31 @@ build_header_rows:
     ldr x21, [x20, #TC_W_USERS_REQ]
     ldr x22, [x20, #TC_W_USERS_FOUND]
     ldr x23, [x20, #TC_W_USERS_WIDTH]
-    bl arena_get
+    bl render_arena_get
     mov x24, x0
     mov x0, x24
     mov x1, x21
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_asked_for
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x22
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_found_over
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x23
-    bl fmt_human_duration
+    bl render_fmt_human_duration
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     // source = policy.source + " " + policy value
-    bl arena_get
+    bl render_arena_get
     mov x25, x0
     mov x0, #TC_SET_USERS_POLICY
     bl tc_setting_src_str
     mov x1, x0
     mov x0, x25
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #' '
     strb w1, [x0], #1
@@ -1732,28 +1732,28 @@ build_header_rows:
     LEA x2, tc_opts
     ldr x2, [x2, #TC_O_USERS_POLICY]
     ldr x1, [x1, x2, lsl #3]
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     // compact = "M/N users" when found != requested
     ldr x26, [x20, #TC_W_USERS_REQ]
     ldr x27, [x20, #TC_W_USERS_FOUND]
     cmp x26, x27
     b.eq .Lbhr_users_noc
-    bl arena_get
+    bl render_arena_get
     mov x28, x0
     mov x0, x28
     mov x1, x27
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_slash
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x26
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_users_c
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_users_add
 .Lbhr_users_noc:
     mov x28, #0
@@ -1762,7 +1762,7 @@ build_header_rows:
     mov x1, x24
     mov x2, x25
     mov x3, x28
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- state -----------------------------------------------------------
 .Lbhr_state:
@@ -1776,7 +1776,7 @@ build_header_rows:
     LEA x19, s_label_state
     LEA x20, tc_tally
     // value = nonzero states "name N" joined " / "  (commas)
-    bl arena_get
+    bl render_arena_get
     mov x21, x0                       // value start
     mov x22, x0                       // cursor
     mov x23, #0                       // first flag
@@ -1792,20 +1792,20 @@ build_header_rows:
 .Lbhr_state_sep:
     mov x0, x22
     LEA x1, s_of_slash
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x22, x0
 .Lbhr_state_cell:
     LEA x1, state_names
     ldr x1, [x1, x24, lsl #3]
     mov x0, x22
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #' '
     strb w1, [x0], #1
     mov x22, x0
     mov x1, x26
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x22, x0
     mov x23, #1
 .Lbhr_state_next:
@@ -1815,50 +1815,50 @@ build_header_rows:
     mov w0, #0
     strb w0, [x22]
     add x0, x22, #1
-    bl arena_set_end
+    bl render_arena_set_end
     // source (filter id rides in x25; x21 keeps the value start)
     LEA x20, tc_window
     ldr x25, [x20, #TC_W_STATE_FILTER]
-    bl arena_get
+    bl render_arena_get
     mov x22, x0                       // source start
     cbz x25, .Lbhr_state_nofilter
     mov x0, #TC_SET_STATE
     bl tc_setting_src_str
     mov x1, x0
     mov x0, x22
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x1, s_keeps
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x1, state_names
     sub x2, x25, #1
     ldr x1, [x1, x2, lsl #3]
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_state_src_done
 .Lbhr_state_nofilter:
     mov x0, x22
     LEA x1, s_not_filtered
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
 .Lbhr_state_src_done:
     // compact: "NAME only" when filtered, else "name N" joined " "
-    bl arena_get
+    bl render_arena_get
     mov x23, x0                       // compact start
     cbz x25, .Lbhr_state_comp_split
     LEA x1, state_names
     sub x2, x25, #1
     ldr x1, [x1, x2, lsl #3]
     mov x0, x23
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x1, s_only
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_state_add
 .Lbhr_state_comp_split:
     mov x24, x0                       // cursor
@@ -1880,13 +1880,13 @@ build_header_rows:
     LEA x1, state_names
     ldr x1, [x1, x26, lsl #3]
     mov x0, x24
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #' '
     strb w1, [x0], #1
     mov x24, x0
     mov x1, x28
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x24, x0
     mov x25, #1
 .Lbhr_state_comp_next:
@@ -1896,14 +1896,14 @@ build_header_rows:
     mov w0, #0
     strb w0, [x24]
     add x0, x24, #1
-    bl arena_set_end
+    bl render_arena_set_end
 .Lbhr_state_add:
     LEA x19, s_label_state
     mov x0, x19
     mov x1, x21
     mov x2, x22
     mov x3, x23
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- exclude ---------------------------------------------------------
 .Lbhr_exclude:
@@ -1916,18 +1916,18 @@ build_header_rows:
     LEA x21, tc_plan_excl_appeared
     ldr x21, [x21]                    // M appeared
     // value: "N login(s), M in range: preview"
-    bl arena_get
+    bl render_arena_get
     mov x22, x0
     mov x0, x22
     mov x1, x20
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_login_s
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x21
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_in_range_colon
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1                    // overwrite the trailing NUL
     // preview: first 3 names joined ", ", then ", +K more" if > 3
     LEA x23, tc_plan_excl_names
@@ -1945,47 +1945,47 @@ build_header_rows:
     sub x0, x0, #1                    // overwrite the trailing NUL
     LEA x1, s_comma
     mov x2, #2
-    bl str_cat_n
+    bl render_str_cat_n
 .Lbhr_excl_name:
     mov x2, #NAME_SZ
     mul x2, x24, x2
     add x1, x23, x2
-    bl str_cat
+    bl render_str_cat
     mov x25, #1
     add x24, x24, #1
     b .Lbhr_excl_preview
 .Lbhr_excl_preview_done:
     cmp x20, #3
     b.le .Lbhr_excl_val_done
-    sub x0, x0, #1                    // overwrite the trailing NUL (str_cat
+    sub x0, x0, #1                    // overwrite the trailing NUL (render_str_cat
                                       // returns the cursor past it)
     LEA x1, s_comma_more
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     sub x1, x20, #3
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_more
-    bl str_cat
+    bl render_str_cat
 .Lbhr_excl_val_done:
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     // source = joined sources
     LEA x24, tc_plan_src_join
     ldr x24, [x24]
     // compact = "-M excl" when appeared
     cbz x21, .Lbhr_excl_noc
-    bl arena_get
+    bl render_arena_get
     mov x25, x0
     mov w1, #'-'
     strb w1, [x25]
     mov x0, x25
     add x0, x0, #1
     mov x1, x21
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_excl
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_excl_add
 .Lbhr_excl_noc:
     mov x25, #0
@@ -1994,7 +1994,7 @@ build_header_rows:
     mov x1, x22
     mov x2, x24
     mov x3, x25
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- columns ---------------------------------------------------------
 .Lbhr_columns:
@@ -2002,11 +2002,11 @@ build_header_rows:
     ldr x20, [x19]
     cbz x20, .Lbhr_sort
     LEA x19, s_label_columns
-    bl arena_get
+    bl render_arena_get
     mov x21, x0
     mov x0, x21
     LEA x1, s_m_count
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x22, tc_plan_columns
     mov x23, #0
@@ -2014,12 +2014,12 @@ build_header_rows:
     cmp x23, x20
     b.ge .Lbhr_col_done
     LEA x1, s_comma
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     ldr x24, [x22, x23, lsl #3]
     LEA x1, metric_names
     ldr x1, [x1, x24, lsl #3]
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     add x23, x23, #1
     b .Lbhr_col_loop
@@ -2027,9 +2027,9 @@ build_header_rows:
     mov w1, #0
     strb w1, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     // source ptr: tc_cli.S composes it into TC_O_COLUMNS_SRC_BUF but its
-    // TC_O_COLUMNS_SRC_PTR store clobbers x1 (tc_opts_off); point at the
+    // TC_O_COLUMNS_SRC_PTR store clobbers x1 (cli_opts_off); point at the
     // composed buffer directly.
     LEA x24, tc_opts
     movz x25, #TC_O_COLUMNS_SRC_BUF
@@ -2038,7 +2038,7 @@ build_header_rows:
     mov x1, x21
     mov x2, x25
     mov x3, #0
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- sort ------------------------------------------------------------
 .Lbhr_sort:
@@ -2053,22 +2053,22 @@ build_header_rows:
     bl tc_setting_src_str
     mov x22, x0
     // compact "by <name>"
-    bl arena_get
+    bl render_arena_get
     mov x23, x0
     mov x0, x23
     LEA x1, s_by
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x1, metric_names
     ldr x1, [x1, x20, lsl #3]
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, x19
     mov x1, x21
     mov x2, x22
     mov x3, x23
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- share floor -----------------------------------------------------
 .Lbhr_share_floor:
@@ -2087,43 +2087,43 @@ build_header_rows:
     // (acted implies asked)
 .Lbhr_sf_acted:
     LEA x19, s_label_share_floor
-    bl arena_get
+    bl render_arena_get
     mov x24, x0
     mov x0, x24
     LEA x1, s_ge
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x20
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_floor_msgs
-    bl str_cat
+    bl render_str_cat
     LEA x25, tc_plan_below_floor
     ldr x25, [x25]
     sub x0, x0, #1
     mov x1, x25
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_floor_dropped
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     // compact "floor >=N, -M"
-    bl arena_get
+    bl render_arena_get
     mov x26, x0
     mov x0, x26
     LEA x1, s_floor_compact
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x20
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_floor_minus
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x25
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov w3, #0
     strb w3, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_not_acted:
     cbz x23, .Lbhr_sf_skip            // not acted and not asked -> no row
@@ -2132,39 +2132,39 @@ build_header_rows:
     cbz x27, .Lbhr_sf_noshare
     // shares shown but floor 0: "disabled ..."
     LEA x19, s_label_share_floor
-    bl arena_get
+    bl render_arena_get
     mov x24, x0
     mov x0, x24
     LEA x1, s_floor_disabled
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     mov x26, x0                       // compact ptr placeholder
-    bl arena_get
+    bl render_arena_get
     mov x26, x0
     mov x0, x26
     LEA x1, s_floor_off
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_noshare:
     // no share shown/sorted: "not applied -- ..."
     LEA x19, s_label_share_floor
-    bl arena_get
+    bl render_arena_get
     mov x24, x0
     mov x0, x24
     LEA x1, s_floor_not
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
-    bl arena_get
+    bl render_arena_set_end
+    bl render_arena_get
     mov x26, x0
     mov x0, x26
     LEA x1, s_floor_unused
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_skip:
     b .Lbhr_config
@@ -2176,7 +2176,7 @@ build_header_rows:
     mov x1, x24
     mov x2, x25
     mov x3, x26
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- config ----------------------------------------------------------
 .Lbhr_config:
@@ -2189,18 +2189,18 @@ build_header_rows:
     mov x0, x20
     bl tc_shorten_path
     mov x20, x0
-    bl arena_get
+    bl render_arena_get
     mov x21, x0
     mov x0, x21
     mov x1, x20
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, x19
     mov x1, x21
     LEA x2, s_loaded
     mov x3, #0
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- cache -----------------------------------------------------------
 .Lbhr_cache:
@@ -2215,73 +2215,73 @@ build_header_rows:
     cbz x23, .Lbhr_unreadable         // not used, no problem -> no row
     // unavailable -- <problem>
     LEA x19, s_label_cache
-    bl arena_get
+    bl render_arena_get
     mov x26, x0
     mov x0, x26
     LEA x1, s_unavailable
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x23
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, x19
     mov x1, x26
     LEA x2, s_every_file
     LEA x3, s_no_cache_c
-    bl hdr_add
+    bl render_hdr_add
     b .Lbhr_unreadable
 .Lbhr_cache_used:
     LEA x19, s_label_cache
-    bl arena_get
+    bl render_arena_get
     mov x26, x0
     mov x0, x26
     mov x1, x21
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_day_s_reused
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x22
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_parsed
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     // source
     cbnz x24, .Lbhr_cache_rebuilt
     cbnz x25, .Lbhr_cache_path
     LEA x27, s_rollup_db
     b .Lbhr_cache_src_done
 .Lbhr_cache_rebuilt:
-    bl arena_get
+    bl render_arena_get
     mov x27, x0
     mov x0, x27
     LEA x1, s_rebuilt
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x24
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbhr_cache_src_done
 .Lbhr_cache_path:
     mov x0, x25
     bl tc_shorten_path
     mov x27, x0
-    bl arena_get
+    bl render_arena_get
     mov x28, x0
     mov x0, x28
     mov x1, x27
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     mov x27, x28
 .Lbhr_cache_src_done:
     mov x0, x19
     mov x1, x26
     mov x2, x27
     mov x3, #0
-    bl hdr_add
+    bl render_hdr_add
 
     // ---- unreadable ------------------------------------------------------
 .Lbhr_unreadable:
@@ -2291,13 +2291,13 @@ build_header_rows:
     LEA x19, s_label_unreadable
     LEA x20, tc_tally
     ldr x20, [x20, #TC_T_UNR_COUNT]
-    bl arena_get
+    bl render_arena_get
     mov x21, x0
     mov x0, x21
     mov x1, x20
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_file_s_skipped
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1                    // overwrite the trailing NUL
     // first 2 names joined ", ", ", +K more" if > 2
     LEA_OFF x22, tc_tally, TC_T_UNR_ENTRIES
@@ -2314,27 +2314,27 @@ build_header_rows:
     sub x0, x0, #1                    // overwrite the trailing NUL
     LEA x1, s_comma
     mov x2, #2
-    bl str_cat_n
+    bl render_str_cat_n
 .Lbhr_unr_name:
     mov x2, #TC_T_UNR_ENTRY_SZ
     mul x2, x23, x2
     add x1, x22, x2
-    bl str_cat
+    bl render_str_cat
     mov x24, #1
     add x23, x23, #1
     b .Lbhr_unr_preview
 .Lbhr_unr_preview_done:
     cmp x20, #2
     b.le .Lbhr_unr_reason
-    sub x0, x0, #1                    // overwrite the trailing NUL (str_cat
+    sub x0, x0, #1                    // overwrite the trailing NUL (render_str_cat
                                       // returns the cursor past it)
     LEA x1, s_comma_more
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     sub x1, x20, #2
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_more
-    bl str_cat
+    bl render_str_cat
 .Lbhr_unr_reason:
     sub x0, x0, #1                    // overwrite the trailing NUL
     mov w1, #' '
@@ -2343,40 +2343,40 @@ build_header_rows:
     strb w1, [x0], #1
     LEA_OFF x22, tc_tally, TC_T_UNR_ENTRIES
     add x1, x22, #TC_T_UNR_NAME_SZ     // first reason
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #')'
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
     add x0, x0, #1
-    bl arena_set_end
+    bl render_arena_set_end
     // compact "N unread"
-    bl arena_get
+    bl render_arena_get
     mov x23, x0
     mov x0, x23
     mov x1, x20
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_unread
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     mov x0, x19
     mov x1, x21
     LEA x2, s_not_counted
     mov x3, x23
-    bl hdr_add
+    bl render_hdr_add
 .Lbhr_done:
     EPILOGUE 5
     ret
 
 // ============================================================================
-// fmt_window_span(dst) — the compact span ("MM-DD HH:MM..now", same-date, or
+// render_fmt_window_span(dst) — the compact span ("MM-DD HH:MM..now", same-date, or
 // "YYYY-MM-DD..YYYY-MM-DD"); needs the window already loaded by the caller in
 // x1=begin ymd, x2=begin sod (uses tc_window for the end).
 // ============================================================================
     .p2align 2
-fmt_window_span:
+render_fmt_window_span:
     PROLOGUE 2
     mov x19, x0                       // dst
     mov x20, x1                       // begin ymd
@@ -2393,46 +2393,46 @@ fmt_window_span:
     // different dates: "YYYY-MM-DD..YYYY-MM-DD"
     mov x0, x19
     mov x1, x20
-    bl fmt_ymd
+    bl render_fmt_ymd
     LEA x1, s_dotdot
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x22, tc_window
     ldr x1, [x22, #TC_W_END_YMD]
-    bl fmt_ymd
+    bl render_fmt_ymd
     b .Lfws_done
 .Lfws_same:
     // "MM-DD HH:MM..HH:MM"
     mov x0, x19
     mov x1, x20
     mov x2, x21
-    bl fmt_mmdd_hhmm
+    bl render_fmt_mmdd_hhmm
     LEA x1, s_dotdot
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x22, tc_window
     ldr x1, [x22, #TC_W_END_SOD]
-    bl fmt_hhmm
+    bl render_fmt_hhmm
     b .Lfws_done
 .Lfws_now:
     // "MM-DD HH:MM..now"
     mov x0, x19
     mov x1, x20
     mov x2, x21
-    bl fmt_mmdd_hhmm
+    bl render_fmt_mmdd_hhmm
     LEA x1, s_now
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
 .Lfws_done:
     EPILOGUE 2
     ret
 
 // ============================================================================
-// choose_limit — Python choose_limit: --top, then --json unlimited, then the
+// render_choose_limit — Python render_choose_limit: --top, then --json unlimited, then the
 // terminal height.
 // ============================================================================
     .p2align 2
-choose_limit:
+render_choose_limit:
     PROLOGUE 3
     // top given?
     LEA x19, tc_opts
@@ -2514,10 +2514,10 @@ choose_limit:
     ret
 
 // ============================================================================
-// plan_split_display — displayed/hidden split, message sums, and the top row.
+// render_plan_split_display — displayed/hidden split, message sums, and the top row.
 // ============================================================================
     .p2align 2
-plan_split_display:
+render_plan_split_display:
     PROLOGUE 5
     LEA x19, tc_plan_reported_n
     ldr x20, [x19]                     // reported_n
@@ -2576,17 +2576,17 @@ plan_split_display:
     // top row
     cbz x22, .Lpsd_done
     cbz x20, .Lpsd_done
-    bl build_top_row
+    bl render_build_top_row
 .Lpsd_done:
     EPILOGUE 5
     ret
 
 // ============================================================================
-// build_top_row — "N row(s)[, M hidden]" with the limit source; compact
+// render_build_top_row — "N row(s)[, M hidden]" with the limit source; compact
 // "D/R rows" when hidden.
 // ============================================================================
     .p2align 2
-build_top_row:
+render_build_top_row:
     PROLOGUE 4
     LEA x19, tc_plan_limit
     ldr x19, [x19]                     // limit
@@ -2596,44 +2596,44 @@ build_top_row:
     ldr x21, [x21]                     // displayed
     LEA x22, tc_plan_reported_n
     ldr x22, [x22]                     // reported
-    bl arena_get
+    bl render_arena_get
     mov x23, x0
     mov x0, x23
     mov x1, x19
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_row_s
-    bl str_cat
+    bl render_str_cat
     cbz x20, .Lbtr_val_done
     sub x0, x0, #1                    // overwrite the trailing NUL
     LEA x1, s_comma
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x20
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_hidden
-    bl str_cat
+    bl render_str_cat
 .Lbtr_val_done:
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     // source
     LEA x24, tc_plan_limit_src
     ldr x24, [x24]
     // compact "D/R rows" when hidden
     cbz x20, .Lbtr_noc
-    bl arena_get
+    bl render_arena_get
     mov x25, x0
     mov x0, x25
     mov x1, x21
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_slash
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x22
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_rows
-    bl str_cat
+    bl render_str_cat
     mov x0, x0
-    bl arena_set_end
+    bl render_arena_set_end
     b .Lbtr_add
 .Lbtr_noc:
     mov x25, #0
@@ -2642,7 +2642,7 @@ build_top_row:
     mov x1, x23
     mov x2, x24
     mov x3, x25
-    bl hdr_add
+    bl render_hdr_add
     EPILOGUE 4
     ret
 
@@ -2674,27 +2674,27 @@ tc_render_text:
     ldr x20, [x19]
     cbnz x20, .Lrt_table
     // empty report
-    bl line_zero
+    bl render_line_zero
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_MESSAGES]
-    LEA x21, tc_render_line
+    LEA x21, render_line
     mov x0, x21
     LEA x1, s_no_users
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x1, x20
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_msg_range
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x1, s_period
-    bl str_cat
+    bl render_str_cat
     mov x0, x21
-    bl line_puts
+    bl render_line_puts
     LEA x19, tc_plan_excl_appeared
     ldr x20, [x19]
     cbz x20, .Lrt_done
-    bl emit_excluded_line
+    bl render_emit_excluded_line
     b .Lrt_done
 .Lrt_table:
     bl render_table
@@ -2757,7 +2757,7 @@ render_full_header:
     ldr x2, [x24, #16]                 // source
     mov x3, x21                        // w0
     mov x4, x22                        // w1
-    bl emit_header_line
+    bl render_emit_header_line
     add x23, x23, #1
     b .Lrfh_line_loop
 .Lrfh_ret:
@@ -2768,27 +2768,27 @@ render_full_header:
     ldr x1, [x1, #TC_T_FILES]
     mov x2, x21
     mov x3, x22
-    bl emit_files_line
+    bl render_emit_files_line
     // blank line
-    bl line_blank
+    bl render_line_blank
     EPILOGUE 4
     ret
 
-// emit_header_line(label, value, source, w0, w1) — "label:  value  [source]"
+// render_emit_header_line(label, value, source, w0, w1) — "label:  value  [source]"
     .p2align 2
-emit_header_line:
+render_emit_header_line:
     PROLOGUE 4
     mov x19, x0                        // label
     mov x20, x1                        // value
     mov x21, x2                        // source
     mov x22, x3                        // w0
     mov x23, x4                        // w1
-    bl line_zero
-    LEA x24, tc_render_line
+    bl render_line_zero
+    LEA x24, render_line
     // label + ':'
     mov x0, x24
     mov x1, x19
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #':'
     strb w1, [x0], #1
@@ -2814,7 +2814,7 @@ emit_header_line:
     mov x0, x25
     add x0, x24, x0
     mov x1, x20
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x25, x0
     sub x25, x25, x24                  // cursor offset
@@ -2845,30 +2845,30 @@ emit_header_line:
     add x25, x25, #1
     add x0, x24, x25
     mov x1, x21
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #']'
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
     mov x0, x24
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 4
     ret
 
-// emit_files_line(label, count, w0, w1) — "files:  N log file(s) in range"
+// render_emit_files_line(label, count, w0, w1) — "files:  N log file(s) in range"
 // (the value is unpadded: align_row rstrips the trailing padding)
     .p2align 2
-emit_files_line:
+render_emit_files_line:
     PROLOGUE 3
     mov x19, x0                        // "files"
     mov x20, x1                        // count
     mov x21, x2                        // w0
-    bl line_zero
-    LEA x22, tc_render_line
+    bl render_line_zero
+    LEA x22, render_line
     mov x0, x22
     mov x1, x19
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov w1, #':'
     strb w1, [x0], #1
@@ -2891,11 +2891,11 @@ emit_files_line:
     add x23, x23, #1
     add x0, x22, x23
     mov x1, x20
-    bl fmt_u64_plain
+    bl render_fmt_u64_plain
     LEA x1, s_files_val
-    bl str_cat
+    bl render_str_cat
     mov x0, x22
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 3
     ret
 
@@ -2905,10 +2905,10 @@ emit_files_line:
     .p2align 2
 render_compact_header:
     PROLOGUE 4
-    bl compact_zero
+    bl render_compact_zero
     LEA x19, tc_plan_hdr_count
     ldr x20, [x19]
-    LEA x21, tc_render_compact
+    LEA x21, render_compact
     mov x22, x21                       // cursor
     mov x23, #0                        // first flag
     mov x24, #0                        // i
@@ -2927,12 +2927,12 @@ render_compact_header:
     sub x0, x22, #1                   // overwrite the trailing NUL
     LEA x1, s_middot
     mov x2, #s_middot_len
-    bl str_cat_n
+    bl render_str_cat_n
     mov x22, x0
 .Lrch_cell:
     mov x0, x22
     mov x1, x26
-    bl str_cat
+    bl render_str_cat
     mov x22, x0
     mov x23, #1
 .Lrch_next:
@@ -2940,38 +2940,38 @@ render_compact_header:
     b .Lrch_loop
 .Lrch_done:
     mov x0, x21
-    bl line_puts
-    bl line_blank
+    bl render_line_puts
+    bl render_line_blank
     EPILOGUE 4
     ret
 
 // ============================================================================
-// others_widths — widen tc_render_widths for the "+ N others" row: its login,
+// render_others_widths — widen render_widths for the "+ N others" row: its login,
 // its count cell and its pooled-state metric cells.  x26 = hidden_n; x22 =
-// tc_render_widths base.  Preserves x19-x28 (callee-saved, no calls that
+// render_widths base.  Preserves x19-x28 (callee-saved, no calls that
 // clobber them except our own which all preserve them).
 // ============================================================================
     .p2align 2
-others_widths:
+render_others_widths:
     PROLOGUE 5
     mov x19, x22                       // widths base
     mov x20, x26                       // hidden_n
     // zero the shared cell buffer
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
     // login: "+ N others"
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov w1, #'+'
     strb w1, [x0], #1
     mov w1, #' '
     strb w1, [x0], #1
     mov x1, x20
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_others
-    bl str_cat
-    LEA x21, tc_render_cell
+    bl render_str_cat
+    LEA x21, render_cell
     mov x0, x21
     bl tc_strlen
     ldr x28, [x19]
@@ -3005,15 +3005,15 @@ others_widths:
     b .Low_pool
 .Low_pool_done:
     // count cell: hidden messages
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     LEA x1, tc_plan_msgs_hidden
     ldr x1, [x1]
-    bl fmt_u64_commas
-    LEA x21, tc_render_cell
+    bl render_fmt_u64_commas
+    LEA x21, render_cell
     mov x0, x21
     bl tc_strlen
     ldr x28, [x19, #8]
@@ -3030,12 +3030,12 @@ others_widths:
     b.ge .Low_done
     LEA x24, tc_plan_columns
     ldr x24, [x24, x23, lsl #3]        // col id
-    LEA x25, tc_render_cell
+    LEA x25, render_cell
     mov x0, x25
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    LEA x25, tc_render_cell
+    LEA x25, render_cell
     cmp x24, #TC_M_LIVE
     b.eq .Low_live
     cmp x24, #TC_M_OFFLINE
@@ -3048,30 +3048,30 @@ others_widths:
     mov x0, x25
     mov x1, x26
     mov x2, x20
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Low_place
 .Low_offshare:
     mov x0, x25
     mov x1, x27
     mov x2, x20
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Low_place
 .Low_live:
     mov x0, x25
     mov x1, x26
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Low_place
 .Low_offline:
     mov x0, x25
     mov x1, x27
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Low_place
 .Low_unknown:
     mov x0, x25
     mov x1, x28
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
 .Low_place:
-    LEA x25, tc_render_cell
+    LEA x25, render_cell
     mov x0, x25
     bl tc_strlen
     add x26, x23, #2
@@ -3096,7 +3096,7 @@ render_table:
     ldr x20, [x19]                     // n metric columns
     add x21, x20, #2                   // total cells: user + count + metrics
     // widths: w[i], i in 0..x21-1
-    LEA x22, tc_render_widths
+    LEA x22, render_widths
     // header row: "user" + "count" + metric headers
     mov w23, #4
     str x23, [x22]                     // w[0] = 4 ("user")
@@ -3151,8 +3151,8 @@ render_table:
 .Lrt_row_w_len:
     mov x0, x26
     mov x1, x28
-    bl cell_len
-    add x9, x27, #1                   // recompute the slot: cell_len clobbers x9
+    bl render_cell_len
+    add x9, x27, #1                   // recompute the slot: render_cell_len clobbers x9
     ldr x10, [x22, x9, lsl #3]
     cmp x0, x10
     b.le .Lrt_row_w_cell_next
@@ -3170,10 +3170,10 @@ render_table:
     LEA x25, tc_plan_hidden_n
     ldr x26, [x25]
     cbz x26, .Lrt_pin
-    bl others_widths
+    bl render_others_widths
 .Lrt_pin:
     // Phase 7: a pinned login column is fixed, not merely capped: the clip in
-    // pin_cell already bounded every login at `pin` characters, so widths[0]
+    // render_pin_cell already bounded every login at `pin` characters, so widths[0]
     // is set to the pin exactly (Python: widths[0] = pinned).
     LEA x25, tc_frame_pin_width
     ldr x26, [x25]
@@ -3181,15 +3181,15 @@ render_table:
     str x26, [x22]
 .Lrt_emit:
     // header line
-    LEA x19, tc_render_line
+    LEA x19, render_line
     mov x0, x19
     mov x1, x21                       // cell count
     mov x2, #1                        // header flag
-    bl emit_table_header
+    bl render_emit_table_header
     // rule
     mov x0, x19
     mov x1, x21
-    bl emit_rule
+    bl render_emit_rule
     // rows
     LEA x23, tc_plan_reported
     ldr x23, [x23]
@@ -3205,7 +3205,7 @@ render_table:
     mov x0, x19
     mov x1, x26
     mov x2, x21
-    bl emit_table_row
+    bl render_emit_table_row
     add x25, x25, #1
     b .Lrt_row_emit
 .Lrt_row_emit_done:
@@ -3216,28 +3216,28 @@ render_table:
     mov x0, x19
     mov x1, x26
     mov x2, x21
-    bl emit_others_row
+    bl render_emit_others_row
 .Lrt_rule2:
     mov x0, x19
     mov x1, x21
-    bl emit_rule
+    bl render_emit_rule
 .Lrt_end:
     // footer
-    bl emit_footer
+    bl render_emit_footer
     EPILOGUE 5
     ret
 
-// cell_len(rec, col_id) -> x0 = rendered cell length (renders into cell buf)
+// render_cell_len(rec, col_id) -> x0 = rendered cell length (renders into cell buf)
     .p2align 2
-cell_len:
+render_cell_len:
     PROLOGUE 2
     mov x19, x0                        // rec
     mov x20, x1                        // col
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     cmp x20, #TC_M_COUNT
     b.eq .Lcl_count
     cmp x20, #TC_M_LIVE
@@ -3251,49 +3251,49 @@ cell_len:
     b.eq .Lcl_offshare
     ldr x1, [x19, #ROW_LIVE]
     ldr x2, [x19, #ROW_COUNT]
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Lcl_len
 .Lcl_offshare:
     ldr x1, [x19, #ROW_OFFLINE]
     ldr x2, [x19, #ROW_COUNT]
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Lcl_len
 .Lcl_count:
     ldr x1, [x19, #ROW_COUNT]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Lcl_len
 .Lcl_live:
     ldr x1, [x19, #ROW_LIVE]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Lcl_len
 .Lcl_offline:
     ldr x1, [x19, #ROW_OFFLINE]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Lcl_len
 .Lcl_unknown:
     ldr x1, [x19, #ROW_UNKNOWN]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
 .Lcl_len:
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     bl tc_strlen
     EPILOGUE 2
     ret
 
-// emit_table_header(buf, ncols, flag) — header cells aligned "lr"
+// render_emit_table_header(buf, ncols, flag) — header cells aligned "lr"
     .p2align 2
-emit_table_header:
+render_emit_table_header:
     PROLOGUE 5
     mov x19, x0                        // buf
     mov x20, x1                        // ncols
     mov x21, x0                        // cursor
-    bl line_zero
+    bl render_line_zero
     mov x21, x0
     // cell 0: "user" ljust (pin-aware under watch)
-    LEA x22, tc_render_widths
+    LEA x22, render_widths
     ldr x2, [x22]
     LEA x1, s_user4
     mov x0, x19
-    bl pin_cell
+    bl render_pin_cell
     mov x21, x0
     // separator + "count" rjust w[1]
     mov w1, #' '
@@ -3302,16 +3302,16 @@ emit_table_header:
     strb w1, [x21], #1
     LEA x24, metric_headers  // table base (kept in x24)
     ldr x26, [x24, #0]                 // "count" header string (rodata)
-    LEA x27, tc_render_cell
+    LEA x27, render_cell
     mov x0, x27
     mov x1, x26
-    bl str_cat                          // copy into writable cell buffer
+    bl render_str_cat                          // copy into writable cell buffer
     ldr x27, [x22, #8]                 // w[1]
-    LEA x26, tc_render_cell
+    LEA x26, render_cell
     mov x0, x21                        // line cursor
     mov x1, x26                        // cell
     mov x2, x27                        // width
-    bl rjust_copy
+    bl render_rjust_copy
     mov x21, x0
     // metric header cells rjust (width slot 2 + i)
     mov x23, #0
@@ -3326,17 +3326,17 @@ emit_table_header:
     LEA x25, tc_plan_columns
     ldr x25, [x25, x23, lsl #3]
     ldr x26, [x24, x25, lsl #3]        // header string (rodata)
-    LEA x27, tc_render_cell
+    LEA x27, render_cell
     mov x0, x27
     mov x1, x26
-    bl str_cat
+    bl render_str_cat
     add x27, x23, #2
     ldr x27, [x22, x27, lsl #3]        // width
-    LEA x26, tc_render_cell
+    LEA x26, render_cell
     mov x0, x21                        // line cursor
     mov x1, x26
     mov x2, x27
-    bl rjust_copy
+    bl render_rjust_copy
     mov x21, x0
     add x23, x23, #1
     b .Leth_loop
@@ -3344,20 +3344,20 @@ emit_table_header:
     mov w1, #0
     strb w1, [x21]
     mov x0, x19
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 5
     ret
 
-// emit_rule(buf, ncols) — dashes per width, joined "  "
+// render_emit_rule(buf, ncols) — dashes per width, joined "  "
     .p2align 2
-emit_rule:
+render_emit_rule:
     PROLOGUE 4
     mov x19, x0
     mov x20, x1
     mov x21, x0
-    bl line_zero
+    bl render_line_zero
     mov x21, x0
-    LEA x22, tc_render_widths
+    LEA x22, render_widths
     mov x23, #0
 .Leru_loop:
     cmp x23, x20
@@ -3386,43 +3386,43 @@ emit_rule:
     mov w1, #0
     strb w1, [x21]
     mov x0, x19
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 4
     ret
 
-// emit_table_row(buf, rec, ncols) — login ljust, metric cells rjust
+// render_emit_table_row(buf, rec, ncols) — login ljust, metric cells rjust
     .p2align 2
-emit_table_row:
+render_emit_table_row:
     PROLOGUE 4
     mov x19, x0                        // buf
     mov x20, x1                        // rec
     mov x21, x2                        // ncols
     mov x22, x0                        // cursor
-    bl line_zero
+    bl render_line_zero
     mov x22, x0
-    LEA x23, tc_render_widths
+    LEA x23, render_widths
     // login cell (pin-aware under watch)
     ldr x24, [x23]
     mov x0, x19
     add x1, x20, #ROW_LOGIN
     mov x2, x24
-    bl pin_cell
+    bl render_pin_cell
     mov x22, x0
     // count cell rjust w[1]
     mov w1, #' '
     strb w1, [x22], #1
     mov w1, #' '
     strb w1, [x22], #1
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov x1, #TC_M_COUNT
     mov x0, x20
-    bl cell_render
-    LEA x25, tc_render_cell
+    bl render_cell_render
+    LEA x25, render_cell
     ldr x26, [x23, #8]                 // w[1]
     mov x0, x22                        // line cursor
     mov x1, x25
     mov x2, x26
-    bl rjust_copy
+    bl render_rjust_copy
     mov x22, x0
     mov x24, #0
 .Letr_loop:
@@ -3433,19 +3433,19 @@ emit_table_row:
     strb w1, [x22], #1
     mov w1, #' '
     strb w1, [x22], #1
-    // render metric cell into tc_render_cell
+    // render metric cell into render_cell
     LEA x25, tc_plan_columns
     ldr x26, [x25, x24, lsl #3]
     mov x0, x20
     mov x1, x26
-    bl cell_render
-    LEA x25, tc_render_cell
+    bl render_cell_render
+    LEA x25, render_cell
     add x26, x24, #2
     ldr x26, [x23, x26, lsl #3]
     mov x0, x22                        // line cursor
     mov x1, x25
     mov x2, x26
-    bl rjust_copy
+    bl render_rjust_copy
     mov x22, x0
     add x24, x24, #1
     b .Letr_loop
@@ -3464,21 +3464,21 @@ emit_table_row:
     mov x19, x0                        // tinted text (capture copies it)
 .Letr_puts:
     mov x0, x19
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 4
     ret
 
-// cell_render(rec, col_id) -> renders into tc_render_cell, returns end
+// render_cell_render(rec, col_id) -> renders into render_cell, returns end
     .p2align 2
-cell_render:
+render_cell_render:
     PROLOGUE 2
     mov x19, x0
     mov x20, x1
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     cmp x20, #TC_M_COUNT
     b.eq .Lcr_count
     cmp x20, #TC_M_LIVE
@@ -3491,67 +3491,67 @@ cell_render:
     b.eq .Lcr_offshare
     ldr x1, [x19, #ROW_LIVE]
     ldr x2, [x19, #ROW_COUNT]
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Lcr_done
 .Lcr_offshare:
     ldr x1, [x19, #ROW_OFFLINE]
     ldr x2, [x19, #ROW_COUNT]
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Lcr_done
 .Lcr_count:
     ldr x1, [x19, #ROW_COUNT]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Lcr_done
 .Lcr_live:
     ldr x1, [x19, #ROW_LIVE]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Lcr_done
 .Lcr_offline:
     ldr x1, [x19, #ROW_OFFLINE]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Lcr_done
 .Lcr_unknown:
     ldr x1, [x19, #ROW_UNKNOWN]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
 .Lcr_done:
     EPILOGUE 2
     ret
 
-// emit_others_row(buf, hidden_n, ncols) — the pooled "+ N others" row
+// render_emit_others_row(buf, hidden_n, ncols) — the pooled "+ N others" row
     .p2align 2
-emit_others_row:
+render_emit_others_row:
     PROLOGUE 4
     mov x19, x0                        // buf
     mov x20, x1                        // hidden_n
     mov x21, x2                        // ncols
     mov x22, x0                        // cursor
-    bl line_zero
+    bl render_line_zero
     mov x22, x0
-    LEA x23, tc_render_widths
-    LEA x0, tc_render_cell
+    LEA x23, render_widths
+    LEA x0, render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
     // login cell "+ N others" (built in the cell buffer: pin-aware under watch)
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov w1, #'+'
     strb w1, [x0], #1
     mov w1, #' '
     strb w1, [x0], #1
     mov x1, x20
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_others
-    bl str_cat
+    bl render_str_cat
     ldr x24, [x23]
-    LEA x1, tc_render_cell
+    LEA x1, render_cell
     mov x0, x19
     mov x2, x24
-    bl pin_cell
+    bl render_pin_cell
     mov x22, x0
-    // The metric cells render into tc_render_cell and rely on it being
-    // zeroed (fmt_u64_commas writes no NUL); the login-cell build above
+    // The metric cells render into render_cell and rely on it being
+    // zeroed (render_fmt_u64_commas writes no NUL); the login-cell build above
     // wrote into it, so clear it again before the cell loop.
-    LEA x0, tc_render_cell
+    LEA x0, render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
@@ -3596,7 +3596,7 @@ emit_others_row:
     LEA x11, tc_plan_columns
     sub x13, x24, #1
     ldr x11, [x11, x13, lsl #3]
-    LEA x12, tc_render_cell
+    LEA x12, render_cell
     cmp x11, #TC_M_LIVE
     b.eq .Leor_live
     cmp x11, #TC_M_OFFLINE
@@ -3609,43 +3609,43 @@ emit_others_row:
     mov x0, x12
     mov x1, x26
     mov x2, x20
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Leor_place
 .Leor_offshare:
     mov x0, x12
     mov x1, x27
     mov x2, x20
-    bl fmt_share_cell
+    bl render_fmt_share_cell
     b .Leor_place
 .Leor_count:
-    LEA x12, tc_render_cell
+    LEA x12, render_cell
     mov x0, x12
     LEA x13, tc_plan_msgs_hidden
     ldr x1, [x13]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Leor_place
 .Leor_live:
     mov x0, x12
     mov x1, x26
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Leor_place
 .Leor_offline:
     mov x0, x12
     mov x1, x27
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     b .Leor_place
 .Leor_unknown:
     mov x0, x12
     mov x1, x28
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
 .Leor_place:
-    LEA x12, tc_render_cell
+    LEA x12, render_cell
     add x10, x24, #1                   // width slot (recomputed: cell renders
     ldr x13, [x23, x10, lsl #3]        // clobber caller-saved x10)
     mov x0, x22                        // line cursor
     mov x1, x12                        // cell
     mov x2, x13                        // width
-    bl rjust_copy
+    bl render_rjust_copy
     mov x22, x0
     add x24, x24, #1
     b .Leor_loop
@@ -3653,17 +3653,17 @@ emit_others_row:
     mov w1, #0
     strb w1, [x22]
     mov x0, x19
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 4
     ret
 
 // ============================================================================
-// pad_left_to(buf, width) — pad the string at buf with trailing spaces until
+// render_pad_left_to(buf, width) — pad the string at buf with trailing spaces until
 // its length is `width`; returns the cursor (buf + width).  Assumes the buf
 // string is NUL-terminated and shorter than width.
 // ============================================================================
     .p2align 2
-pad_left_to:
+render_pad_left_to:
     PROLOGUE 2
     mov x19, x0
     mov x20, x1
@@ -3682,10 +3682,10 @@ pad_left_to:
     EPILOGUE 2
     ret
 
-// rjust_copy(dst, src, width) -> dst + width; writes leading spaces then the
+// render_rjust_copy(dst, src, width) -> dst + width; writes leading spaces then the
 // NUL-terminated src (which must be <= width) into dst.  No NUL is written.
     .p2align 2
-rjust_copy:
+render_rjust_copy:
     PROLOGUE 3
     mov x19, x0                        // dst
     mov x20, x1                        // src
@@ -3706,19 +3706,19 @@ rjust_copy:
     add x0, x19, x24
     mov x1, x20
     mov x2, x22
-    bl str_cat_n
+    bl render_str_cat_n
     add x0, x19, x21
     EPILOGUE 3
     ret
 
 // ============================================================================
-// emit_footer — "users; messages" + the excluded line when exclusions acted.
+// render_emit_footer — "users; messages" + the excluded line when exclusions acted.
 // ============================================================================
     .p2align 2
-emit_footer:
+render_emit_footer:
     PROLOGUE 4
-    bl line_zero
-    LEA x19, tc_render_line
+    bl render_line_zero
+    LEA x19, render_line
     mov x20, x19                       // cursor
     LEA x21, tc_plan_displayed_n
     ldr x22, [x21]                     // displayed
@@ -3732,111 +3732,111 @@ emit_footer:
     // "R of K user(s)"
     mov x0, x20
     mov x1, x23
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_of
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x20, x0
     mov x1, x25
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_user_s
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     mov x20, x0
     b .Lef_msgs
 .Lef_hidden:
     // "D of R user(s) above threshold (K in range)"
     mov x0, x20
     mov x1, x22
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_of
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x20, x0
     mov x1, x23
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_user_s
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x20, x0
     LEA x1, s_above_threshold
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x20, x0
     mov x1, x25
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_in_range_paren
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     mov x20, x0
 .Lef_msgs:
     // "; S of T message(s) in range"
     LEA x1, s_semicolon
     sub x0, x20, #1                  // overwrite the trailing NUL
-    bl str_cat
+    bl render_str_cat
     mov x20, x0
     LEA x21, tc_plan_msgs_shown
     ldr x21, [x21]
     sub x0, x20, #1
     mov x1, x21
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_of
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     mov x20, x0
     LEA x21, tc_tally
     ldr x21, [x21, #TC_T_MESSAGES]
     mov x1, x21
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     mov x20, x0
     LEA x1, s_msg_range
     mov x0, x20
-    bl str_cat
+    bl render_str_cat
     mov x0, x19
-    bl line_puts
+    bl render_line_puts
     // excluded line
     LEA x21, tc_plan_excl_appeared
     ldr x22, [x21]
     cbz x22, .Lef_done
-    bl emit_excluded_line
+    bl render_emit_excluded_line
 .Lef_done:
     EPILOGUE 4
     ret
 
-// emit_excluded_line — "excluded E user(s), M message(s) not counted"
+// render_emit_excluded_line — "excluded E user(s), M message(s) not counted"
     .p2align 2
-emit_excluded_line:
+render_emit_excluded_line:
     PROLOGUE 1
-    bl line_zero
-    LEA x19, tc_render_line
+    bl render_line_zero
+    LEA x19, render_line
     mov x0, x19
     LEA x1, s_excluded_pre
-    bl str_cat
+    bl render_str_cat
     sub x0, x0, #1
     LEA x20, tc_plan_excl_appeared
     ldr x1, [x20]
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_excluded_mid
-    bl str_cat
+    bl render_str_cat
     LEA x20, tc_plan_excl_msgs
     ldr x1, [x20]
     sub x0, x0, #1
-    bl fmt_u64_commas
+    bl render_fmt_u64_commas
     LEA x1, s_not_counted2
-    bl str_cat
+    bl render_str_cat
     mov x0, x19
-    bl line_puts
+    bl render_line_puts
     EPILOGUE 1
     ret
 
@@ -3872,6 +3872,6 @@ s_slash:            .asciz "/"
 s_users_c:          .asciz " users"
     .bss
     .p2align 3
-tc_render_widths:   .skip 8 * 8
+render_widths:   .skip 8 * 8
 
     .end

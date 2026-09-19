@@ -54,12 +54,12 @@
 // ----------------------------------------------------------------------------
     .bss
     .p2align 4
-tc_json_buf:        .skip JBUF_SZ
-tc_json_cur:        .skip 8
-tc_json_fd:         .skip 8
-tc_json_iso:        .skip JISO_SZ
-tc_json_tm:         .skip 64
-tc_json_ts:         .skip 16
+json_buf:        .skip JBUF_SZ
+json_cur:        .skip 8
+json_fd:         .skip 8
+json_iso:        .skip JISO_SZ
+json_tm:         .skip 64
+json_ts:         .skip 16
 
 // ----------------------------------------------------------------------------
 // .rodata — fixed fragments; lengths are label differences
@@ -157,58 +157,58 @@ s_j_not_filtered:   .asciz "not filtered"
 
     .text
 
-// jinit(fd) — reset the JSON buffer
+// json_jinit(fd) — reset the JSON buffer
     .p2align 2
-jinit:
+json_jinit:
     PROLOGUE 1
     mov x19, x0
-    LEA x0, tc_json_fd
+    LEA x0, json_fd
     str x19, [x0]
-    LEA x0, tc_json_cur
+    LEA x0, json_cur
     str xzr, [x0]
     EPILOGUE 1
     ret
 
-// jflush() — write the buffered bytes
+// json_jflush() — write the buffered bytes
     .p2align 2
-jflush:
+json_jflush:
     PROLOGUE 1
-    LEA x0, tc_json_cur
+    LEA x0, json_cur
     ldr x19, [x0]
     cbz x19, .Ljfl_done
     str xzr, [x0]
-    LEA x0, tc_json_fd
+    LEA x0, json_fd
     ldr x0, [x0]
-    LEA x1, tc_json_buf
+    LEA x1, json_buf
     mov x2, x19
     bl write
 .Ljfl_done:
     EPILOGUE 1
     ret
 
-// jputc(c) — append one byte, flushing when full
+// json_jputc(c) — append one byte, flushing when full
     .p2align 2
-jputc:
+json_jputc:
     PROLOGUE 1
     mov w19, w0
-    LEA x0, tc_json_cur
+    LEA x0, json_cur
     ldr x20, [x0]
     cmp x20, #JBUF_SZ
     b.lt .Ljpc_ok
-    bl jflush
+    bl json_jflush
     mov x20, #0
 .Ljpc_ok:
-    LEA x1, tc_json_buf
+    LEA x1, json_buf
     strb w19, [x1, x20]
     add x20, x20, #1
-    LEA x1, tc_json_cur
+    LEA x1, json_cur
     str x20, [x1]
     EPILOGUE 1
     ret
 
-// jputraw(s, len) — append len raw bytes
+// json_jputraw(s, len) — append len raw bytes
     .p2align 2
-jputraw:
+json_jputraw:
     PROLOGUE 2
     mov x19, x0                        // src
     mov x20, x1                        // len
@@ -218,32 +218,32 @@ jputraw:
     b.ge .Ljpr_done
     ldrb w22, [x19, x21]
     mov w0, w22
-    bl jputc
+    bl json_jputc
     add x21, x21, #1
     b .Ljpr_loop
 .Ljpr_done:
     EPILOGUE 2
     ret
 
-// jputs(s) — append a NUL-terminated string (length via tc_strlen)
+// json_jputs(s) — append a NUL-terminated string (length via tc_strlen)
     .p2align 2
-jputs:
+json_jputs:
     PROLOGUE 1
     mov x19, x0
     bl tc_strlen
     mov x1, x0
     mov x0, x19
-    bl jputraw
+    bl json_jputraw
     EPILOGUE 1
     ret
 
-// jquoted(s) — append the JSON-escaped, quoted form of a NUL-terminated string
+// json_jquoted(s) — append the JSON-escaped, quoted form of a NUL-terminated string
     .p2align 2
-jquoted:
+json_jquoted:
     PROLOGUE 2
     mov x19, x0
     mov w0, #'"'
-    bl jputc
+    bl json_jputc
     mov x20, x19                       // scan pointer
 .Ljq_loop:
     ldrb w21, [x20]
@@ -265,80 +265,80 @@ jquoted:
     b.eq .Ljq_esc_r
     cmp w21, #0x20
     b.lt .Ljq_esc_u
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_quote:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'"'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_back:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_b:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'b'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_t:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'t'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_n:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'n'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_f:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'f'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_r:
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'r'
-    bl jputc
+    bl json_jputc
     b .Ljq_next
 .Ljq_esc_u:
     // \u00XX with lowercase hex
     mov w0, #'\\'
-    bl jputc
+    bl json_jputc
     mov w0, #'u'
-    bl jputc
+    bl json_jputc
     mov w0, #'0'
-    bl jputc
+    bl json_jputc
     mov w0, #'0'
-    bl jputc
+    bl json_jputc
     lsr w22, w21, #4
     and w22, w22, #0xF
     mov w0, w22
-    bl jhex
+    bl json_jhex
     and w22, w21, #0xF
     mov w0, w22
-    bl jhex
+    bl json_jhex
     b .Ljq_next
 .Ljq_next:
     add x20, x20, #1
     b .Ljq_loop
 .Ljq_done:
     mov w0, #'"'
-    bl jputc
+    bl json_jputc
     EPILOGUE 2
     ret
 
-// jhex(nibble) — append a lowercase hex digit
+// json_jhex(nibble) — append a lowercase hex digit
     .p2align 2
-jhex:
+json_jhex:
     PROLOGUE 0
     cmp w0, #10
     b.lt .Ljh_digit
@@ -348,13 +348,13 @@ jhex:
 .Ljh_digit:
     add w0, w0, #'0'
 .Ljh_go:
-    bl jputc
+    bl json_jputc
     EPILOGUE 0
     ret
 
-// jint(v) — append a decimal integer (no commas)
+// json_jint(v) — append a decimal integer (no commas)
     .p2align 2
-jint:
+json_jint:
     PROLOGUE 2
     mov x19, x0
     // digits into the buffer backward on the stack
@@ -381,24 +381,24 @@ jint:
     b.ge .Lji_done
     ldrb w22, [x20], #1
     mov w0, w22
-    bl jputc
+    bl json_jputc
     b .Lji_emit_loop
 .Lji_done:
     add sp, sp, #32
     EPILOGUE 2
     ret
 
-// jbool(v) — "true"/"false"
+// json_jbool(v) — "true"/"false"
     .p2align 2
-jbool:
+json_jbool:
     PROLOGUE 0
     cbz x0, .Ljbo_false
     LEA x0, s_j_true
-    bl jputs
+    bl json_jputs
     b .Ljbo_done
 .Ljbo_false:
     LEA x0, s_j_false
-    bl jputs
+    bl json_jputs
 .Ljbo_done:
     EPILOGUE 0
     ret
@@ -409,12 +409,12 @@ json_now_iso:
     PROLOGUE 3
     mov x19, x0
     mov x0, #CLOCK_REALTIME
-    LEA x1, tc_json_ts
+    LEA x1, json_ts
     bl clock_gettime
-    LEA x0, tc_json_ts
-    LEA x1, tc_json_tm
+    LEA x0, json_ts
+    LEA x1, json_tm
     bl localtime_r
-    LEA x0, tc_json_tm
+    LEA x0, json_tm
     ldr w20, [x0, #TM_YEAR]
     add x20, x20, #1900
     ldr w21, [x0, #TM_MON]
@@ -516,40 +516,40 @@ json_fmt_dt:
 tc_json_emit:
     PROLOGUE 5
     mov x0, #STDOUT
-    bl jinit
+    bl json_jinit
     // { + schema blob
     LEA x0, s_j_open
     mov x1, #2
-    bl jputraw
+    bl json_jputraw
     LEA x0, tc_json_schema_blob
     mov x1, #tc_json_schema_blob_len
-    bl jputraw
+    bl json_jputraw
     // schema_version + generated_at
     LEA x0, s_j_schema_version
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_generated_at
-    bl jputs
-    LEA x0, tc_json_iso
+    bl json_jputs
+    LEA x0, json_iso
     bl json_now_iso
-    LEA x0, tc_json_iso
-    bl jquoted
+    LEA x0, json_iso
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // query
     LEA x0, s_j_query
-    bl jputs
+    bl json_jputs
     // channel
     LEA x0, s_j_qchannel
-    bl jputs
+    bl json_jputs
     bl tc_channel_name
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // begin
     LEA x0, s_j_qbegin
-    bl jputs
+    bl json_jputs
     LEA x19, tc_window
-    LEA x20, tc_json_iso
+    LEA x20, json_iso
     mov x0, x20
     ldr x1, [x19, #TC_W_BEGIN_YMD]
     ldr x2, [x19, #TC_W_BEGIN_SOD]
@@ -558,13 +558,13 @@ tc_json_emit:
     mov w1, #0
     strb w1, [x0]
     mov x0, x20
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // end
     LEA x0, s_j_qend
-    bl jputs
-    LEA x20, tc_json_iso
+    bl json_jputs
+    LEA x20, json_iso
     mov x0, x20
     ldr x1, [x19, #TC_W_END_YMD]
     ldr x2, [x19, #TC_W_END_SOD]
@@ -573,132 +573,132 @@ tc_json_emit:
     mov w1, #0
     strb w1, [x0]
     mov x0, x20
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // min_count
     LEA x0, s_j_qmin
-    bl jputs
+    bl json_jputs
     ldr x0, [x19, #TC_W_THRESHOLD]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // top
     LEA x0, s_j_qtop
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_limit
     ldr x20, [x19]
     cbz x20, .Lje_top_null
     mov x0, x20
-    bl jint
+    bl json_jint
     b .Lje_top_done
 .Lje_top_null:
     LEA x0, s_j_null
-    bl jputs
+    bl json_jputs
 .Lje_top_done:
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // state
     LEA x0, s_j_qstate
-    bl jputs
+    bl json_jputs
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_STATE_FILTER]
     cbz x20, .Lje_state_null
     LEA x0, state_names_json
     sub x1, x20, #1
     ldr x0, [x0, x1, lsl #3]
-    bl jquoted
+    bl json_jquoted
     b .Lje_state_done
 .Lje_state_null:
     LEA x0, s_j_null
-    bl jputs
+    bl json_jputs
 .Lje_state_done:
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // excluded
     LEA x0, s_j_qexcluded
-    bl jputs
-    bl emit_excluded_array
+    bl json_jputs
+    bl json_emit_excluded_array
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // sort
     LEA x0, s_j_qsort
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_sort
     ldr x20, [x19]
     LEA x0, metric_names_json
     ldr x0, [x0, x20, lsl #3]
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // share_floor
     LEA x0, s_j_qsf
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_sf_req
-    bl jputs
+    bl json_jputs
     LEA x19, tc_opts
     ldr x0, [x19, #TC_O_SHARE_FLOOR]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_sf_app
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_share_floor
     ldr x20, [x19]
     cbz x20, .Lje_sf_false
     LEA x0, s_j_true
-    bl jputs
+    bl json_jputs
     b .Lje_sf_done
 .Lje_sf_false:
     LEA x0, s_j_false
-    bl jputs
+    bl json_jputs
 .Lje_sf_done:
     LEA x0, s_j_close4
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // sources
     LEA x0, s_j_qsources
-    bl jputs
-    bl emit_sources
+    bl json_jputs
+    bl json_emit_sources
     LEA x0, s_j_close4nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_nl
-    bl jputs
+    bl json_jputs
     // close query, open totals
     LEA x0, s_j_query_close
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_totals
-    bl jputs
-    bl emit_totals
+    bl json_jputs
+    bl json_emit_totals
     LEA x0, s_j_close2
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // rows
     LEA x0, s_j_rows
-    bl jputs
-    bl emit_rows
+    bl json_jputs
+    bl json_emit_rows
     LEA x0, s_j_end
-    bl jputs
-    bl jflush
+    bl json_jputs
+    bl json_jflush
     mov x0, #0
     EPILOGUE 5
     ret
 
 // ============================================================================
-// emit_excluded_array — the sorted exclusion logins.
+// json_emit_excluded_array — the sorted exclusion logins.
 // ============================================================================
     .p2align 2
-emit_excluded_array:
+json_emit_excluded_array:
     PROLOGUE 2
     LEA x19, tc_plan_excl_names_n
     ldr x20, [x19]                    // n
     cbz x20, .Ljea_empty
     mov w0, #'['
-    bl jputc
+    bl json_jputc
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     LEA x21, tc_plan_excl_names
     ldr x21, [x21]
     mov x22, #0
@@ -707,114 +707,114 @@ emit_excluded_array:
     b.ge .Ljea_done
     LEA x0, s_j_ind6
     mov x1, #6
-    bl jputraw
+    bl json_jputraw
     mov x2, #26
     mul x2, x22, x2
     add x0, x21, x2
-    bl jquoted
+    bl json_jquoted
     add x9, x22, #1
     cmp x9, x20
     b.ge .Ljea_nl
     mov w0, #','
-    bl jputc
+    bl json_jputc
 .Ljea_nl:
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     add x22, x22, #1
     b .Ljea_loop
 .Ljea_done:
     LEA x0, s_j_ind4
     mov x1, #4
-    bl jputraw
+    bl json_jputraw
     mov w0, #']'
-    bl jputc
+    bl json_jputc
     b .Ljea_out
 .Ljea_empty:
     mov w0, #'['
-    bl jputc
+    bl json_jputc
     mov w0, #']'
-    bl jputc
+    bl json_jputc
 .Ljea_out:
     EPILOGUE 2
     ret
 
-// src_entry(key, set_id) — emit `      "key": <source of set_id>,\n`
+// json_src_entry(key, set_id) — emit `      "key": <source of set_id>,\n`
     .p2align 2
-src_entry:
+json_src_entry:
     PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // set id
     LEA x0, s_j_ind6
     mov x1, #6
-    bl jputraw
+    bl json_jputraw
     mov x0, x19
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_colon
-    bl jputs
+    bl json_jputs
     mov x0, x20
     bl tc_setting_src_str
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     EPILOGUE 1
     ret
 
-// src_entry_ptr(key, value_ptr) — `      "key": "<value>",\n` (value is a
-// direct pointer, not a set id; same shape as src_entry)
+// json_src_entry_ptr(key, value_ptr) — `      "key": "<value>",\n` (value is a
+// direct pointer, not a set id; same shape as json_src_entry)
     .p2align 2
-src_entry_ptr:
+json_src_entry_ptr:
     PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // value ptr
     LEA x0, s_j_ind6
     mov x1, #6
-    bl jputraw
+    bl json_jputraw
     mov x0, x19
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_colon
-    bl jputs
+    bl json_jputs
     mov x0, x20
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     EPILOGUE 1
     ret
 
-// src_entry_last(key, value_ptr) — `      "key": "<value>",\n` (last, no comma)
+// json_src_entry_last(key, value_ptr) — `      "key": "<value>",\n` (last, no comma)
     .p2align 2
-src_entry_last:
+json_src_entry_last:
     PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // value ptr
     LEA x0, s_j_ind6
     mov x1, #6
-    bl jputraw
+    bl json_jputraw
     mov x0, x19
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_colon
-    bl jputs
+    bl json_jputs
     mov x0, x20
-    bl jquoted
+    bl json_jquoted
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     EPILOGUE 1
     ret
 
 // ============================================================================
-// emit_sources — the sorted provenance map.
+// json_emit_sources — the sorted provenance map.
 // ============================================================================
     .p2align 2
-emit_sources:
+json_emit_sources:
     PROLOGUE 1
     // begin (value is a direct pointer, not a set id)
     LEA x0, s_js_begin
     LEA x1, tc_window
     ldr x1, [x1, #TC_W_START_SRC]
-    bl src_entry_ptr
+    bl json_src_entry_ptr
     // channel
     LEA x0, s_js_channel
     mov x1, #TC_SET_CHANNEL
-    bl src_entry
+    bl json_src_entry
     // end (only when not defaulted)
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_SRC + TC_SET_END*8]
@@ -822,7 +822,7 @@ emit_sources:
     b.eq .Ljes_show
     LEA x0, s_js_end
     mov x1, #TC_SET_END
-    bl src_entry
+    bl json_src_entry
 .Ljes_show:
     // exclude
     LEA x19, tc_plan_src_join
@@ -830,25 +830,25 @@ emit_sources:
     cbz x20, .Ljes_excl_none
     LEA x0, s_js_exclude
     mov x1, x20
-    bl src_entry_ptr
+    bl json_src_entry_ptr
     b .Ljes_header
 .Ljes_excl_none:
     LEA x0, s_js_exclude
     LEA x1, s_jn_none
-    bl src_entry_ptr
+    bl json_src_entry_ptr
 .Ljes_header:
     LEA x0, s_js_header
     mov x1, #TC_SET_HEADER
-    bl src_entry
+    bl json_src_entry
     LEA x0, s_js_logs_dir
     mov x1, #TC_SET_LOGS_DIR
-    bl src_entry
+    bl json_src_entry
     LEA x0, s_js_min_count
     mov x1, #TC_SET_MIN_COUNT
-    bl src_entry
+    bl json_src_entry
     LEA x0, s_js_share_floor
     mov x1, #TC_SET_SHARE_FLOOR
-    bl src_entry
+    bl json_src_entry
     // show (only when asked)
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_SRC + TC_SET_SHOW*8]
@@ -856,7 +856,7 @@ emit_sources:
     b.eq .Ljes_sort
     LEA x0, s_js_show
     mov x1, #TC_SET_SHOW
-    bl src_entry
+    bl json_src_entry
 .Ljes_sort:
     // sort (only when asked, not the built-in default)
     ldr x20, [x19, #TC_O_SRC + TC_SET_SORT*8]
@@ -864,185 +864,185 @@ emit_sources:
     b.eq .Ljes_state
     LEA x0, s_js_sort
     mov x1, #TC_SET_SORT
-    bl src_entry
+    bl json_src_entry
 .Ljes_state:
     ldr x20, [x19, #TC_O_SRC + TC_SET_STATE*8]
     cmp x20, #TC_SRC_DEFAULT
     b.eq .Ljes_state_nofilter
     LEA x0, s_js_state
     mov x1, #TC_SET_STATE
-    bl src_entry
+    bl json_src_entry
     b .Ljes_top
 .Ljes_state_nofilter:
     LEA x0, s_js_state
     LEA x1, s_j_not_filtered
-    bl src_entry_ptr
+    bl json_src_entry_ptr
 .Ljes_top:
     // top (last, no comma)
     LEA x0, s_js_top
     LEA x1, tc_plan_limit_src
     ldr x1, [x1]
-    bl src_entry_last
+    bl json_src_entry_last
     EPILOGUE 1
     ret
 
 // ============================================================================
-// emit_totals
+// json_emit_totals
 // ============================================================================
     .p2align 2
-emit_totals:
+json_emit_totals:
     PROLOGUE 3
     // users_shown
     LEA x0, s_j_t_shown
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_displayed_n
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // users_above_threshold
     LEA x0, s_j_t_above
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_reported_n
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // users_in_range
     LEA x0, s_j_t_inrange
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_in_range
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // users_excluded
     LEA x0, s_j_t_excl
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_excl_appeared
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // messages_shown
     LEA x0, s_j_t_mshown
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_msgs_shown
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // messages_in_range
     LEA x0, s_j_t_minrange
-    bl jputs
+    bl json_jputs
     LEA x19, tc_tally
     ldr x0, [x19, #TC_T_MESSAGES]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // messages_hidden
     LEA x0, s_j_t_mhidden
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_msgs_hidden
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // messages_excluded
     LEA x0, s_j_t_mexcl
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_excl_msgs
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // truncated
     LEA x0, s_j_t_trunc
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_hidden_n
     ldr x20, [x19]
     cbz x20, .Ljt_trunc_false
     LEA x0, s_j_true
-    bl jputs
+    bl json_jputs
     b .Ljt_trunc_done
 .Ljt_trunc_false:
     LEA x0, s_j_false
-    bl jputs
+    bl json_jputs
 .Ljt_trunc_done:
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // states
     LEA x0, s_j_t_states
-    bl jputs
-    bl emit_totals_states
+    bl json_jputs
+    bl json_emit_totals_states
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // log_files
     LEA x0, s_j_t_files
-    bl jputs
+    bl json_jputs
     LEA x19, tc_tally
     ldr x0, [x19, #TC_T_FILES]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // users_below_share_floor
     LEA x0, s_j_t_below
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_below_floor
     ldr x0, [x19]
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // cache
     LEA x0, s_j_t_cache
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_cache_used
-    bl jputs
+    bl json_jputs
     LEA x19, tc_plan_cache_used
     ldr x20, [x19]
     cbz x20, .Ljt_used_false
     LEA x0, s_j_true
-    bl jputs
+    bl json_jputs
     b .Ljt_used_done
 .Ljt_used_false:
     LEA x0, s_j_false
-    bl jputs
+    bl json_jputs
 .Ljt_used_done:
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_cache_days
-    bl jputs
+    bl json_jputs
     ldr x0, [x19, #8]                 // reused
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_cache_prob
-    bl jputs
+    bl json_jputs
     ldr x20, [x19, #24]               // problem
     cbz x20, .Ljt_prob_null
     mov x0, x20
-    bl jquoted
+    bl json_jquoted
     b .Ljt_prob_done
 .Ljt_prob_null:
     LEA x0, s_j_null
-    bl jputs
+    bl json_jputs
 .Ljt_prob_done:
     LEA x0, s_j_nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_close4nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // unreadable
     LEA x0, s_j_t_unreadable
-    bl jputs
-    bl emit_unreadable
+    bl json_jputs
+    bl json_emit_unreadable
     EPILOGUE 3
     ret
 
-// emit_totals_states — the all-state split object (nonzero only)
+// json_emit_totals_states — the all-state split object (nonzero only)
     .p2align 2
-emit_totals_states:
+json_emit_totals_states:
     PROLOGUE 4
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_STATES + 0]
@@ -1052,9 +1052,9 @@ emit_totals_states:
     orr x23, x23, x22
     cbz x23, .Ljts_empty
     mov w0, #'{'
-    bl jputc
+    bl json_jputc
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     mov x24, #0                        // state idx
 .Ljts_loop:
     cmp x24, #3
@@ -1064,14 +1064,14 @@ emit_totals_states:
     cbz x25, .Ljts_next
     LEA x0, s_j_ind6
     mov x1, #6
-    bl jputraw
+    bl json_jputraw
     LEA x0, state_names_json
     ldr x0, [x0, x24, lsl #3]
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_colon
-    bl jputs
+    bl json_jputs
     mov x0, x25
-    bl jint
+    bl json_jint
     add x9, x24, #1
     // is there a later nonzero state?
     mov x10, x9
@@ -1085,40 +1085,40 @@ emit_totals_states:
     b .Ljts_find
 .Ljts_comma:
     mov w0, #','
-    bl jputc
+    bl json_jputc
     b .Ljts_nl
 .Ljts_nocomma:
     b .Ljts_nl
 .Ljts_nl:
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
 .Ljts_next:
     add x24, x24, #1
     b .Ljts_loop
 .Ljts_done:
     LEA x0, s_j_close4nl
-    bl jputs
+    bl json_jputs
     b .Ljts_out
 .Ljts_empty:
     mov w0, #'{'
-    bl jputc
+    bl json_jputc
     mov w0, #'}'
-    bl jputc
+    bl json_jputc
 .Ljts_out:
     EPILOGUE 4
     ret
 
-// emit_unreadable — the array of {file, problem}
+// json_emit_unreadable — the array of {file, problem}
     .p2align 2
-emit_unreadable:
+json_emit_unreadable:
     PROLOGUE 2
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_UNR_COUNT]
     cbz x20, .Ljun_empty
     mov w0, #'['
-    bl jputc
+    bl json_jputc
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     add x21, x19, #TC_T_UNR_ENTRIES
     mov x22, #0
     // json.dumps(indent=2) of [{"file": ..., "problem": ...}, ...] under a
@@ -1130,73 +1130,73 @@ emit_unreadable:
     b.ge .Ljun_done
     LEA x0, s_j_ind6
     mov x1, #6
-    bl jputraw
+    bl json_jputraw
     LEA x0, s_j_row_open
     mov x1, #2
-    bl jputraw
+    bl json_jputraw
     LEA x0, s_j_ind8
     mov x1, #8
-    bl jputraw
+    bl json_jputraw
     LEA x0, s_j_file
-    bl jputs
+    bl json_jputs
     mov x2, #TC_T_UNR_ENTRY_SZ
     mul x2, x22, x2
     add x0, x21, x2
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     LEA x0, s_j_ind8
     mov x1, #8
-    bl jputraw
+    bl json_jputraw
     LEA x0, s_j_problem
-    bl jputs
+    bl json_jputs
     mov x2, #TC_T_UNR_ENTRY_SZ
     mul x2, x22, x2
     add x0, x21, x2
     add x0, x0, #TC_T_UNR_NAME_SZ
-    bl jquoted
+    bl json_jquoted
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     LEA x0, s_j_close6nl
-    bl jputs
+    bl json_jputs
     add x9, x22, #1
     cmp x9, x20
     b.ge .Ljun_nl
     mov w0, #','
-    bl jputc
+    bl json_jputc
 .Ljun_nl:
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     add x22, x22, #1
     b .Ljun_loop
 .Ljun_done:
     LEA x0, s_j_ind4
-    bl jputs
+    bl json_jputs
     mov w0, #']'
-    bl jputc
+    bl json_jputc
     b .Ljun_out
 .Ljun_empty:
     mov w0, #'['
-    bl jputc
+    bl json_jputc
     mov w0, #']'
-    bl jputc
+    bl json_jputc
 .Ljun_out:
     EPILOGUE 2
     ret
 
 // ============================================================================
-// emit_rows — the displayed rows.
+// json_emit_rows — the displayed rows.
 // ============================================================================
     .p2align 2
-emit_rows:
+json_emit_rows:
     PROLOGUE 3
     LEA x19, tc_plan_displayed_n
     ldr x20, [x19]                    // n
     cbz x20, .Ljer_empty
     mov w0, #'['
-    bl jputc
+    bl json_jputc
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     LEA x21, tc_plan_reported
     ldr x21, [x21]
     mov x22, #0                        // i
@@ -1208,59 +1208,59 @@ emit_rows:
     add x23, x21, x0                   // rec
     LEA x0, s_j_ind4
     mov x1, #4
-    bl jputraw
+    bl json_jputraw
     LEA x0, s_j_row_open
     mov x1, #2
-    bl jputraw
+    bl json_jputraw
     // login
     LEA x0, s_j_login
-    bl jputs
+    bl json_jputs
     add x0, x23, #0                    // login ptr
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // count
     LEA x0, s_j_count
-    bl jputs
+    bl json_jputs
     ldr x0, [x23, #32]                 // ROW_COUNT
-    bl jint
+    bl json_jint
     LEA x0, s_j_comma_nl
-    bl jputs
+    bl json_jputs
     // states
     LEA x0, s_j_states_k
-    bl jputs
-    bl emit_row_states            // ends with the states close "      }"
+    bl json_jputs
+    bl json_emit_row_states            // ends with the states close "      }"
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     LEA x0, s_j_close4nl
-    bl jputs                      // "    }"
+    bl json_jputs                      // "    }"
     add x9, x22, #1
     cmp x9, x20
     b.ge .Ljer_nl
     mov w0, #','
-    bl jputc
+    bl json_jputc
 .Ljer_nl:
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     add x22, x22, #1
     b .Ljer_loop
 .Ljer_done:
     LEA x0, s_j_rows_close
-    bl jputs
+    bl json_jputs
     b .Ljer_out
 .Ljer_empty:
     mov w0, #'['
-    bl jputc
+    bl json_jputc
     mov w0, #']'
-    bl jputc
+    bl json_jputc
 .Ljer_out:
     EPILOGUE 3
     ret
 
-// emit_row_states — the per-user states object (filtered, nonzero, name order)
+// json_emit_row_states — the per-user states object (filtered, nonzero, name order)
 //   expects x23 = rec, x20 = displayed_n (unused here)
     .p2align 2
-emit_row_states:
+json_emit_row_states:
     PROLOGUE 5
     mov x19, x23                       // rec
     LEA x20, tc_window
@@ -1292,9 +1292,9 @@ emit_row_states:
     orr x25, x25, x24
     cbz x25, .Ljrs_empty
     mov w0, #'{'
-    bl jputc
+    bl json_jputc
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
     mov x26, #0                        // idx (0=live,1=offline,2=unknown)
 .Ljrs_loop:
     cmp x26, #3
@@ -1314,14 +1314,14 @@ emit_row_states:
     cbz x27, .Ljrs_next
     LEA x0, s_j_ind8
     mov x1, #8
-    bl jputraw
+    bl json_jputraw
     LEA x0, state_names_json
     ldr x0, [x0, x26, lsl #3]
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_colon
-    bl jputs
+    bl json_jputs
     mov x0, x27
-    bl jint
+    bl json_jint
     // comma if a later state is nonzero
     mov x10, x26
     add x10, x10, #1
@@ -1345,22 +1345,22 @@ emit_row_states:
     b .Ljrs_find
 .Ljrs_comma:
     mov w0, #','
-    bl jputc
+    bl json_jputc
 .Ljrs_nocomma:
     mov w0, #'\n'
-    bl jputc
+    bl json_jputc
 .Ljrs_next:
     add x26, x26, #1
     b .Ljrs_loop
 .Ljrs_done:
     LEA x0, s_j_close6nl
-    bl jputs
+    bl json_jputs
     b .Ljrs_out
 .Ljrs_empty:
     mov w0, #'{'
-    bl jputc
+    bl json_jputc
     mov w0, #'}'
-    bl jputc
+    bl json_jputc
 .Ljrs_out:
     EPILOGUE 5
     ret
@@ -1376,14 +1376,14 @@ tc_json_err:
     PROLOGUE 1
     mov x19, x0
     mov x0, #STDERR
-    bl jinit
+    bl json_jinit
     LEA x0, s_j_err_open
-    bl jputs
+    bl json_jputs
     mov x0, x19
-    bl jquoted
+    bl json_jquoted
     LEA x0, s_j_err_close
-    bl jputs
-    bl jflush
+    bl json_jputs
+    bl json_jflush
     mov w0, #1
     bl exit
 

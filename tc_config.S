@@ -114,35 +114,35 @@
     .p2align 4
     .global tc_excl_src_count
 tc_excl_src_count:  .skip 8
-tc_cfg_root:        .skip 8          // toml_table_t* (0 when not loaded)
-tc_cfg_state:       .skip 8
-tc_cfg_explicit:    .skip 8          // path chosen by --config or env
-tc_cfg_size:        .skip 8
-tc_cfg_mtime:       .skip 8          // st_mtim.tv_sec at load time
-tc_cfg_mtime_ns:    .skip 8
-tc_cfg_path:        .skip CFG_PATH_SZ
-tc_cfg_where:       .skip CFG_PATH_SZ   // shorten_path(tc_cfg_path)
-tc_cfg_scratch:     .skip CFG_SCRATCH_SZ
-tc_cfg_scratch2:    .skip CFG_SCRATCH_SZ
-tc_cfg_val_a:       .skip VAL_BUF_SZ
-tc_cfg_val_b:       .skip VAL_BUF_SZ
-tc_cfg_val_tog:     .skip 8
-tc_cfg_errbuf:      .skip CFG_ERRBUF_SZ
-tc_cfg_statbuf:     .skip STAT_SZ
-tc_cfg_fd:          .skip 8
-tc_cfg_buf:         .skip 8          // malloc'd file buffer
-tc_cfg_bufsz:       .skip 8
-tc_excl_groups:     .skip EX_GROUP_MAX * 24   // {name_ptr, name_len, arr_ptr}
-tc_excl_group_n:    .skip 8
-tc_excl_always:     .skip EX_GROUP_MAX * 16   // {name_ptr, name_len}
-tc_excl_always_n:   .skip 8
-tc_excl_flat:       .skip 512        // NUL-separated flat names
-tc_excl_flat_n:     .skip 8
-tc_split_tab:       .skip SPLIT_MAX * 16      // {ptr, len}
-tc_split_n:         .skip 8
-tc_split_buf:       .skip 1024
-tc_excl_tmp:        .skip 1024       // stable copies of always names
-tc_excl_tmp_cur:    .skip 8
+cfg_root:        .skip 8          // toml_table_t* (0 when not loaded)
+cfg_state:       .skip 8
+cfg_explicit:    .skip 8          // path chosen by --config or env
+cfg_size:        .skip 8
+cfg_mtime:       .skip 8          // st_mtim.tv_sec at load time
+cfg_mtime_ns:    .skip 8
+cfg_path:        .skip CFG_PATH_SZ
+cfg_where:       .skip CFG_PATH_SZ   // shorten_path(cfg_path)
+cfg_scratch:     .skip CFG_SCRATCH_SZ
+cfg_scratch2:    .skip CFG_SCRATCH_SZ
+cfg_val_a:       .skip VAL_BUF_SZ
+cfg_val_b:       .skip VAL_BUF_SZ
+cfg_val_tog:     .skip 8
+cfg_errbuf:      .skip CFG_ERRBUF_SZ
+cfg_statbuf:     .skip STAT_SZ
+cfg_fd:          .skip 8
+cfg_buf:         .skip 8          // malloc'd file buffer
+cfg_bufsz:       .skip 8
+cfg_excl_groups:     .skip EX_GROUP_MAX * 24   // {name_ptr, name_len, arr_ptr}
+cfg_excl_group_n:    .skip 8
+cfg_excl_always:     .skip EX_GROUP_MAX * 16   // {name_ptr, name_len}
+cfg_excl_always_n:   .skip 8
+cfg_excl_flat:       .skip 512        // NUL-separated flat names
+cfg_excl_flat_n:     .skip 8
+cfg_split_tab:       .skip SPLIT_MAX * 16      // {ptr, len}
+cfg_split_n:         .skip 8
+cfg_split_buf:       .skip 1024
+cfg_excl_tmp:        .skip 1024       // stable copies of always names
+cfg_excl_tmp_cur:    .skip 8
 
     .text
 
@@ -163,8 +163,8 @@ tc_excl_tmp_cur:    .skip 8
     FUNC_TYPE(tc_env_get)
 tc_env_get:
     PROLOGUE 1
-    mov x19, x0                     // name (survives ensure_config_loaded)
-    bl ensure_config_loaded
+    mov x19, x0                     // name (survives cfg_ensure_config_loaded)
+    bl cfg_ensure_config_loaded
     mov x0, x19
     bl getenv
     cbz x0, .Lenv_missing
@@ -193,12 +193,12 @@ tc_config_get:
     PROLOGUE 3
     mov x19, x0                     // key
     mov x20, x1                     // section id
-    bl ensure_config_loaded
-    LEA x0, tc_cfg_state
+    bl cfg_ensure_config_loaded
+    LEA x0, cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Lcg_missing
-    LEA x0, tc_cfg_root
+    LEA x0, cfg_root
     ldr x21, [x0]                   // root table
     mov x22, #TC_SRC_CONFIG
     cmp x20, #TC_SEC_NONE
@@ -222,7 +222,7 @@ tc_config_get:
     cbz x0, .Lcg_root
     mov x24, x0
     mov x0, x24
-    bl toml_value_to_string
+    bl cfg_toml_value_to_string
     mov x1, x0
     mov x0, #1
     mov x2, x22
@@ -234,7 +234,7 @@ tc_config_get:
     cbz x0, .Lcg_missing
     mov x24, x0
     mov x0, x24
-    bl toml_value_to_string
+    bl cfg_toml_value_to_string
     mov x1, x0
     mov x0, #1
     mov x2, #TC_SRC_CONFIG
@@ -259,7 +259,7 @@ tc_config_get:
     FUNC_TYPE(tc_aliases_apply)
 tc_aliases_apply:
     PROLOGUE 4
-    bl ensure_config_loaded
+    bl cfg_ensure_config_loaded
     // "no channel given" guard — fires when the channel was never resolved
     // (source id still TC_SRC_DEFAULT), NOT when it resolved to "".
     LEA x0, tc_opts
@@ -268,20 +268,20 @@ tc_aliases_apply:
     ldr x1, [x2, #TC_SET_CHANNEL*8]
     cmp x1, #TC_SRC_DEFAULT
     b.ne .Laa_have_channel
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_no_channel_pre
     bl tc_cat_cstr
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Laa_have_channel:
     // no config -> nothing to rewrite
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Laa_ok
-    LEA x0, tc_cfg_root
+    LEA x0, cfg_root
     ldr x19, [x0]                   // root
     mov x0, x19
     LEA x1, s_key_aliases
@@ -292,7 +292,7 @@ tc_aliases_apply:
     add x21, x0, #TC_O_CHANNEL      // resolved channel (the alias key)
     mov x22, #0
     mov x0, x20
-    bl toml_table_total
+    bl cfg_toml_table_total
     mov x23, x0                     // total key count
 .Laa_key_loop:
     cmp x22, x23
@@ -313,7 +313,7 @@ tc_aliases_apply:
     cbz x0, .Laa_key_next
     mov x25, x0
     mov x0, x25
-    bl toml_value_to_string         // x0 = stringified alias value
+    bl cfg_toml_value_to_string         // x0 = stringified alias value
     mov x26, x0
     LEA_OFF x0, tc_opts, TC_O_CHANNEL
     mov x1, x26
@@ -332,7 +332,7 @@ tc_aliases_apply:
     add x0, x0, x1
     mov x1, x26
     mov x2, x25
-    bl cat_n
+    bl cfg_cat_n
     LEA x1, s_alias_arrow
     bl tc_cat_cstr
     mov x1, x24
@@ -373,11 +373,11 @@ tc_excl_contains:
     cmp x24, x22
     b.ge .Lec_no
     mov x0, x24
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x23, x0
     mov x1, x19
     mov x2, x20
-    bl login_matches
+    bl cfg_login_matches
     cbnz x0, .Lec_yes
     add x24, x24, #1
     b .Lec_loop
@@ -406,19 +406,19 @@ tc_excl_contains:
     FUNC_TYPE(tc_build_exclusions)
 tc_build_exclusions:
     PROLOGUE 5
-    bl ensure_config_loaded
+    bl cfg_ensure_config_loaded
     // ---- reset the merged set + sources --------------------------------
     LEA x0, tc_excl_set
     str xzr, [x0]                   // TC_EX_COUNT = 0
     LEA x0, tc_excl_src_count
     str xzr, [x0]
-    LEA x0, tc_excl_group_n
+    LEA x0, cfg_excl_group_n
     str xzr, [x0]
-    LEA x0, tc_excl_always_n
+    LEA x0, cfg_excl_always_n
     str xzr, [x0]
-    LEA x0, tc_excl_flat_n
+    LEA x0, cfg_excl_flat_n
     str xzr, [x0]
-    LEA x0, tc_excl_tmp_cur
+    LEA x0, cfg_excl_tmp_cur
     str xzr, [x0]
 
     LEA x0, tc_opts
@@ -426,7 +426,7 @@ tc_build_exclusions:
     // ---- --no-exclude: conflict check, then clear ----------------------
     tst x19, #TC_F_NO_EXCLUDE
     b.eq .Lbe_normal
-    LEA x20, tc_cfg_scratch
+    LEA x20, cfg_scratch
     mov x0, x20
     LEA x1, s_noexcl_prefix
     bl tc_cat_cstr
@@ -436,7 +436,7 @@ tc_build_exclusions:
     b.eq .Lbe_nx_group
     mov x0, x21
     mov x1, x22
-    bl cat_comma_if
+    bl cfg_cat_comma_if
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_exclude
@@ -448,7 +448,7 @@ tc_build_exclusions:
     b.eq .Lbe_nx_bcast
     mov x0, x21
     mov x1, x22
-    bl cat_comma_if
+    bl cfg_cat_comma_if
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_exclude_group
@@ -460,7 +460,7 @@ tc_build_exclusions:
     b.eq .Lbe_nx_include
     mov x0, x21
     mov x1, x22
-    bl cat_comma_if
+    bl cfg_cat_comma_if
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_exclude_bcast
@@ -472,7 +472,7 @@ tc_build_exclusions:
     b.eq .Lbe_nx_done
     mov x0, x21
     mov x1, x22
-    bl cat_comma_if
+    bl cfg_cat_comma_if
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_include
@@ -480,7 +480,7 @@ tc_build_exclusions:
     mov x22, #1
 .Lbe_nx_done:
     cbz x22, .Lbe_ok
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lbe_ok:
     mov x0, #0
@@ -488,7 +488,7 @@ tc_build_exclusions:
 
 .Lbe_normal:
     // ---- read the config [exclude] table -------------------------------
-    bl build_groups
+    bl cfg_build_groups
 
     // ---- validate --exclude-group names (Python exclusion_layers) -------
     LEA x0, tc_opts
@@ -504,11 +504,11 @@ tc_build_exclusions:
     mov x0, #32
     mul x0, x22, x0
     add x0, x21, x0
-    bl group_index_of
+    bl cfg_group_index_of
     cmn x0, #1
     b.ne .Lbe_grp_next
     // unknown group error: "unknown exclude group '<name>'; defined groups: <sorted>"
-    LEA x24, tc_cfg_scratch
+    LEA x24, cfg_scratch
     mov x0, x24
     LEA x1, s_unknown_group_pre
     bl tc_cat_cstr
@@ -524,9 +524,9 @@ tc_build_exclusions:
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
-    LEA x1, tc_cfg_scratch2
-    bl sort_groups_join
-    LEA x0, tc_cfg_scratch
+    LEA x1, cfg_scratch2
+    bl cfg_sort_groups_join
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lbe_grp_next:
     add x22, x22, #1
@@ -534,33 +534,33 @@ tc_build_exclusions:
 .Lbe_grp_done:
 
     // ---- layer 1: config flat exclude ----------------------------------
-    LEA x0, tc_excl_flat_n
+    LEA x0, cfg_excl_flat_n
     ldr x0, [x0]
     cbz x0, .Lbe_layer_always
     LEA x0, s_src_excl_config_label
-    bl source_add_cstr
+    bl cfg_source_add_cstr
     mov x20, x0                     // source idx
-    bl apply_flat_tokens
+    bl cfg_apply_flat_tokens
 .Lbe_layer_always:
     // ---- layer 2: config always:<name> --------------------------------
-    LEA x0, tc_excl_always_n
+    LEA x0, cfg_excl_always_n
     ldr x22, [x0]
-    LEA x23, tc_excl_always
+    LEA x23, cfg_excl_always
     mov x24, #0
 .Lbe_always_loop:
     cmp x24, x22
     b.ge .Lbe_layer_group
     // the group's login array
     mov x0, x24
-    bl always_group_arr
+    bl cfg_always_group_arr
     cbz x0, .Lbe_always_next
     mov x25, x0
     mov x0, x25
-    bl split_toml_array
+    bl cfg_split_toml_array
     cbz x0, .Lbe_always_next        // empty group -> layer skipped
     // compose "config always:<name>" into tc_excl_src_buf
     mov x0, x24
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     mov x21, x0
     mov x0, x21
     LEA x1, s_src_excl_always
@@ -573,15 +573,15 @@ tc_build_exclusions:
     mov x1, x25
     bl tc_cat_cstr
     mov x0, x24
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     bl tc_strlen
-    mov x25, x0                     // len (excl_src_buf_slot clobbers x1)
+    mov x25, x0                     // len (cfg_excl_src_buf_slot clobbers x1)
     mov x0, x24
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     mov x1, x25
-    bl source_add
+    bl cfg_source_add
     mov x20, x0
-    bl apply_split_tokens
+    bl cfg_apply_split_tokens
 .Lbe_always_next:
     add x24, x24, #1
     b .Lbe_always_loop
@@ -601,22 +601,22 @@ tc_build_exclusions:
     mov x0, #32
     mul x0, x24, x0
     add x0, x23, x0
-    bl group_index_of
+    bl cfg_group_index_of
     cmn x0, #1
     b.eq .Lbe_grp_next2             // (validated above; defensive)
     mov x25, x0
     mov x0, x25
-    bl group_arr_at
+    bl cfg_group_arr_at
     cbz x0, .Lbe_grp_next2
     mov x26, x0
     mov x0, x26
-    bl split_toml_array
+    bl cfg_split_toml_array
     cbz x0, .Lbe_grp_next2
     mov x26, x0
     mov x0, x26
     // compose "--exclude-group <name>" (group labels live in slots 64+)
     add x0, x24, #EX_GROUP_MAX
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     mov x21, x0
     mov x0, x21
     LEA x1, s_src_excl_group
@@ -628,19 +628,19 @@ tc_build_exclusions:
     add x1, x23, x1
     bl tc_cat_cstr
     add x0, x24, #EX_GROUP_MAX
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     bl tc_strlen
     mov x1, x0
     mov x25, x1
     add x0, x24, #EX_GROUP_MAX
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     mov x26, x0
     mov x1, x25
     mov x0, x26
     mov x1, x25
-    bl source_add
+    bl cfg_source_add
     mov x20, x0
-    bl apply_split_tokens
+    bl cfg_apply_split_tokens
 .Lbe_grp_next2:
     add x24, x24, #1
     b .Lbe_grp_loop
@@ -652,12 +652,12 @@ tc_build_exclusions:
     cbz x0, .Lbe_layer_cli
     ldrb w1, [x0]
     cbz w1, .Lbe_layer_cli
-    bl split_names
+    bl cfg_split_names
     cbz x0, .Lbe_layer_cli
     LEA x0, s_src_excl_env_label
-    bl source_add_cstr
+    bl cfg_source_add_cstr
     mov x20, x0
-    bl apply_split_tokens
+    bl cfg_apply_split_tokens
 
 .Lbe_layer_cli:
     // ---- layer 5: --exclude (repeatable, one flattened layer) ----------
@@ -675,7 +675,7 @@ tc_build_exclusions:
     mov x0, #64
     mul x0, x24, x0
     add x0, x23, x0
-    bl has_token_char
+    bl cfg_has_token_char
     cbnz x0, .Lbe_cli_scan_yes
     add x24, x24, #1
     b .Lbe_cli_scan
@@ -684,7 +684,7 @@ tc_build_exclusions:
 .Lbe_cli_scan_done:
     cbz x25, .Lbe_cli_done
     LEA x0, s_flag_exclude
-    bl source_add_cstr
+    bl cfg_source_add_cstr
     mov x20, x0
     mov x24, #0
 .Lbe_cli_loop:
@@ -693,12 +693,12 @@ tc_build_exclusions:
     mov x0, #64
     mul x0, x24, x0
     add x0, x23, x0
-    bl split_names
+    bl cfg_split_names
     cbz x0, .Lbe_cli_next
     mov x26, x0                     // count
     mov x0, x20
     mov x1, x26
-    bl apply_split_tokens_n
+    bl cfg_apply_split_tokens_n
 .Lbe_cli_next:
     add x24, x24, #1
     b .Lbe_cli_loop
@@ -712,19 +712,19 @@ tc_build_exclusions:
     add x2, x0, x2
     ldr x0, [x2, #TC_SET_EXCLUDE_BCAST*8]
     bl tc_source_str                // x0=ptr, x1=len
-    bl source_add
+    bl cfg_source_add
     mov x20, x0                     // source idx
     // login = lowercased resolved channel
-    LEA x0, tc_cfg_scratch2
+    LEA x0, cfg_scratch2
     mov x21, x0                     // dst
     LEA_OFF x1, tc_opts, TC_O_CHANNEL  // src
-    bl lowercase_copy
+    bl cfg_lowercase_copy
     mov x0, x21
     bl tc_strlen
     mov x1, x0                      // len
     mov x0, x21                     // login
     mov x2, x20                     // source idx
-    bl add_excl_login
+    bl cfg_add_excl_login
 
 .Lbe_include:
     // ---- --include subtraction ------------------------------------------
@@ -742,20 +742,20 @@ tc_build_exclusions:
     mov x0, #64
     mul x0, x24, x0
     add x0, x23, x0
-    bl split_names
+    bl cfg_split_names
     mov x26, x0                     // count
     mov x27, #0
 .Lbe_incl_tok:
     cmp x27, x26
     b.ge .Lbe_incl_next
-    LEA x0, tc_split_tab
+    LEA x0, cfg_split_tab
     mov x1, #16
     mul x1, x27, x1
     add x0, x0, x1
     ldr x19, [x0]                   // token ptr
     ldr x1, [x0, #8]                // token len
     mov x0, x19
-    bl excl_remove_if_present       // x0 = 0/1 removed
+    bl cfg_excl_remove_if_present       // x0 = 0/1 removed
     add x25, x25, x0
     add x27, x27, #1
     b .Lbe_incl_tok
@@ -766,7 +766,7 @@ tc_build_exclusions:
     cbz x25, .Lbe_done_ok
     // append "minus --include (N)" (dedicated slot 200)
     mov x0, #200
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     mov x21, x0
     mov x0, x21
     LEA x1, s_minus_include
@@ -774,27 +774,27 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     mov x1, x25
-    bl cat_u64
+    bl cfg_cat_u64
     LEA x1, s_rparen
     bl tc_cat_cstr
     mov x0, #200
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     bl tc_strlen
-    mov x25, x0                     // len (excl_src_buf_slot clobbers x1)
+    mov x25, x0                     // len (cfg_excl_src_buf_slot clobbers x1)
     mov x0, #200
-    bl excl_src_buf_slot
+    bl cfg_excl_src_buf_slot
     mov x1, x25
-    bl source_add
+    bl cfg_source_add
 .Lbe_done_ok:
     mov x0, #0
 .Lbe_done:
     LEA x0, tc_excl_src_count
     ldr x1, [x0]
-    LEA x0, tc_cfg_scratch2
+    LEA x0, cfg_scratch2
     mov x2, x0
     mov x0, x2
     mov x1, x1
-    LEA x0, tc_cfg_scratch2
+    LEA x0, cfg_scratch2
     EPILOGUE 5
     ret
 
@@ -813,15 +813,15 @@ tc_config_identity:
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
     b.ne .Lci_none
-    bl config_resolve_path
-    LEA x0, tc_cfg_path
+    bl cfg_resolve_path
+    LEA x0, cfg_path
     mov x19, x0
-    adrp x0, PAGE(tc_cfg_statbuf)
-    add x1, x0, LO12(tc_cfg_statbuf)
+    adrp x0, PAGE(cfg_statbuf)
+    add x1, x0, LO12(cfg_statbuf)
     mov x0, x19
     bl stat
     cbnz x0, .Lci_missing
-    LEA x0, tc_cfg_statbuf
+    LEA x0, cfg_statbuf
     LOAD_ST_MODE 1, x0
     and x1, x1, #S_IFMT
     cmp x1, #S_IFREG
@@ -858,30 +858,30 @@ tc_config_identity:
     FUNC_TYPE(tc_config_changed)
 tc_config_changed:
     PROLOGUE 1
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Lcc_no
-    LEA x0, tc_cfg_path
+    LEA x0, cfg_path
     mov x19, x0
-    adrp x0, PAGE(tc_cfg_statbuf)
-    add x1, x0, LO12(tc_cfg_statbuf)
+    adrp x0, PAGE(cfg_statbuf)
+    add x1, x0, LO12(cfg_statbuf)
     mov x0, x19
     bl stat
     cbnz x0, .Lcc_yes              // vanished -> changed
-    LEA x0, tc_cfg_statbuf
+    LEA x0, cfg_statbuf
     ldr x1, [x0, #ST_SIZE]
-    LEA x20, tc_cfg_size
+    LEA x20, cfg_size
     ldr x2, [x20]
     cmp x1, x2
     b.ne .Lcc_yes
     ldr x1, [x0, #ST_MTIM_SEC]
-    LEA x20, tc_cfg_mtime
+    LEA x20, cfg_mtime
     ldr x2, [x20]
     cmp x1, x2
     b.ne .Lcc_yes
     ldr x1, [x0, #ST_MTIM_NSEC]
-    LEA x20, tc_cfg_mtime_ns
+    LEA x20, cfg_mtime_ns
     ldr x2, [x20]
     cmp x1, x2
     b.ne .Lcc_yes
@@ -904,21 +904,21 @@ tc_config_changed:
     FUNC_TYPE(tc_config_reload)
 tc_config_reload:
     PROLOGUE 0
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Lcr_noop
-    LEA x0, tc_cfg_root
+    LEA x0, cfg_root
     ldr x0, [x0]
     cbz x0, .Lcr_noop
     bl toml_free
-    LEA x0, tc_cfg_root
+    LEA x0, cfg_root
     str xzr, [x0]
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     str xzr, [x0]
     LEA x0, tc_opts
     str xzr, [x0, #TC_O_CONFIG_LOADED]
-    bl ensure_config_loaded
+    bl cfg_ensure_config_loaded
 .Lcr_noop:
     mov x0, #0
     EPILOGUE 0
@@ -941,53 +941,53 @@ tc_config_reload:
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// ensure_config_loaded() — idempotent lazy load.  Called by every exported
+// cfg_ensure_config_loaded() — idempotent lazy load.  Called by every exported
 // hook so config-load errors surface before any env/config value is consumed
 // (Python build_inputs ordering).  On error: tc_fail (noreturn).
 // ----------------------------------------------------------------------------
     .p2align 2
-ensure_config_loaded:
+cfg_ensure_config_loaded:
     PROLOGUE 0
-    // keep TC_O_CONFIG_PATH in step with the resolved path: tc_resolve_settings
+    // keep TC_O_CONFIG_PATH in step with the resolved path: cli_resolve_settings
     // clobbers it with the literal default after the first load, so restore it
     // whenever a path has been resolved.
-    LEA x0, tc_cfg_path
+    LEA x0, cfg_path
     ldrb w1, [x0]
     cbz w1, .Lel_no_path
     LEA_OFF x1, tc_opts, TC_O_CONFIG_PATH
     mov x2, #CFG_PATH_SZ
     mov x0, x1                     // dst = TC_O_CONFIG_PATH
-    LEA x1, tc_cfg_path
+    LEA x1, cfg_path
     bl tc_copy_str_cap
 .Lel_no_path:
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     ldr x0, [x0]
     cbnz x0, .Lel_done             // loaded, decided, or busy
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     mov x1, #CFG_ST_BUSY
     str x1, [x0]
-    bl config_resolve_path
+    bl cfg_resolve_path
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
     b.eq .Lel_do_load
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     mov x1, #CFG_ST_NOLOAD
     str x1, [x0]
     b .Lel_done
 .Lel_do_load:
-    bl config_do_load
+    bl cfg_do_load
 .Lel_done:
     EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------
-// config_resolve_path() — choose and expand the config path (Python
-// load_config_layer).  Fills tc_cfg_path, tc_cfg_where, tc_cfg_explicit and
+// cfg_resolve_path() — choose and expand the config path (Python
+// load_config_layer).  Fills cfg_path, cfg_where, cfg_explicit and
 // TC_O_CONFIG_PATH.  Never fails.
 // ----------------------------------------------------------------------------
     .p2align 2
-config_resolve_path:
+cfg_resolve_path:
     PROLOGUE 3
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
@@ -1008,51 +1008,51 @@ config_resolve_path:
     b .Lcr_expand
 .Lcr_default:
     // DEFAULT_CONFIG_PATH per platform class (tc_default_config_path)
-    LEA x0, tc_cfg_scratch2
+    LEA x0, cfg_scratch2
     mov x1, #CFG_SCRATCH_SZ
     bl tc_default_config_path
-    LEA x19, tc_cfg_scratch2
+    LEA x19, cfg_scratch2
     mov x20, #0
     b .Lcr_copy
 .Lcr_expand:
     // an explicit path: os.path.expanduser (CPython semantics, tc_expanduser)
     mov x0, x19
-    LEA x1, tc_cfg_scratch2
+    LEA x1, cfg_scratch2
     mov x2, #CFG_SCRATCH_SZ
     bl tc_expanduser
-    LEA x19, tc_cfg_scratch2
+    LEA x19, cfg_scratch2
 .Lcr_copy:
-    LEA x0, tc_cfg_path
+    LEA x0, cfg_path
     mov x1, x19
     mov x2, #CFG_PATH_SZ
     bl tc_copy_str_cap
     LEA_OFF x0, tc_opts, TC_O_CONFIG_PATH
-    LEA x1, tc_cfg_path
+    LEA x1, cfg_path
     mov x2, #CFG_PATH_SZ
     bl tc_copy_str_cap
-    // tc_cfg_where = shorten_path(tc_cfg_path)
-    LEA x0, tc_cfg_path
+    // cfg_where = shorten_path(cfg_path)
+    LEA x0, cfg_path
     bl tc_shorten_path
     mov x19, x0
-    LEA x0, tc_cfg_where
+    LEA x0, cfg_where
     mov x1, x19
     mov x2, #CFG_PATH_SZ
     bl tc_copy_str_cap
-    LEA x0, tc_cfg_explicit
+    LEA x0, cfg_explicit
     str x20, [x0]
     EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
-// config_do_load() — stat/open/read/toml_parse + the load-time table checks.
-// Sets tc_cfg_state = CFG_ST_LOADED or CFG_ST_NOLOAD; tc_fail on errors.
+// cfg_do_load() — stat/open/read/toml_parse + the load-time table checks.
+// Sets cfg_state = CFG_ST_LOADED or CFG_ST_NOLOAD; tc_fail on errors.
 // ----------------------------------------------------------------------------
     .p2align 2
-config_do_load:
+cfg_do_load:
     PROLOGUE 4
     // ---- stat -----------------------------------------------------------
-    LEA x19, tc_cfg_path
-    LEA x20, tc_cfg_statbuf
+    LEA x19, cfg_path
+    LEA x20, cfg_statbuf
     mov x0, x19
     mov x1, x20
     bl stat
@@ -1072,9 +1072,9 @@ config_do_load:
     mov x0, #4096
     bl malloc
     cbz x0, .Ldl_oom
-    LEA x1, tc_cfg_buf
+    LEA x1, cfg_buf
     str x0, [x1]
-    LEA x1, tc_cfg_bufsz
+    LEA x1, cfg_bufsz
     mov x2, #4096
     str x2, [x1]
     mov x22, x0                     // buf
@@ -1089,10 +1089,10 @@ config_do_load:
     bl realloc
     cbz x0, .Ldl_oom
     mov x22, x0
-    LEA x1, tc_cfg_buf
+    LEA x1, cfg_buf
     str x0, [x1]
     lsl x23, x23, #1
-    LEA x1, tc_cfg_bufsz
+    LEA x1, cfg_bufsz
     str x23, [x1]
 .Ldl_read:
     mov x0, x21
@@ -1110,21 +1110,21 @@ config_do_load:
     mov x0, x21
     bl close
     // ---- parse ----------------------------------------------------------
-    LEA x0, tc_cfg_buf
+    LEA x0, cfg_buf
     ldr x0, [x0]
-    LEA x1, tc_cfg_errbuf
+    LEA x1, cfg_errbuf
     mov w2, #CFG_ERRBUF_SZ
     bl toml_parse
     mov x21, x0                     // root table or 0
-    LEA x0, tc_cfg_buf
+    LEA x0, cfg_buf
     ldr x0, [x0]
     bl free
-    LEA x0, tc_cfg_buf
+    LEA x0, cfg_buf
     str xzr, [x0]
     cbz x21, .Ldl_parse_err
     // (tomlc99 always returns a table; the Python "must be a table of
     //  settings" guard has no tomlc99 counterpart.)
-    LEA x0, tc_cfg_root
+    LEA x0, cfg_root
     str x21, [x0]
     // ---- aliases table check (Python build_inputs, before sections) -----
     mov x0, x21
@@ -1143,17 +1143,17 @@ config_do_load:
     LEA x1, s_key_aliases
     bl toml_raw_in
     cbz x0, .Ldl_watch
-    bl aliases_scalar_ok            // x0 = 0/1 (falsy value -> ok)
+    bl cfg_aliases_scalar_ok            // x0 = 0/1 (falsy value -> ok)
     cbnz x0, .Ldl_watch
 .Ldl_aliases_bad:
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_aliases_bad_pre
     bl tc_cat_cstr
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
     LEA x1, s_aliases_bad_suf
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Ldl_watch:
     // ---- [watch] must be a table ----------------------------------------
@@ -1162,7 +1162,7 @@ config_do_load:
     bl toml_table_in
     cbnz x0, .Ldl_tail
     LEA x0, s_key_watch
-    bl section_must_be_table_check
+    bl cfg_section_must_be_table_check
 .Ldl_tail:
     // ---- [tail] must be a table -----------------------------------------
     mov x0, x21
@@ -1170,19 +1170,19 @@ config_do_load:
     bl toml_table_in
     cbnz x0, .Ldl_loaded
     LEA x0, s_key_tail
-    bl section_must_be_table_check
+    bl cfg_section_must_be_table_check
 .Ldl_loaded:
     // ---- record identity + mark loaded ----------------------------------
     ldr x1, [x20, #ST_SIZE]
-    LEA x0, tc_cfg_size
+    LEA x0, cfg_size
     str x1, [x0]
     ldr x1, [x20, #ST_MTIM_SEC]
-    LEA x0, tc_cfg_mtime
+    LEA x0, cfg_mtime
     str x1, [x0]
     ldr x1, [x20, #ST_MTIM_NSEC]
-    LEA x0, tc_cfg_mtime_ns
+    LEA x0, cfg_mtime_ns
     str x1, [x0]
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     mov x1, #CFG_ST_LOADED
     str x1, [x0]
     LEA x0, tc_opts
@@ -1192,18 +1192,18 @@ config_do_load:
 
 .Ldl_notfile:
     // missing (or not a regular file): default -> not loaded; explicit -> error
-    LEA x0, tc_cfg_explicit
+    LEA x0, cfg_explicit
     ldr x0, [x0]
     cbz x0, .Ldl_notfile_ok
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_config_not_found
     bl tc_cat_cstr
-    LEA x1, tc_cfg_path
+    LEA x1, cfg_path
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Ldl_notfile_ok:
-    LEA x0, tc_cfg_state
+    LEA x0, cfg_state
     mov x1, #CFG_ST_NOLOAD
     str x1, [x0]
     b .Ldl_done
@@ -1217,16 +1217,16 @@ config_do_load:
     bl cfg_errno_message
     bl tc_fail
 .Ldl_parse_err:
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_could_not_read
     bl tc_cat_cstr
-    LEA x1, tc_cfg_path
+    LEA x1, cfg_path
     bl tc_cat_cstr
     LEA x1, s_colon_space
     bl tc_cat_cstr
-    LEA x1, tc_cfg_errbuf
+    LEA x1, cfg_errbuf
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Ldl_oom:
     LEA x0, s_oom
@@ -1237,14 +1237,14 @@ config_do_load:
     ret
 
 // ----------------------------------------------------------------------------
-// section_must_be_table_check(x0=key) — error "[<key>] in <where> must be a
+// cfg_section_must_be_table_check(x0=key) — error "[<key>] in <where> must be a
 // table" when the root has the key as anything but a sub-table.
 // ----------------------------------------------------------------------------
     .p2align 2
-section_must_be_table_check:
+cfg_section_must_be_table_check:
     PROLOGUE 2
     mov x19, x0                     // key
-    LEA x20, tc_cfg_root
+    LEA x20, cfg_root
     ldr x20, [x20]                  // root
     mov x0, x20
     mov x1, x19
@@ -1259,7 +1259,7 @@ section_must_be_table_check:
     bl toml_raw_in
     cbz x0, .Lsm_ok
 .Lsm_bad:
-    LEA x21, tc_cfg_scratch
+    LEA x21, cfg_scratch
     mov x0, x21
     mov x1, #'['
     strb w1, [x0], #1
@@ -1267,22 +1267,22 @@ section_must_be_table_check:
     bl tc_cat_cstr
     LEA x1, s_sect_mid
     bl tc_cat_cstr
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
     LEA x1, s_sect_suf
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lsm_ok:
     EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
-// aliases_scalar_ok(x0=raw) -> x0 = 0/1  — Python `or {}` falsy handling:
+// cfg_aliases_scalar_ok(x0=raw) -> x0 = 0/1  — Python `or {}` falsy handling:
 // an empty string, "0", "0.0" or "false" counts as absent.
 // ----------------------------------------------------------------------------
     .p2align 2
-aliases_scalar_ok:
+cfg_aliases_scalar_ok:
     PROLOGUE 1
     mov x19, x0
     ldrb w1, [x19]
@@ -1305,7 +1305,7 @@ aliases_scalar_ok:
     b .Las_no
 .Las_quote:
     mov x0, x19
-    bl toml_value_to_string
+    bl cfg_toml_value_to_string
     ldrb w1, [x0]
     cbz w1, .Las_yes
     b .Las_no
@@ -1320,7 +1320,7 @@ aliases_scalar_ok:
 
 // ----------------------------------------------------------------------------
 // cfg_errno_message() — build "could not read config <path>: [Errno N] <msg>
-// : '<path>'" into tc_cfg_scratch (Python OSError parity).  Does NOT exit.
+// : '<path>'" into cfg_scratch (Python OSError parity).  Does NOT exit.
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_errno_message:
@@ -1332,14 +1332,14 @@ cfg_errno_message:
     bl strerror
     mov x21, x0                     // strerror text
     // "[Errno N] msg: '<path>'"
-    LEA x22, tc_cfg_scratch2
+    LEA x22, cfg_scratch2
     mov x0, x22
     LEA x1, s_errno_lb
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     mov x1, x20
-    bl cat_u64
+    bl cfg_cat_u64
     mov x22, x0
     mov x0, x22
     LEA x1, s_errno_rb
@@ -1358,34 +1358,34 @@ cfg_errno_message:
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
-    LEA x1, tc_cfg_path
+    LEA x1, cfg_path
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     LEA x1, s_squote
     bl tc_cat_cstr
     // "could not read config <path>: " + the above
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_could_not_read
     bl tc_cat_cstr
-    LEA x1, tc_cfg_path
+    LEA x1, cfg_path
     bl tc_cat_cstr
     LEA x1, s_colon_space
     bl tc_cat_cstr
-    LEA x1, tc_cfg_scratch2
+    LEA x1, cfg_scratch2
     bl tc_cat_cstr
     EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
-// toml_value_to_string(x0=raw) -> x0 = string pointer.
+// cfg_toml_value_to_string(x0=raw) -> x0 = string pointer.
 //   Non-string raws (ints/floats/bools/dates) are returned as-is (their text
 //   is already what Python's str() would produce for the common cases).  String
 //   raws are unquoted into one of two alternating value buffers so two
-//   outstanding config values (tc_resolve_window's begin+since) stay valid.
+//   outstanding config values (cli_resolve_window's begin+since) stay valid.
 // ----------------------------------------------------------------------------
     .p2align 2
-toml_value_to_string:
+cfg_toml_value_to_string:
     PROLOGUE 1
     ldrb w1, [x0]
     cmp w1, #'"'
@@ -1400,17 +1400,17 @@ toml_value_to_string:
     mov x20, x0
     mov x0, x20
     mov x1, x19
-    bl toml_unquote_into
+    bl cfg_toml_unquote_into
     mov x0, x20
     EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
-// toml_unquote_into(x0=dst, x1=raw) — toml_rtos into a malloc'd temp, copy
+// cfg_toml_unquote_into(x0=dst, x1=raw) — toml_rtos into a malloc'd temp, copy
 // into dst, free.  Preserves x19-x28.
 // ----------------------------------------------------------------------------
     .p2align 2
-toml_unquote_into:
+cfg_toml_unquote_into:
     PROLOGUE 1
     sub sp, sp, #32                 // [sp] = char* slot (toml_rtos ret)
     mov x19, x0                     // dst
@@ -1425,7 +1425,7 @@ toml_unquote_into:
     mov x2, x0
     mov x0, x19
     mov x1, x20
-    bl copy_n_nul
+    bl cfg_copy_n_nul
     ldr x0, [sp]
     bl free
 .Ltu_skip:
@@ -1438,22 +1438,22 @@ toml_unquote_into:
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_value_buf:
-    LEA x1, tc_cfg_val_tog
+    LEA x1, cfg_val_tog
     ldr x2, [x1]
     eor x2, x2, #1
     str x2, [x1]
     cbz x2, .Lcvb_a
-    LEA x0, tc_cfg_val_b
+    LEA x0, cfg_val_b
     ret
 .Lcvb_a:
-    LEA x0, tc_cfg_val_a
+    LEA x0, cfg_val_a
     ret
 
 // ----------------------------------------------------------------------------
-// toml_table_total(x0=tab) -> x0 = nkval + narr + ntab
+// cfg_toml_table_total(x0=tab) -> x0 = nkval + narr + ntab
 // ----------------------------------------------------------------------------
     .p2align 2
-toml_table_total:
+cfg_toml_table_total:
     PROLOGUE 1
     mov x19, x0
     bl toml_table_nkval
@@ -1468,14 +1468,14 @@ toml_table_total:
     ret
 
 // ----------------------------------------------------------------------------
-// build_groups() — Python config_exclusions: fills tc_excl_groups /
-// tc_excl_always / tc_excl_flat from the root "exclude" key.  tc_fail on the
+// cfg_build_groups() — Python config_exclusions: fills cfg_excl_groups /
+// cfg_excl_always / cfg_excl_flat from the root "exclude" key.  tc_fail on the
 // four documented shape errors.
 // ----------------------------------------------------------------------------
     .p2align 2
-build_groups:
+cfg_build_groups:
     PROLOGUE 4
-    LEA x0, tc_cfg_root
+    LEA x0, cfg_root
     ldr x19, [x0]                   // root (may be 0: config not loaded)
     cbz x19, .Lbg_done
     mov x0, x19
@@ -1494,16 +1494,16 @@ build_groups:
     cbz x21, .Lbg_check_tab
     // ---- flat list ------------------------------------------------------
     mov x0, x21
-    bl split_toml_array
-    LEA x1, tc_excl_flat_n
+    bl cfg_split_toml_array
+    LEA x1, cfg_excl_flat_n
     str x0, [x1]
-    bl copy_split_to_flat
+    bl cfg_copy_split_to_flat
     b .Lbg_done
 .Lbg_check_tab:
     cbz x22, .Lbg_done              // no `exclude` key
     // ---- groups table ---------------------------------------------------
     mov x0, x22
-    bl toml_table_total
+    bl cfg_toml_table_total
     mov x23, x0
     mov x24, #0
 .Lbg_key_loop:
@@ -1527,11 +1527,11 @@ build_groups:
     mov x0, x25
     bl tc_strlen                    // x0 = name len (x26 survives)
     mov x3, x0                      // len
-    LEA x1, tc_excl_group_n
+    LEA x1, cfg_excl_group_n
     ldr x2, [x1]                    // count (loaded AFTER the strlen)
     cmp x2, #EX_GROUP_MAX
     b.ge .Lbg_key_next              // (cap; documented)
-    LEA x4, tc_excl_groups
+    LEA x4, cfg_excl_groups
     mov x5, #24
     mul x5, x2, x5
     add x4, x4, x5
@@ -1542,7 +1542,7 @@ build_groups:
     str x2, [x1]
     b .Lbg_key_next
 .Lbg_member_bad:
-    LEA x26, tc_cfg_scratch
+    LEA x26, cfg_scratch
     mov x0, x26
     LEA x1, s_excl_member_pre
     bl tc_cat_cstr
@@ -1555,12 +1555,12 @@ build_groups:
     LEA x1, s_excl_member_mid
     bl tc_cat_cstr
     mov x26, x0
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
     mov x26, x0
     LEA x1, s_excl_member_suf
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lbg_key_next:
     add x24, x24, #1
@@ -1593,41 +1593,41 @@ build_groups:
     mov x1, x24
     bl toml_raw_at
     cbz x0, .Lbg_always_next
-    bl toml_value_to_string
+    bl cfg_toml_value_to_string
     mov x25, x0                     // name
     mov x0, x25
     mov x0, x25
-    bl group_index_of
+    bl cfg_group_index_of
     cmn x0, #1
     b.eq .Lbg_always_unknown
     // record a STABLE copy of the name {ptr, len}
     mov x0, x25
-    bl always_name_store
+    bl cfg_always_name_store
     mov x25, x0                     // stable ptr
     mov x0, x25
     bl tc_strlen
     mov x26, x0                     // len
-    LEA x1, tc_excl_always_n
+    LEA x1, cfg_excl_always_n
     ldr x2, [x1]
     cmp x2, #EX_GROUP_MAX
     b.ge .Lbg_always_next
-    LEA x3, tc_excl_always
+    LEA x3, cfg_excl_always
     mov x4, #16
     mul x4, x2, x4
     add x3, x3, x4
     str x25, [x3]
     str x26, [x3, #8]
-    LEA x1, tc_excl_always_n
+    LEA x1, cfg_excl_always_n
     add x2, x2, #1
     str x2, [x1]
     b .Lbg_always_next
 .Lbg_always_unknown:
-    LEA x26, tc_cfg_scratch
+    LEA x26, cfg_scratch
     mov x0, x26
     LEA x1, s_always_unknown_pre
     bl tc_cat_cstr
     mov x26, x0
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
     mov x26, x0
     LEA x1, s_always_unknown_mid
@@ -1639,57 +1639,57 @@ build_groups:
     LEA x1, s_defined_groups
     bl tc_cat_cstr
     mov x26, x0
-    LEA x1, tc_cfg_scratch2
-    bl sort_groups_join
-    LEA x0, tc_cfg_scratch
+    LEA x1, cfg_scratch2
+    bl cfg_sort_groups_join
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lbg_always_next:
     add x24, x24, #1
     b .Lbg_always_loop
 .Lbg_always_bad:
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_always_bad
     bl tc_cat_cstr
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
     LEA x1, s_always_bad_suf
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lbg_bad_shape:
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     LEA x1, s_exclude_shape
     bl tc_cat_cstr
-    LEA x1, tc_cfg_where
+    LEA x1, cfg_where
     bl tc_cat_cstr
     LEA x1, s_exclude_shape_suf
     bl tc_cat_cstr
-    LEA x0, tc_cfg_scratch
+    LEA x0, cfg_scratch
     bl tc_fail
 .Lbg_done:
     EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
-// always_name_store(x0=name) -> x0 = stable pointer to a copy in tc_excl_tmp
+// cfg_always_name_store(x0=name) -> x0 = stable pointer to a copy in cfg_excl_tmp
 // ----------------------------------------------------------------------------
     .p2align 2
-always_name_store:
+cfg_always_name_store:
     PROLOGUE 2
     mov x19, x0                     // name
     bl tc_strlen
     mov x20, x0                     // len
-    LEA x0, tc_excl_tmp_cur
+    LEA x0, cfg_excl_tmp_cur
     ldr x21, [x0]                   // cursor
-    LEA x0, tc_excl_tmp
+    LEA x0, cfg_excl_tmp
     add x21, x0, x21                // dst
     mov x0, x21
     mov x1, x19
     mov x2, x20
-    bl copy_n_nul
+    bl cfg_copy_n_nul
     // advance cursor: += len + 1
     add x20, x20, #1
-    LEA x0, tc_excl_tmp_cur
+    LEA x0, cfg_excl_tmp_cur
     ldr x1, [x0]
     add x1, x1, x20
     str x1, [x0]
@@ -1698,30 +1698,30 @@ always_name_store:
     ret
 
 // ----------------------------------------------------------------------------
-// copy_split_to_flat() — copy the current tc_split_tab/buf names into
-// tc_excl_flat (NUL-separated), recording tc_excl_flat_n.
+// cfg_copy_split_to_flat() — copy the current cfg_split_tab/buf names into
+// cfg_excl_flat (NUL-separated), recording cfg_excl_flat_n.
 // ----------------------------------------------------------------------------
     .p2align 2
-copy_split_to_flat:
+cfg_copy_split_to_flat:
     PROLOGUE 2
-    LEA x0, tc_split_n
+    LEA x0, cfg_split_n
     ldr x19, [x0]
-    LEA x0, tc_excl_flat_n
+    LEA x0, cfg_excl_flat_n
     str x19, [x0]
-    LEA x0, tc_excl_flat
+    LEA x0, cfg_excl_flat
     mov x20, x0
     mov x21, #0
 .Lcsf_loop:
     cmp x21, x19
     b.ge .Lcsf_done
-    LEA x0, tc_split_tab
+    LEA x0, cfg_split_tab
     mov x1, #16
     mul x1, x21, x1
     add x0, x0, x1
     ldr x1, [x0]                    // ptr
     ldr x2, [x0, #8]                // len
     mov x0, x20
-    bl copy_n_nul
+    bl cfg_copy_n_nul
     mov x20, x0
     add x20, x20, #1                // skip the NUL
     add x21, x21, #1
@@ -1731,16 +1731,16 @@ copy_split_to_flat:
     ret
 
 // ----------------------------------------------------------------------------
-// has_token_char(x0=src) -> x0 = 1 if the string contains a non-separator.
+// cfg_has_token_char(x0=src) -> x0 = 1 if the string contains a non-separator.
 // ----------------------------------------------------------------------------
     .p2align 2
-has_token_char:
+cfg_has_token_char:
     PROLOGUE 0
     mov x1, x0
 .Lhtc_loop:
     ldrb w0, [x1], #1
     cbz w0, .Lhtc_no
-    bl is_split_sep
+    bl cfg_is_split_sep
     cbz x0, .Lhtc_yes
     b .Lhtc_loop
 .Lhtc_yes:
@@ -1753,24 +1753,24 @@ has_token_char:
     ret
 
 // ----------------------------------------------------------------------------
-// split_names(x0=src) -> x0 = count.  Splits on [,\s]+, strips, lowercases,
-// skips empties; fills tc_split_tab ({ptr,len}) and tc_split_buf (NUL-
+// cfg_split_names(x0=src) -> x0 = count.  Splits on [,\s]+, strips, lowercases,
+// skips empties; fills cfg_split_tab ({ptr,len}) and cfg_split_buf (NUL-
 // separated copies).
 // ----------------------------------------------------------------------------
     .p2align 2
-split_names:
+cfg_split_names:
     PROLOGUE 2
     mov x19, x0                     // src
-    LEA x0, tc_split_buf
+    LEA x0, cfg_split_buf
     mov x20, x0                     // dst
     mov x21, #0                     // count
 .Lsn_skip:
     ldrb w0, [x19]
     cbz w0, .Lsn_done
-    bl is_split_sep
+    bl cfg_is_split_sep
     cbnz x0, .Lsn_skip_adv
     // start of a token
-    LEA x0, tc_split_tab
+    LEA x0, cfg_split_tab
     mov x1, #16
     mul x1, x21, x1
     add x0, x0, x1
@@ -1780,7 +1780,7 @@ split_names:
     ldrb w2, [x19]
     cbz w2, .Lsn_tok_end
     mov w0, w2
-    bl is_split_sep
+    bl cfg_is_split_sep
     cbnz x0, .Lsn_tok_end
     cmp w2, #'A'
     b.lt .Lsn_tok_store
@@ -1795,7 +1795,7 @@ split_names:
 .Lsn_tok_end:
     mov w0, #0
     strb w0, [x20], #1
-    LEA x0, tc_split_tab
+    LEA x0, cfg_split_tab
     mov x1, #16
     mul x1, x21, x1
     add x0, x0, x1
@@ -1808,25 +1808,25 @@ split_names:
     add x19, x19, #1
     b .Lsn_skip
 .Lsn_done:
-    LEA x0, tc_split_n
+    LEA x0, cfg_split_n
     str x21, [x0]
     mov x0, x21
     EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
-// split_toml_array(x0=arr) -> x0 = count.  Like split_names but for TOML
+// cfg_split_toml_array(x0=arr) -> x0 = count.  Like cfg_split_names but for TOML
 // array elements (stringified, stripped, lowercased).
 // ----------------------------------------------------------------------------
     .p2align 2
-split_toml_array:
+cfg_split_toml_array:
     PROLOGUE 3
     mov x19, x0                     // arr
     bl toml_array_nelem
     mov x20, x0                     // n
     mov x21, #0                     // out count
     mov x23, #0                     // source index
-    LEA x0, tc_split_buf
+    LEA x0, cfg_split_buf
     mov x22, x0                     // dst cursor
 .Lsta_loop:
     cmp x23, x20
@@ -1835,15 +1835,15 @@ split_toml_array:
     mov x1, x23
     bl toml_raw_at
     cbz x0, .Lsta_next
-    bl toml_value_to_string         // x0 = string (scratch or raw)
+    bl cfg_toml_value_to_string         // x0 = string (scratch or raw)
     mov x24, x0
     bl tc_strlen
     mov x2, x0
     mov x0, x22
     mov x1, x24
-    bl strip_copy_lower             // x0 = out len
+    bl cfg_strip_copy_lower             // x0 = out len
     cbz x0, .Lsta_next              // empty after strip -> skip
-    LEA x2, tc_split_tab
+    LEA x2, cfg_split_tab
     mov x3, #16
     mul x3, x21, x3
     add x2, x2, x3
@@ -1859,19 +1859,19 @@ split_toml_array:
     add x23, x23, #1
     b .Lsta_loop
 .Lsta_done:
-    LEA x0, tc_split_n
+    LEA x0, cfg_split_n
     str x21, [x0]
     mov x0, x21
     EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
-// strip_copy_lower(x0=dst, x1=src, x2=len) -> x0 = out length
+// cfg_strip_copy_lower(x0=dst, x1=src, x2=len) -> x0 = out length
 //   Copies src[0..len) into dst, stripped of leading/trailing ASCII
 //   whitespace and lowercased (Python str(item).strip().lower()).
 // ----------------------------------------------------------------------------
     .p2align 2
-strip_copy_lower:
+cfg_strip_copy_lower:
     PROLOGUE 2
     mov x19, x0                     // dst
     mov x20, x1                     // src
@@ -1882,7 +1882,7 @@ strip_copy_lower:
     cmp x22, x21
     b.ge .Lscl_empty
     ldrb w0, [x20, x22]
-    bl is_ws
+    bl cfg_is_ws
     cbz x0, .Lscl_lead_done
     add x22, x22, #1
     b .Lscl_lead
@@ -1893,7 +1893,7 @@ strip_copy_lower:
     cbz x2, .Lscl_empty
     sub x2, x2, #1
     ldrb w0, [x20, x2]
-    bl is_ws
+    bl cfg_is_ws
     cbnz x0, .Lscl_trail
     add x2, x2, #1
     // out length = end - lead
@@ -1927,22 +1927,22 @@ strip_copy_lower:
     ret
 
 // ----------------------------------------------------------------------------
-// is_split_sep(x0=byte) -> x0 = 1 for comma or ASCII whitespace
+// cfg_is_split_sep(x0=byte) -> x0 = 1 for comma or ASCII whitespace
 // ----------------------------------------------------------------------------
     .p2align 2
-is_split_sep:
+cfg_is_split_sep:
     cmp w0, #','
     b.eq .Liss_yes
-    b is_ws
+    b cfg_is_ws
 .Liss_yes:
     mov x0, #1
     ret
 
 // ----------------------------------------------------------------------------
-// is_ws(x0=byte) -> x0 = 1 for space/tab/CR/LF/FF/VT
+// cfg_is_ws(x0=byte) -> x0 = 1 for space/tab/CR/LF/FF/VT
 // ----------------------------------------------------------------------------
     .p2align 2
-is_ws:
+cfg_is_ws:
     cmp w0, #0x20
     b.eq .Liw_yes
     cmp w0, #0x09
@@ -1962,19 +1962,19 @@ is_ws:
     ret
 
 // ----------------------------------------------------------------------------
-// group_index_of(x0=name) -> x0 = group index or -1
+// cfg_group_index_of(x0=name) -> x0 = group index or -1
 // ----------------------------------------------------------------------------
     .p2align 2
-group_index_of:
+cfg_group_index_of:
     PROLOGUE 1
     mov x19, x0                     // name
-    LEA x0, tc_excl_group_n
+    LEA x0, cfg_excl_group_n
     ldr x20, [x0]
     mov x0, #0
 .Lgio_loop:
     cmp x0, x20
     b.ge .Lgio_no
-    LEA x2, tc_excl_groups
+    LEA x2, cfg_excl_groups
     mov x3, #24
     mul x3, x0, x3
     add x2, x2, x3
@@ -1997,11 +1997,11 @@ group_index_of:
     ret
 
 // ----------------------------------------------------------------------------
-// group_arr_at(x0=group_index) -> x0 = toml_array_t* for the group
+// cfg_group_arr_at(x0=group_index) -> x0 = toml_array_t* for the group
 // ----------------------------------------------------------------------------
     .p2align 2
-group_arr_at:
-    LEA x1, tc_excl_groups
+cfg_group_arr_at:
+    LEA x1, cfg_excl_groups
     mov x2, #24
     mul x0, x0, x2
     add x0, x1, x0
@@ -2009,22 +2009,22 @@ group_arr_at:
     ret
 
 // ----------------------------------------------------------------------------
-// always_group_arr(x0=always_index) -> x0 = the group array named by the
+// cfg_always_group_arr(x0=always_index) -> x0 = the group array named by the
 // always record (by lookup).
 // ----------------------------------------------------------------------------
     .p2align 2
-always_group_arr:
+cfg_always_group_arr:
     PROLOGUE 1
-    LEA x1, tc_excl_always
+    LEA x1, cfg_excl_always
     mov x2, #16
     mul x0, x0, x2
     add x0, x1, x0
     ldr x19, [x0]                   // name ptr
     mov x0, x19
-    bl group_index_of
+    bl cfg_group_index_of
     cmn x0, #1
     b.eq .Laga_no
-    bl group_arr_at
+    bl cfg_group_arr_at
     b .Laga_done
 .Laga_no:
     mov x0, #0
@@ -2033,23 +2033,23 @@ always_group_arr:
     ret
 
 // ----------------------------------------------------------------------------
-// sort_groups_join(x0=dst) — Python ", ".join(sorted(groups)) or
-// "(none defined)".  Uses tc_cfg_scratch2 for the pointer array.
+// cfg_sort_groups_join(x0=dst) — Python ", ".join(sorted(groups)) or
+// "(none defined)".  Uses cfg_scratch2 for the pointer array.
 // ----------------------------------------------------------------------------
     .p2align 2
-sort_groups_join:
+cfg_sort_groups_join:
     PROLOGUE 3
     mov x19, x0                     // dst
-    LEA x0, tc_excl_group_n
+    LEA x0, cfg_excl_group_n
     ldr x20, [x0]                   // n
     cbz x20, .Lsgj_none
-    LEA x0, tc_cfg_scratch2
+    LEA x0, cfg_scratch2
     mov x21, x0                     // ptr array base
     mov x22, #0
 .Lsgj_fill:
     cmp x22, x20
     b.ge .Lsgj_sort
-    LEA x0, tc_excl_groups
+    LEA x0, cfg_excl_groups
     mov x1, #24
     mul x1, x22, x1
     add x0, x0, x1
@@ -2105,10 +2105,10 @@ sort_groups_join:
     ret
 
 // ----------------------------------------------------------------------------
-// excl_src_buf_slot(x0=slot) -> x0 = ptr into tc_excl_src_buf (64 bytes each)
+// cfg_excl_src_buf_slot(x0=slot) -> x0 = ptr into tc_excl_src_buf (64 bytes each)
 // ----------------------------------------------------------------------------
     .p2align 2
-excl_src_buf_slot:
+cfg_excl_src_buf_slot:
     LEA x1, tc_excl_src_buf
     mov x2, #64
     mul x0, x0, x2
@@ -2116,25 +2116,25 @@ excl_src_buf_slot:
     ret
 
 // ----------------------------------------------------------------------------
-// source_add_cstr(x0=label) -> x0 = source index (dedup by string)
+// cfg_source_add_cstr(x0=label) -> x0 = source index (dedup by string)
 // ----------------------------------------------------------------------------
     .p2align 2
-source_add_cstr:
+cfg_source_add_cstr:
     PROLOGUE 1
     mov x19, x0
     bl tc_strlen
     mov x1, x0
     mov x0, x19
-    bl source_add
+    bl cfg_source_add
     EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
-// source_add(x0=label_ptr, x1=label_len) -> x0 = source index.  Dedups by
+// cfg_source_add(x0=label_ptr, x1=label_len) -> x0 = source index.  Dedups by
 // exact string; appends a {ptr,len} record to tc_excl_sources.
 // ----------------------------------------------------------------------------
     .p2align 2
-source_add:
+cfg_source_add:
     PROLOGUE 3
     mov x19, x0                     // ptr
     mov x20, x1                     // len
@@ -2156,7 +2156,7 @@ source_add:
     mov x0, x1
     mov x1, x19
     mov x2, x20
-    bl memeq
+    bl cfg_memeq
     cbnz x0, .Lsa_found
 .Lsa_next:
     add x23, x23, #1
@@ -2180,15 +2180,15 @@ source_add:
     ret
 
 // ----------------------------------------------------------------------------
-// apply_flat_tokens() — apply the flat exclusion list (tc_excl_flat) with the
+// cfg_apply_flat_tokens() — apply the flat exclusion list (cfg_excl_flat) with the
 // source index in x20.
 // ----------------------------------------------------------------------------
     .p2align 2
-apply_flat_tokens:
+cfg_apply_flat_tokens:
     PROLOGUE 3
-    LEA x0, tc_excl_flat_n
+    LEA x0, cfg_excl_flat_n
     ldr x21, [x0]                   // count
-    LEA x0, tc_excl_flat
+    LEA x0, cfg_excl_flat
     mov x19, x0                     // cursor
     mov x23, #0                     // counter
 .Laft_loop:
@@ -2200,7 +2200,7 @@ apply_flat_tokens:
     mov x0, x19
     mov x1, x22
     mov x2, x20                     // src idx
-    bl add_excl_login
+    bl cfg_add_excl_login
     add x19, x19, x22
     add x19, x19, #1                // skip NUL
     add x23, x23, #1
@@ -2210,25 +2210,25 @@ apply_flat_tokens:
     ret
 
 // ----------------------------------------------------------------------------
-// apply_split_tokens() — apply the current tc_split_tab tokens with the
+// cfg_apply_split_tokens() — apply the current cfg_split_tab tokens with the
 // source index in x20.
 // ----------------------------------------------------------------------------
     .p2align 2
-apply_split_tokens:
+cfg_apply_split_tokens:
     PROLOGUE 2
-    LEA x0, tc_split_n
+    LEA x0, cfg_split_n
     ldr x1, [x0]
     mov x0, x20
-    bl apply_split_tokens_n
+    bl cfg_apply_split_tokens_n
     EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
-// apply_split_tokens_n(x0=src_idx, x1=count) — apply tc_split_tab[0..count)
+// cfg_apply_split_tokens_n(x0=src_idx, x1=count) — apply cfg_split_tab[0..count)
 // with the given source index.
 // ----------------------------------------------------------------------------
     .p2align 2
-apply_split_tokens_n:
+cfg_apply_split_tokens_n:
     PROLOGUE 2
     mov x20, x0                     // src idx
     mov x21, x1                     // count
@@ -2236,7 +2236,7 @@ apply_split_tokens_n:
 .Last_loop:
     cmp x22, x21
     b.ge .Last_done
-    LEA x0, tc_split_tab
+    LEA x0, cfg_split_tab
     mov x1, #16
     mul x1, x22, x1
     add x0, x0, x1
@@ -2244,7 +2244,7 @@ apply_split_tokens_n:
     ldr x1, [x0, #8]                // len
     mov x0, x19
     mov x2, x20
-    bl add_excl_login
+    bl cfg_add_excl_login
     add x22, x22, #1
     b .Last_loop
 .Last_done:
@@ -2252,11 +2252,11 @@ apply_split_tokens_n:
     ret
 
 // ----------------------------------------------------------------------------
-// add_excl_login(x0=login, x1=len, x2=source_idx) — append to tc_excl_set
+// cfg_add_excl_login(x0=login, x1=len, x2=source_idx) — append to tc_excl_set
 // (dedup, case-insensitive).  Fails loudly when the set is full.
 // ----------------------------------------------------------------------------
     .p2align 2
-add_excl_login:
+cfg_add_excl_login:
     PROLOGUE 3
     mov x19, x0                     // login
     mov x20, x1                     // len
@@ -2270,26 +2270,26 @@ add_excl_login:
     cmp x24, x23
     b.ge .Lael_append
     mov x0, x24
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x22, x0
     add x0, x0, #8
     mov x1, x19
     mov x2, x20
-    bl login_matches
+    bl cfg_login_matches
     cbnz x0, .Lael_done
     add x24, x24, #1
     b .Lael_dedup
 .Lael_append:
     mov x0, x24
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x22, x0
     add x0, x0, #8                  // entry login field
     mov x1, x19
     mov x2, x20
-    bl copy_login_entry
+    bl cfg_copy_login_entry
     // store the source index
     mov x0, x24
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x22, x0
     add x0, x0, #8
     add x0, x0, #TC_EX_LOGIN_SZ
@@ -2305,20 +2305,20 @@ add_excl_login:
     ret
 
 // ----------------------------------------------------------------------------
-// excl_entry_off(x0=index) -> x0 = byte offset of the entry (TC_EX_ENTRY_SZ
+// cfg_excl_entry_off(x0=index) -> x0 = byte offset of the entry (TC_EX_ENTRY_SZ
 // stride from the entries base).
 // ----------------------------------------------------------------------------
     .p2align 2
-excl_entry_off:
+cfg_excl_entry_off:
     mov x1, #TC_EX_ENTRY_SZ
     mul x0, x0, x1
     ret
 
 // ----------------------------------------------------------------------------
-// copy_login_entry(x0=dst, x1=src, x2=len) — copy up to 25 bytes + NUL.
+// cfg_copy_login_entry(x0=dst, x1=src, x2=len) — copy up to 25 bytes + NUL.
 // ----------------------------------------------------------------------------
     .p2align 2
-copy_login_entry:
+cfg_copy_login_entry:
     mov x3, #0
 .Lcle_loop:
     cmp x3, #25
@@ -2335,12 +2335,12 @@ copy_login_entry:
     ret
 
 // ----------------------------------------------------------------------------
-// login_matches(x0=entry_login, x1=login, x2=len) -> x0 = 0/1
+// cfg_login_matches(x0=entry_login, x1=login, x2=len) -> x0 = 0/1
 //   Case-insensitive compare of a stored NUL-terminated login against a
 //   length-delimited login.
 // ----------------------------------------------------------------------------
     .p2align 2
-login_matches:
+cfg_login_matches:
     PROLOGUE 1
     mov x19, x0                     // stored base
     mov x20, x1                     // candidate base
@@ -2379,11 +2379,11 @@ login_matches:
     ret
 
 // ----------------------------------------------------------------------------
-// excl_remove_if_present(x0=login, x1=len) -> x0 = 0/1 removed.
+// cfg_excl_remove_if_present(x0=login, x1=len) -> x0 = 0/1 removed.
 //   Finds the login case-insensitively and shifts the array down.
 // ----------------------------------------------------------------------------
     .p2align 2
-excl_remove_if_present:
+cfg_excl_remove_if_present:
     PROLOGUE 4
     mov x19, x0                     // login
     mov x20, x1                     // len
@@ -2394,12 +2394,12 @@ excl_remove_if_present:
     cmp x23, x22
     b.ge .Ler_no
     mov x0, x23
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x21, x0
     add x0, x0, #8
     mov x1, x19
     mov x2, x20
-    bl login_matches
+    bl cfg_login_matches
     cbnz x0, .Ler_found
     add x23, x23, #1
     b .Ler_loop
@@ -2411,20 +2411,20 @@ excl_remove_if_present:
     b.ge .Ler_dec
     // dst = base + 8 + idx*34
     mov x0, x24
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x21, x0
     add x0, x0, #8
     mov x25, x0                     // dst (callee-saved)
     // src = base + 8 + (idx+1)*34
     mov x0, x24
     add x0, x0, #1
-    bl excl_entry_off
+    bl cfg_excl_entry_off
     add x0, x21, x0
     add x0, x0, #8
     mov x1, x0                      // src
     mov x0, x25
     mov x2, #TC_EX_ENTRY_SZ
-    bl memmove_local
+    bl cfg_memmove_local
     add x24, x24, #1
     b .Ler_shift
 .Ler_dec:
@@ -2439,30 +2439,30 @@ excl_remove_if_present:
     ret
 
 // ----------------------------------------------------------------------------
-// memmove_local(x0=dst, x1=src, x2=n) — byte move (forward; our shifts move up)
+// cfg_memmove_local(x0=dst, x1=src, x2=n) — byte move (forward; our shifts move up)
 // ----------------------------------------------------------------------------
     .p2align 2
-memmove_local:
+cfg_memmove_local:
     cbz x2, .Lmm_done
     ldrb w3, [x1], #1
     strb w3, [x0], #1
     sub x2, x2, #1
-    b memmove_local
+    b cfg_memmove_local
 .Lmm_done:
     ret
 
 // ----------------------------------------------------------------------------
-// memeq(x0=a, x1=b, x2=n) -> x0 = 0/1 (exact compare)
+// cfg_memeq(x0=a, x1=b, x2=n) -> x0 = 0/1 (exact compare)
 // ----------------------------------------------------------------------------
     .p2align 2
-memeq:
+cfg_memeq:
     cbz x2, .Lmeq_yes
     ldrb w3, [x0], #1
     ldrb w4, [x1], #1
     cmp w3, w4
     b.ne .Lmeq_no
     sub x2, x2, #1
-    b memeq
+    b cfg_memeq
 .Lmeq_yes:
     mov x0, #1
     ret
@@ -2471,10 +2471,10 @@ memeq:
     ret
 
 // ----------------------------------------------------------------------------
-// cat_comma_if(x0=dst, x1=wrote_any) -> x0 = end.  Writes ", " when set.
+// cfg_cat_comma_if(x0=dst, x1=wrote_any) -> x0 = end.  Writes ", " when set.
 // ----------------------------------------------------------------------------
     .p2align 2
-cat_comma_if:
+cfg_cat_comma_if:
     PROLOGUE 0
     cbz x1, .Lcci_done
     LEA x1, s_comma_space
@@ -2484,10 +2484,10 @@ cat_comma_if:
     ret
 
 // ----------------------------------------------------------------------------
-// cat_n(x0=dst, x1=src, x2=n) -> x0 = end (NUL-terminated)
+// cfg_cat_n(x0=dst, x1=src, x2=n) -> x0 = end (NUL-terminated)
 // ----------------------------------------------------------------------------
     .p2align 2
-cat_n:
+cfg_cat_n:
     PROLOGUE 0
     mov x3, x0
 .Lcatn_loop:
@@ -2504,10 +2504,10 @@ cat_n:
     ret
 
 // ----------------------------------------------------------------------------
-// cat_u64(x0=dst, x1=val) -> x0 = end
+// cfg_cat_u64(x0=dst, x1=val) -> x0 = end
 // ----------------------------------------------------------------------------
     .p2align 2
-cat_u64:
+cfg_cat_u64:
     PROLOGUE 1
     sub sp, sp, #32
     mov x19, x0
@@ -2541,31 +2541,31 @@ cat_u64:
     ret
 
 // ----------------------------------------------------------------------------
-// copy_n_nul(x0=dst, x1=src, x2=n) — copy n bytes + NUL
+// cfg_copy_n_nul(x0=dst, x1=src, x2=n) — copy n bytes + NUL
 // ----------------------------------------------------------------------------
     .p2align 2
-copy_n_nul:
+cfg_copy_n_nul:
     cbz x2, .Lcnn_z
     ldrb w3, [x1], #1
     strb w3, [x0], #1
     sub x2, x2, #1
-    b copy_n_nul
+    b cfg_copy_n_nul
 .Lcnn_z:
     mov w3, #0
     strb w3, [x0]
     ret
 
 // ----------------------------------------------------------------------------
-// starts_with(x0=s, x1=prefix) -> x0 = 0/1
+// cfg_starts_with(x0=s, x1=prefix) -> x0 = 0/1
 // ----------------------------------------------------------------------------
     .p2align 2
-starts_with:
+cfg_starts_with:
     ldrb w2, [x1], #1
     cbz w2, .Lsw_yes
     ldrb w3, [x0], #1
     cmp w2, w3
     b.ne .Lsw_no
-    b starts_with
+    b cfg_starts_with
 .Lsw_yes:
     mov x0, #1
     ret
@@ -2574,10 +2574,10 @@ starts_with:
     ret
 
 // ----------------------------------------------------------------------------
-// lowercase_copy(x0=dst, x1=src) -> x0 = end (NUL-terminated, A-Z lowercased)
+// cfg_lowercase_copy(x0=dst, x1=src) -> x0 = end (NUL-terminated, A-Z lowercased)
 // ----------------------------------------------------------------------------
     .p2align 2
-lowercase_copy:
+cfg_lowercase_copy:
     ldrb w2, [x1], #1
     cbz w2, .Llc_done
     cmp w2, #'A'
@@ -2587,7 +2587,7 @@ lowercase_copy:
     add w2, w2, #0x20
 .Llc_store:
     strb w2, [x0], #1
-    b lowercase_copy
+    b cfg_lowercase_copy
 .Llc_done:
     mov w2, #0
     strb w2, [x0]

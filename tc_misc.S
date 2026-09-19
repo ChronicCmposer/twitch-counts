@@ -50,7 +50,7 @@
 //      2. channels/groups need no channel; the rest resolve the channel:
 //         empty channel -> no output; missing logs root / channel dir ->
 //         ConfigError report; dates/weeks/periods/users/includes continue
-//         with the resolved channel dir (tc_misc_cdir).
+//         with the resolved channel dir (misc_cdir).
 //      3. dates/weeks/periods: reuse tc_core's tc_listing (tc_count_run with
 //         an all-covering window) so the FILENAME_RE filtering, date
 //         validation and sort are the already-differential-tested ones.
@@ -62,7 +62,7 @@
 //
 //  Deviation notes (documented for later phases)
 //  ---------------------------------------------
-//    * complete_users uses UTC "now" (the Python uses local time); the
+//    * misc_complete_users uses UTC "now" (the Python uses local time); the
 //      differential generates logs that cover any 7-day window.
 //    * Config TOML errors use tomlc99's message ("line N: ...") instead of
 //      tomllib's; the "could not read config <path>: " prefix is identical.
@@ -127,26 +127,26 @@
 // ----------------------------------------------------------------------------
     .bss
     .p2align 4
-tc_misc_arena:      .skip MISC_ARENA_SZ
-tc_misc_cur:        .skip 8           // arena bump pointer (0 = uninitialized)
-tc_misc_buf:        .skip 4096        // line / path scratch
-tc_misc_buf2:       .skip 4096        // stderr message scratch
-tc_misc_names:      .skip MISC_MAX_NAMES * 8
-tc_misc_n:          .skip 8
-tc_misc_groups:     .skip MISC_GROUPS_MAX * GR_SZ
-tc_misc_group_n:    .skip 8
-tc_misc_flat:       .skip MISC_MAX_NAMES * 8
-tc_misc_flat_n:     .skip 8
-tc_misc_always:     .skip MISC_GROUPS_MAX * 8
-tc_misc_always_n:   .skip 8
-tc_misc_uidx:       .skip MISC_MAX_USERS * 8
-tc_misc_uval:       .skip MISC_MAX_USERS * 8
-tc_misc_root:       .skip MISC_PATH_SZ      // expanded logs root
-tc_misc_cdir:       .skip MISC_PATH_SZ      // <root>/<channel dir name>
-tc_misc_expanded:   .skip MISC_PATH_SZ      // expanded config path
-tc_misc_where:      .skip MISC_PATH_SZ      // shorten_path(config path)
-tc_misc_ts:         .skip 16                // struct timespec
-tc_misc_errbuf:     .skip MISC_ERRBUF_SZ    // toml_parse_file error buffer
+misc_arena:      .skip MISC_ARENA_SZ
+misc_cur:        .skip 8           // arena bump pointer (0 = uninitialized)
+misc_buf:        .skip 4096        // line / path scratch
+misc_buf2:       .skip 4096        // stderr message scratch
+misc_names:      .skip MISC_MAX_NAMES * 8
+misc_n:          .skip 8
+misc_groups:     .skip MISC_GROUPS_MAX * GR_SZ
+misc_group_n:    .skip 8
+misc_flat:       .skip MISC_MAX_NAMES * 8
+misc_flat_n:     .skip 8
+misc_always:     .skip MISC_GROUPS_MAX * 8
+misc_always_n:   .skip 8
+misc_uidx:       .skip MISC_MAX_USERS * 8
+misc_uval:       .skip MISC_MAX_USERS * 8
+misc_root:       .skip MISC_PATH_SZ      // expanded logs root
+misc_cdir:       .skip MISC_PATH_SZ      // <root>/<channel dir name>
+misc_expanded:   .skip MISC_PATH_SZ      // expanded config path
+misc_where:      .skip MISC_PATH_SZ      // shorten_path(config path)
+misc_ts:         .skip 16                // struct timespec
+misc_errbuf:     .skip MISC_ERRBUF_SZ    // toml_parse_file error buffer
 
     .text
 
@@ -177,10 +177,10 @@ tc_misc_fish:
     // Python computes at runtime for the machine it runs on.
     LEA x0, tc_fish_text_a
     bl tc_puts
-    LEA x0, tc_misc_expanded
+    LEA x0, misc_expanded
     mov x1, #MISC_PATH_SZ
     bl tc_default_config_path
-    LEA x0, tc_misc_expanded
+    LEA x0, misc_expanded
     bl tc_shorten_path
     bl tc_puts
     LEA x0, tc_fish_text_b
@@ -191,7 +191,7 @@ tc_misc_fish:
 
 // ============================================================================
 // tc_misc_now_utc() -> (x0=ymd, x1=sod) — the current time in UTC.
-//   Documented deviation: the Python's complete_users uses datetime.now()
+//   Documented deviation: the Python's misc_complete_users uses datetime.now()
 //   (local time); the port uses UTC so the window is reproducible.
 // ============================================================================
     .p2align 2
@@ -200,9 +200,9 @@ tc_misc_fish:
 tc_misc_now_utc:
     PROLOGUE 2
     mov x0, #CLOCK_REALTIME
-    LEA x1, tc_misc_ts
+    LEA x1, misc_ts
     bl clock_gettime
-    LEA x19, tc_misc_ts
+    LEA x19, misc_ts
     ldr x20, [x19]                      // seconds
     ldr x21, =SECS_PER_DAY
     sdiv x22, x20, x21                  // days
@@ -255,28 +255,28 @@ tc_misc_complete:
     b .Lmc_done
 .Lmc_channels:
     mov x0, x20
-    bl complete_channels
+    bl misc_complete_channels
     b .Lmc_done
 .Lmc_groups:
     mov x0, x20
-    bl complete_groups
+    bl misc_complete_groups
     b .Lmc_done
 .Lmc_dates:
-    bl complete_dates
+    bl misc_complete_dates
     b .Lmc_done
 .Lmc_weeks:
-    bl complete_weeks
+    bl misc_complete_weeks
     b .Lmc_done
 .Lmc_periods:
-    bl complete_periods
+    bl misc_complete_periods
     b .Lmc_done
 .Lmc_users:
     mov x0, x20
-    bl complete_users
+    bl misc_complete_users
     b .Lmc_done
 .Lmc_includes:
     mov x0, x20
-    bl complete_includes
+    bl misc_complete_includes
     b .Lmc_done
 .Lmc_done:
     mov x0, x20
@@ -288,9 +288,9 @@ tc_misc_complete:
     ret
 
 // ============================================================================
-// complete_channels(x0=tab) — sorted(aliases keys + logs-root subdirs).
+// misc_complete_channels(x0=tab) — sorted(aliases keys + logs-root subdirs).
 // ============================================================================
-complete_channels:
+misc_complete_channels:
     PROLOGUE 2
     mov x19, x0                         // tab
     bl misc_names_reset
@@ -312,7 +312,7 @@ complete_channels:
 .Lcc_dirs:
     // logs-root subdirectories (Python: if os.path.isdir(logs_root))
     bl misc_expand_root
-    LEA x0, tc_misc_root
+    LEA x0, misc_root
     bl misc_list_dirs                   // adds + sorts when the dir exists
     bl misc_names_sort
     bl misc_names_print
@@ -321,18 +321,18 @@ complete_channels:
     ret
 
 // ============================================================================
-// complete_groups(x0=tab) — sorted [exclude] group names (config_exclusions).
+// misc_complete_groups(x0=tab) — sorted [exclude] group names (config_exclusions).
 // ============================================================================
-complete_groups:
+misc_complete_groups:
     PROLOGUE 3
     mov x19, x0                         // tab
     bl misc_cfg_exclusions              // x0 = status
     cmp x0, #0
     b.ne .Lcg_done                      // error printed
     bl misc_names_reset
-    LEA x20, tc_misc_group_n
+    LEA x20, misc_group_n
     ldr x21, [x20]                      // group count
-    LEA x22, tc_misc_groups
+    LEA x22, misc_groups
     mov x23, #0                         // i
 .Lcg_loop:
     cmp x23, x21
@@ -351,9 +351,9 @@ complete_groups:
     mov x0, #0
     EPILOGUE 3
     ret// ============================================================================
-// complete_dates() — every dated log file's date, ascending, one per line.
+// misc_complete_dates() — every dated log file's date, ascending, one per line.
 // ============================================================================
-complete_dates:
+misc_complete_dates:
     PROLOGUE 3
     bl misc_set_all_window
     bl tc_count_run                     // fills tc_listing
@@ -369,9 +369,9 @@ complete_dates:
     add x23, x21, x23
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
-    LEA x1, tc_misc_buf
+    LEA x1, misc_buf
     bl misc_fmt_ymd
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     bl misc_print_line
     add x22, x22, #1
     b .Lcd_loop
@@ -381,9 +381,9 @@ complete_dates:
     ret
 
 // ============================================================================
-// complete_weeks() — ISO weeks of the dated logs, deduped, in date order.
+// misc_complete_weeks() — ISO weeks of the dated logs, deduped, in date order.
 // ============================================================================
-complete_weeks:
+misc_complete_weeks:
     PROLOGUE 3
     bl misc_set_all_window
     bl tc_count_run
@@ -401,10 +401,10 @@ complete_weeks:
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
     bl misc_iso_week                    // x0=iso_year, x1=iso_week
-    LEA x24, tc_misc_buf
+    LEA x24, misc_buf
     mov x2, x24
     bl misc_fmt_week                    // x0 = dst end (unused)
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     bl misc_names_add
     add x22, x22, #1
     b .Lcw_loop
@@ -416,9 +416,9 @@ complete_weeks:
     ret
 
 // ============================================================================
-// complete_periods() — weeks then dates (Python: weeks + dates).
+// misc_complete_periods() — weeks then dates (Python: weeks + dates).
 // ============================================================================
-complete_periods:
+misc_complete_periods:
     PROLOGUE 3
     bl misc_set_all_window
     bl tc_count_run
@@ -436,10 +436,10 @@ complete_periods:
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
     bl misc_iso_week
-    LEA x24, tc_misc_buf
+    LEA x24, misc_buf
     mov x2, x24
     bl misc_fmt_week
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     bl misc_names_add
     add x22, x22, #1
     b .Lcp_weeks_loop
@@ -458,9 +458,9 @@ complete_periods:
     add x23, x21, x23
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
-    LEA x1, tc_misc_buf
+    LEA x1, misc_buf
     bl misc_fmt_ymd
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     bl misc_print_line
     add x22, x22, #1
     b .Lcp_dates_loop
@@ -470,9 +470,9 @@ complete_periods:
     ret
 
 // ============================================================================
-// complete_users(x0=tab) — 7-day counting pass, then sorted config-known.
+// misc_complete_users(x0=tab) — 7-day counting pass, then sorted config-known.
 // ============================================================================
-complete_users:
+misc_complete_users:
     PROLOGUE 5
     mov x19, x0                         // tab
     // config exclusions -> flat + group members (the "known" set)
@@ -496,7 +496,7 @@ complete_users:
 .Lcu_fill_loop:
     cmp x22, x20
     b.ge .Lcu_fill_done
-    LEA x23, tc_misc_uidx
+    LEA x23, misc_uidx
     str x22, [x23, x22, lsl #3]
     mov x23, #TC_US_ENTRY_SZ
     mul x23, x22, x23
@@ -506,13 +506,13 @@ complete_users:
     add x24, x24, x25
     ldr x25, [x23, #TC_US_UNKNOWN]
     add x24, x24, x25
-    LEA x23, tc_misc_uval
+    LEA x23, misc_uval
     str x24, [x23, x22, lsl #3]
     add x22, x22, #1
     b .Lcu_fill_loop
 .Lcu_fill_done:
-    LEA x0, tc_misc_uidx
-    LEA x1, tc_misc_uval
+    LEA x0, misc_uidx
+    LEA x1, misc_uval
     mov x2, x20
     bl misc_sort_users
     // print the counted logins in that order
@@ -520,7 +520,7 @@ complete_users:
 .Lcu_print_loop:
     cmp x22, x20
     b.ge .Lcu_print_done
-    LEA x23, tc_misc_uidx
+    LEA x23, misc_uidx
     ldr x23, [x23, x22, lsl #3]
     mov x24, #TC_US_ENTRY_SZ
     mul x24, x23, x24
@@ -533,9 +533,9 @@ complete_users:
     // ---- sorted(known - set(counts)) --------------------------------------
     bl misc_names_reset
     // flat exclusions
-    LEA x22, tc_misc_flat_n
+    LEA x22, misc_flat_n
     ldr x23, [x22]
-    LEA x24, tc_misc_flat
+    LEA x24, misc_flat
     mov x25, #0
 .Lcu_flat_loop:
     cmp x25, x23
@@ -546,9 +546,9 @@ complete_users:
     b .Lcu_flat_loop
 .Lcu_flat_done:
     // every group's members
-    LEA x22, tc_misc_group_n
+    LEA x22, misc_group_n
     ldr x23, [x22]
-    LEA x24, tc_misc_groups
+    LEA x24, misc_groups
     mov x25, #0
 .Lcu_grp_loop:
     cmp x25, x23
@@ -572,9 +572,9 @@ complete_users:
 .Lcu_grp_done:
     bl misc_names_sort
     // print known logins that are NOT in the counted set
-    LEA x22, tc_misc_n
+    LEA x22, misc_n
     ldr x23, [x22]
-    LEA x24, tc_misc_names
+    LEA x24, misc_names
     mov x25, #0
 .Lcu_known_loop:
     cmp x25, x23
@@ -593,9 +593,9 @@ complete_users:
 .Lcu_done:
     EPILOGUE 5
     ret// ============================================================================
-// complete_includes(x0=tab) — sorted merged exclusion logins (build_exclusions).
+// misc_complete_includes(x0=tab) — sorted merged exclusion logins (build_exclusions).
 // ============================================================================
-complete_includes:
+misc_complete_includes:
     PROLOGUE 5
     mov x19, x0                         // tab
     // ---- --no-exclude: conflict check, then empty (Python build_exclusions)
@@ -603,7 +603,7 @@ complete_includes:
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_EXCLUDE
     b.eq .Lci_normal
-    LEA x20, tc_misc_buf
+    LEA x20, misc_buf
     mov x21, x20                        // cursor
     mov x22, #0                         // wrote_any
     tst x1, #TC_F_EXCL_GIVEN
@@ -662,14 +662,14 @@ complete_includes:
 .Lci_nx_done:
     cbz x22, .Lci_done                  // --no-exclude with nothing -> empty
     // "--no-exclude cannot be combined with " + list
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_noexcl_prefix
     bl misc_cat
-    LEA x1, tc_misc_buf
+    LEA x1, misc_buf
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     b .Lci_done
 .Lci_normal:
@@ -680,9 +680,9 @@ complete_includes:
     b.ne .Lci_done
     bl misc_names_reset
     // layer 1: config flat
-    LEA x20, tc_misc_flat_n
+    LEA x20, misc_flat_n
     ldr x21, [x20]
-    LEA x22, tc_misc_flat
+    LEA x22, misc_flat
     mov x23, #0
 .Lci_flat_loop:
     cmp x23, x21
@@ -693,9 +693,9 @@ complete_includes:
     b .Lci_flat_loop
 .Lci_flat_done:
     // layer 2: config always:<name> groups
-    LEA x20, tc_misc_always_n
+    LEA x20, misc_always_n
     ldr x21, [x20]
-    LEA x22, tc_misc_always
+    LEA x22, misc_always
     mov x23, #0
 .Lci_always_loop:
     cmp x23, x21
@@ -707,7 +707,7 @@ complete_includes:
     b.eq .Lci_always_next
     mov x25, #GR_SZ
     mul x25, x0, x25
-    LEA x26, tc_misc_groups
+    LEA x26, misc_groups
     add x26, x26, x25
     ldr x27, [x26, #GR_MEMBERS]
     ldr x28, [x26, #GR_MEMBER_N]
@@ -747,7 +747,7 @@ complete_includes:
 .Lci_cli_grp_ok:
     mov x25, #GR_SZ
     mul x25, x0, x25
-    LEA x26, tc_misc_groups
+    LEA x26, misc_groups
     add x26, x26, x25
     ldr x27, [x26, #GR_MEMBERS]
     ldr x28, [x26, #GR_MEMBER_N]
@@ -768,7 +768,7 @@ complete_includes:
     bl misc_env_get                     // x0 = found, x1 = value
     cbz x0, .Lci_env_done
     mov x0, x1
-    bl misc_split_add                   // split_names, add each
+    bl misc_split_add                   // cfg_split_names, add each
 .Lci_env_done:
     // layer 5: --exclude LOGIN[,LOGIN...]
     LEA x0, tc_opts
@@ -819,7 +819,7 @@ complete_includes:
     mov x0, #0
     EPILOGUE 5
     ret// ============================================================================
-// misc_require_channel() -> x0: 0 ok (tc_misc_cdir filled), 1 no channel,
+// misc_require_channel() -> x0: 0 ok (misc_cdir filled), 1 no channel,
 //   2 error printed.  Python resolve() + resolve_channel_dir().
 // ============================================================================
 misc_require_channel:
@@ -832,26 +832,26 @@ misc_require_channel:
     bl misc_expand_root
     // list the root's subdirectories (sorted)
     bl misc_names_reset
-    LEA x0, tc_misc_root
+    LEA x0, misc_root
     bl misc_list_dirs
     cbnz x0, .Lrc_root_ok
     // "logs directory not found: <root>"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_dir_not_found
     bl misc_cat
-    LEA x1, tc_misc_root
+    LEA x1, misc_root
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lrc_out
 .Lrc_root_ok:
     // find the channel case-insensitively
-    LEA x19, tc_misc_n
+    LEA x19, misc_n
     ldr x20, [x19]
-    LEA x21, tc_misc_names
+    LEA x21, misc_names
     mov x22, #0
 .Lrc_find:
     cmp x22, x20
@@ -864,9 +864,9 @@ misc_require_channel:
     add x22, x22, #1
     b .Lrc_find
 .Lrc_found:
-    // tc_misc_cdir = <root>/<real name>
-    LEA x0, tc_misc_cdir
-    LEA x1, tc_misc_root
+    // misc_cdir = <root>/<real name>
+    LEA x0, misc_cdir
+    LEA x1, misc_root
     bl misc_cat
     mov w2, #'/'
     strb w2, [x0], #1
@@ -878,23 +878,23 @@ misc_require_channel:
     b .Lrc_out
 .Lrc_no_channel:
     // "no logs for channel '<ch>' in <root>\navailable: <join|(none)>"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_no_logs_pre
     bl misc_cat
     LEA_OFF x1, tc_opts, TC_O_CHANNEL
     bl misc_cat
     LEA x1, s_no_logs_mid
     bl misc_cat
-    LEA x1, tc_misc_root
+    LEA x1, misc_root
     bl misc_cat
     mov w2, #'\n'
     strb w2, [x0], #1
     LEA x1, s_avail
     bl misc_cat
     mov x19, x0                         // cursor
-    LEA x20, tc_misc_n
+    LEA x20, misc_n
     ldr x21, [x20]
-    LEA x22, tc_misc_names
+    LEA x22, misc_names
     cbz x21, .Lrc_avail_none
     mov x23, #0
 .Lrc_avail_loop:
@@ -919,7 +919,7 @@ misc_require_channel:
 .Lrc_avail_done:
     mov w1, #0
     strb w1, [x19]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lrc_out
@@ -931,7 +931,7 @@ misc_require_channel:
 
 // ============================================================================
 // misc_cfg_exclusions(x0=tab) -> x0 = status (0 ok, 2 error printed).
-//   Fills tc_misc_groups / tc_misc_flat / tc_misc_always (Python
+//   Fills misc_groups / misc_flat / misc_always (Python
 //   config_exclusions), validating the [exclude] shape exactly like the
 //   reference so a broken config reports instead of exiting.
 // ============================================================================
@@ -939,11 +939,11 @@ misc_cfg_exclusions:
     PROLOGUE 5
     mov x19, x0                         // tab
     // reset outputs
-    LEA x0, tc_misc_group_n
+    LEA x0, misc_group_n
     str xzr, [x0]
-    LEA x0, tc_misc_flat_n
+    LEA x0, misc_flat_n
     str xzr, [x0]
-    LEA x0, tc_misc_always_n
+    LEA x0, misc_always_n
     str xzr, [x0]
     cbz x19, .Lce_ok_empty
     // absent "exclude" is empty exclusions (Python: raw = config.get("exclude");
@@ -965,26 +965,26 @@ misc_cfg_exclusions:
     bl toml_array_in
     cbnz x0, .Lce_flat
     // neither: "`exclude` in <where> must be a list of logins or a table of groups"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_excl_shape_pre
     bl misc_cat
-    LEA x1, tc_misc_where
+    LEA x1, misc_where
     bl misc_cat
     LEA x1, s_excl_shape_suf
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
 .Lce_flat:
-    // exclude = [ ... ] -> flat logins (split_names of each element)
+    // exclude = [ ... ] -> flat logins (cfg_split_names of each element)
     mov x20, x0                         // array
     bl toml_array_nelem
     mov x21, x0                         // nelem
-    LEA x22, tc_misc_flat_n
-    LEA x23, tc_misc_flat
+    LEA x22, misc_flat_n
+    LEA x23, misc_flat
     mov x24, #0
 .Lce_flat_loop:
     cmp x24, x21
@@ -1029,13 +1029,13 @@ misc_cfg_exclusions:
     cbz x0, .Lce_bad_group
     // record the group
     mov x23, x0                         // members array
-    LEA x24, tc_misc_group_n
+    LEA x24, misc_group_n
     ldr x25, [x24]                      // group index
     cmp x25, #MISC_GROUPS_MAX
     b.ge .Lce_ok_empty                  // (unreachable with sane configs)
     mov x26, #GR_SZ
     mul x26, x25, x26
-    LEA x27, tc_misc_groups
+    LEA x27, misc_groups
     add x27, x27, x26                  // record ptr
     mov x0, x22
     bl misc_arena_str                   // x0 = arena copy of the key
@@ -1088,8 +1088,8 @@ misc_cfg_exclusions:
     mov x23, x0
     bl toml_array_nelem
     mov x24, x0
-    LEA x25, tc_misc_always_n
-    LEA x26, tc_misc_always
+    LEA x25, misc_always_n
+    LEA x26, misc_always
     mov x27, #0
 .Lce_always_loop:
     cmp x27, x24
@@ -1117,43 +1117,43 @@ misc_cfg_exclusions:
     b .Lce_key_loop
 .Lce_bad_group:
     // "[exclude].<key> in <where> must be a list of logins"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_excl_group_pre
     bl misc_cat
     mov x1, x22
     bl misc_cat
     LEA x1, s_excl_in_where
     bl misc_cat
-    LEA x1, tc_misc_where
+    LEA x1, misc_where
     bl misc_cat
     LEA x1, s_list_logins
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
 .Lce_bad_always_list:
     // "[exclude].always in <where> must be a list of group names"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_excl_always_pre
     bl misc_cat
-    LEA x1, tc_misc_where
+    LEA x1, misc_where
     bl misc_cat
     LEA x1, s_list_group_names
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
 .Lce_always_validate:
     // validate every always name against the group names
-    LEA x19, tc_misc_always_n
+    LEA x19, misc_always_n
     ldr x20, [x19]
-    LEA x21, tc_misc_always
+    LEA x21, misc_always
     mov x22, #0
 .Lce_av_loop:
     cmp x22, x20
@@ -1185,7 +1185,7 @@ misc_cfg_exclusions:
 misc_unknown_group_failed:
     PROLOGUE 1
     mov x19, x0                         // group name
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_unknown_group_pre
     bl misc_cat
     mov x0, x19                         // restore the name for .Lugf_append
@@ -1198,9 +1198,9 @@ misc_unknown_group_failed:
 .Lugf_append:
     PROLOGUE 2
     mov x19, x0                         // group name
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl tc_strlen
-    LEA x20, tc_misc_buf2
+    LEA x20, misc_buf2
     add x20, x20, x0                    // cursor = end of buf2
     mov x0, x20
     mov x1, x19
@@ -1211,10 +1211,10 @@ misc_unknown_group_failed:
     bl misc_cat
     mov x19, x0                         // cursor
     // collect + sort the group names
-    LEA x20, tc_misc_group_n
+    LEA x20, misc_group_n
     ldr x21, [x20]
-    LEA x22, tc_misc_names
-    LEA x0, tc_misc_n
+    LEA x22, misc_names
+    LEA x0, misc_n
     str xzr, [x0]
     mov x0, #0
 .Lugf_collect:
@@ -1222,10 +1222,10 @@ misc_unknown_group_failed:
     b.ge .Lugf_sort
     mov x1, #GR_SZ
     mul x1, x0, x1
-    LEA x2, tc_misc_groups
+    LEA x2, misc_groups
     add x1, x2, x1
     ldr x1, [x1, #GR_NAME]
-    LEA x2, tc_misc_n
+    LEA x2, misc_n
     ldr x3, [x2]
     str x1, [x22, x3, lsl #3]
     add x3, x3, #1
@@ -1233,11 +1233,11 @@ misc_unknown_group_failed:
     add x0, x0, #1
     b .Lugf_collect
 .Lugf_sort:
-    LEA x0, tc_misc_n
+    LEA x0, misc_n
     ldr x1, [x0]
     mov x0, x22
     bl misc_sort_names
-    LEA x0, tc_misc_n
+    LEA x0, misc_n
     ldr x20, [x0]
     cbz x20, .Lugf_none
     mov x21, #0
@@ -1264,7 +1264,7 @@ misc_unknown_group_failed:
 .Lugf_done:
     mov w1, #0
     strb w1, [x19]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     EPILOGUE 2
     ret
@@ -1299,22 +1299,22 @@ misc_config_open:
     cbnz w1, .Lco_have_path
     b .Lco_empty
 .Lco_have_path:
-    LEA x1, tc_misc_expanded
+    LEA x1, misc_expanded
     bl misc_expanduser
     // shorten_path for error messages
-    LEA x0, tc_misc_expanded
-    LEA x1, tc_misc_where
+    LEA x0, misc_expanded
+    LEA x1, misc_where
     bl misc_shorten_path
-    LEA x0, tc_misc_expanded
+    LEA x0, misc_expanded
     LEA x1, s_mode_r
     bl fopen
     cbz x0, .Lco_missing
     mov x20, x0                         // FILE*
-    LEA x0, tc_misc_errbuf
+    LEA x0, misc_errbuf
     mov w1, #0
     strb w1, [x0]                       // clear errbuf
     mov x0, x20
-    LEA x1, tc_misc_errbuf
+    LEA x1, misc_errbuf
     mov x2, #MISC_ERRBUF_SZ
     bl toml_parse_file
     mov x21, x0                         // tab (0 on parse error)
@@ -1322,18 +1322,18 @@ misc_config_open:
     bl fclose
     cbnz x21, .Lco_ok
     // "could not read config <path>: <errbuf>"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_could_not_read
     bl misc_cat
-    LEA x1, tc_misc_where
+    LEA x1, misc_where
     bl misc_cat
     LEA x1, s_colon_space
     bl misc_cat
-    LEA x1, tc_misc_errbuf
+    LEA x1, misc_errbuf
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #0
     mov x1, #2
@@ -1341,14 +1341,14 @@ misc_config_open:
 .Lco_missing:
     cbz x19, .Lco_empty                 // missing default path -> {}
     // "config file not found: <path>"
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_cfg_not_found
     bl misc_cat
-    LEA x1, tc_misc_where
+    LEA x1, misc_where
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     bl misc_failed
     mov x0, #0
     mov x1, #2
@@ -1370,11 +1370,11 @@ misc_config_open:
 // ============================================================================
 misc_failed:
     PROLOGUE 3
-    // The raw message usually lives in tc_misc_buf2 (built by the caller) and
+    // The raw message usually lives in misc_buf2 (built by the caller) and
     // the escaped copy must NOT overwrite its source, so stage the raw text
-    // in tc_misc_buf first, then escape into tc_misc_buf2.
+    // in misc_buf first, then escape into misc_buf2.
     mov x19, x0                         // raw message
-    LEA x20, tc_misc_buf
+    LEA x20, misc_buf
     mov x21, x20                        // cursor
 .Lmf_copy:
     ldrb w22, [x19], #1
@@ -1382,7 +1382,7 @@ misc_failed:
     cbnz w22, .Lmf_copy
     // Python repr quote selection: single quotes preferred; a message that
     // contains a single quote but no double quote is wrapped in double quotes.
-    LEA x23, tc_misc_buf
+    LEA x23, misc_buf
     mov x24, #0                         // 1 = double-quote mode
     mov x19, x23
 .Lmf_scan:
@@ -1397,8 +1397,8 @@ misc_failed:
     // contains a double quote: force single-quote mode
     mov x24, #0
 .Lmf_scan_done:
-    // escape into tc_misc_buf2
-    LEA x20, tc_misc_buf2
+    // escape into misc_buf2
+    LEA x20, misc_buf2
     mov x21, x20                        // cursor
     cbz x24, .Lmf_pre_single
     LEA x1, s_failed_prefix_dq
@@ -1409,7 +1409,7 @@ misc_failed:
     mov x0, x21
     bl misc_cat
     mov x21, x0
-    LEA x23, tc_misc_buf
+    LEA x23, misc_buf
     mov x19, x23                        // read pointer
 .Lmf_loop:
     ldrb w22, [x19], #1
@@ -1486,7 +1486,7 @@ misc_failed:
 // Arena helpers — a small bump allocator for completion scratch strings.
 // ============================================================================
 misc_arena_reset:
-    LEA x0, tc_misc_cur
+    LEA x0, misc_cur
     str xzr, [x0]
     ret
 
@@ -1496,21 +1496,21 @@ misc_alloc:
     add x0, x0, #7
     and x0, x0, #~7
     mov x1, x0                          // rounded size
-    LEA x2, tc_misc_cur
+    LEA x2, misc_cur
     ldr x3, [x2]
     cbnz x3, .Lal_have_base
-    LEA x3, tc_misc_arena
+    LEA x3, misc_arena
     str x3, [x2]
 .Lal_have_base:
     mov x0, x3                          // result
     add x3, x3, x1
-    LEA_OFF x2, tc_misc_arena, MISC_ARENA_SZ
+    LEA_OFF x2, misc_arena, MISC_ARENA_SZ
     cmp x3, x2
     b.ls .Lal_ok
     LEA x0, s_arena_exhausted
     bl tc_fail
 .Lal_ok:
-    LEA x2, tc_misc_cur
+    LEA x2, misc_cur
     str x3, [x2]
     EPILOGUE 0
     ret
@@ -1534,7 +1534,7 @@ misc_arena_str:
 
 // misc_arena_str_lower_strip(x0=src) -> x0 = arena copy of the lowercased,
 //   whitespace-stripped string, or 0 when the result would be empty
-//   (Python split_names: str(item).strip().lower(), drop empties).
+//   (Python cfg_split_names: str(item).strip().lower(), drop empties).
 misc_arena_str_lower_strip:
     PROLOGUE 2
     mov x19, x0                         // scan pointer
@@ -1596,7 +1596,7 @@ misc_arena_str_lower_strip:
 // misc_names helpers — a deduped, sortable list of NUL-terminated names.
 // ============================================================================
 misc_names_reset:
-    LEA x0, tc_misc_n
+    LEA x0, misc_n
     str xzr, [x0]
     ret
 
@@ -1604,8 +1604,8 @@ misc_names_reset:
 misc_names_add:
     PROLOGUE 2
     mov x19, x0                         // name
-    LEA x20, tc_misc_n
-    LEA x21, tc_misc_names
+    LEA x20, misc_n
+    LEA x21, misc_names
     ldr x0, [x20]                       // count
     mov x22, #0
 .Lna_dup_loop:
@@ -1640,9 +1640,9 @@ misc_names_add:
 misc_names_remove:
     PROLOGUE 3
     mov x19, x0                         // name
-    LEA x20, tc_misc_n
+    LEA x20, misc_n
     ldr x21, [x20]                      // count
-    LEA x22, tc_misc_names
+    LEA x22, misc_names
     mov x23, #0                         // i
 .Lnr_loop:
     cmp x23, x21
@@ -1713,8 +1713,8 @@ misc_sort_names:
 
 misc_names_sort:
     PROLOGUE 0
-    LEA x0, tc_misc_names
-    LEA x1, tc_misc_n
+    LEA x0, misc_names
+    LEA x1, misc_n
     ldr x1, [x1]
     bl misc_sort_names
     EPILOGUE 0
@@ -1724,9 +1724,9 @@ misc_names_sort:
 // misc_names_print() — print every name in the list, one per line.
 misc_names_print:
     PROLOGUE 2
-    LEA x19, tc_misc_n
+    LEA x19, misc_n
     ldr x20, [x19]                      // n
-    LEA x21, tc_misc_names
+    LEA x21, misc_names
     mov x22, #0
 .Lnp_loop:
     cmp x22, x20
@@ -1784,9 +1784,9 @@ misc_sort_users:
 misc_group_index:
     PROLOGUE 3
     mov x19, x0                         // name
-    LEA x20, tc_misc_group_n
+    LEA x20, misc_group_n
     ldr x21, [x20]                      // count
-    LEA x22, tc_misc_groups
+    LEA x22, misc_groups
     mov x23, #0                         // i
 .Lgi_loop:
     cmp x23, x21
@@ -1839,7 +1839,7 @@ misc_in_users:
     ret
 
 // ============================================================================
-// split_names helpers (Python: re.split(r"[,\s]+", s), strip+lower, drop "").
+// cfg_split_names helpers (Python: re.split(r"[,\s]+", s), strip+lower, drop "").
 // ============================================================================
 
 // misc_split_add(x0=value) — split and add each token to the name list.
@@ -1881,8 +1881,8 @@ misc_split_add:
     add x19, x19, #1
     b .Lsa_scan
 .Lsa_emit:
-    // NUL-terminate the token [x20, x19) in tc_misc_buf
-    LEA x0, tc_misc_buf
+    // NUL-terminate the token [x20, x19) in misc_buf
+    LEA x0, misc_buf
     mov x21, x0                         // cursor
     mov x2, x20                         // src
     mov x3, x19                         // end
@@ -1895,7 +1895,7 @@ misc_split_add:
 .Lsa_emit_nul:
     mov w4, #0
     strb w4, [x21]
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
     cbz x0, .Lsa_continue
     bl misc_names_add
@@ -1944,7 +1944,7 @@ misc_split_remove:
     add x19, x19, #1
     b .Lsr_scan
 .Lsr_emit:
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     mov x21, x0
     mov x2, x20
     mov x3, x19
@@ -1957,7 +1957,7 @@ misc_split_remove:
 .Lsr_emit_nul:
     mov w4, #0
     strb w4, [x21]
-    LEA x0, tc_misc_buf
+    LEA x0, misc_buf
     bl misc_arena_str_lower_strip
     cbz x0, .Lsr_continue
     bl misc_names_remove
@@ -2009,7 +2009,7 @@ misc_expanduser:
     mov x2, #MISC_PATH_SZ
     b tc_expanduser
 
-// misc_expand_root() — expand TC_O_LOGS_DIR into tc_misc_root.
+// misc_expand_root() — expand TC_O_LOGS_DIR into misc_root.
 misc_expand_root:
     PROLOGUE 0
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
@@ -2019,7 +2019,7 @@ misc_expand_root:
     // the Python expands str(DEFAULT_LOGS_DIR), i.e. the literal "None"
     LEA x0, s_none_path
 .Lxr_expand:
-    LEA x1, tc_misc_root
+    LEA x1, misc_root
     bl misc_expanduser
     EPILOGUE 0
     ret
@@ -2323,7 +2323,7 @@ misc_iso_week:
 // Window setup for tc_count_run.
 // ============================================================================
 
-// misc_set_all_window() — an all-covering fixed window so tc_complete_window
+// misc_set_all_window() — an all-covering fixed window so core_complete_window
 //   never fails on an empty listing (dates/weeks/periods only read tc_listing).
 misc_set_all_window:
     PROLOGUE 0
@@ -2371,10 +2371,10 @@ misc_set_users_window:
 misc_always_unknown_failed:
     PROLOGUE 1
     mov x19, x0                         // name
-    LEA x0, tc_misc_buf2
+    LEA x0, misc_buf2
     LEA x1, s_always_unknown_pre
     bl misc_cat
-    LEA x1, tc_misc_where
+    LEA x1, misc_where
     bl misc_cat
     LEA x1, s_names_unknown_group
     bl misc_cat

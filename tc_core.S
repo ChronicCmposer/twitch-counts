@@ -73,27 +73,27 @@
 //  Phase 6 cache integration (this file is the ONLY place the cache hooks
 //  live; tc_cache.S provides the SQLite rollup)
 //  -------------------------------------------------------------------------
-//    * tc_count_final's loop calls tc_cache_day(fpath, lo, hi, enter_state,
+//    * core_count_final's loop calls tc_cache_day(fpath, lo, hi, enter_state,
 //      ymd) once per in-range file, right after the path is built and before
 //      the read.  Result 1 = the day came from the rollup (counts already
 //      applied to tc_users + the all-state totals; x1 = cached exit_state):
-//      the loop stores it into tc_core_cur_state, bumps TC_T_REUSED and
+//      the loop stores it into core_cur_state, bumps TC_T_REUSED and
 //      moves on without reading the file.  Result 2 = stat failed: the loop
 //      records the file as unreadable and resets the stream state (Python's
 //      skip()).  Result 0 = parse normally; if the file was a whole day the
 //      cache module stashed a snapshot and tc_cache_put_day writes the day
 //      after a successful whole-file parse (no-op otherwise).
-//    * The cache module NEVER reads tc_core_cur_state; the loop passes the
+//    * The cache module NEVER reads core_cur_state; the loop passes the
 //      entering state in and stores the returned exit state itself.
 //    * tc_reuse_apply(x0=login, x1=len, x2=TC_ST_*, x3=n) is exported for the
 //      cache module: it adds n to one user's state bucket and the matching
-//      all-state total, exactly like process_message's increment section.
-//    * find_user/add_user gained a third parameter (x2 = table base) so the
-//      cache module can reuse the exact table logic; process_message passes
+//      all-state total, exactly like core_process_message's increment section.
+//    * tc_find_user/tc_add_user gained a third parameter (x2 = table base) so the
+//      cache module can reuse the exact table logic; core_process_message passes
 //      the tc_users base.
 //    * One-shot runs open/close the cache around tc_count_run (the driver's
 //      main).  Watch mode (Wave D/E) opens once per session and keeps the
-//      connection; tc_count_final uses whatever tc_cache.S has open.
+//      connection; core_count_final uses whatever tc_cache.S has open.
 // ============================================================================
 
 #include "tc_platform.h"
@@ -143,7 +143,7 @@
     .equ READ_CHUNK,      8192
     .equ LISTING_INIT,    64
     .equ USERS_INIT,      64
-    .equ CF_ENTRY,        0               // tc_count_final frame slots
+    .equ CF_ENTRY,        0               // core_count_final frame slots
     .equ CF_LO,           8
     .equ CF_HI,           16
     .equ CF_CPTR,         24
@@ -157,25 +157,25 @@
 // ============================================================================
     .bss
     .p2align 4
-tc_core_scratch:    .skip 2048          // error-message composition buffer
-tc_core_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped file
-tc_core_statbuf:    .skip STAT_SZ       // os.path.isdir(logs_dir)
+core_scratch:    .skip 2048          // error-message composition buffer
+core_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped file
+core_statbuf:    .skip STAT_SZ       // os.path.isdir(logs_dir)
     .global tc_last_errno
 tc_last_errno:      .skip 8             // errno of the last captured failure
-tc_core_fmt:        .skip 64            // datetime formatting buffer
-tc_core_login:      .skip 32            // speaker_login output (<= 25 + NUL)
-tc_core_dirpath:    .skip 640           // logs_dir + "/" + channel_name
-tc_core_fpath:      .skip 704           // dirpath + "/" + file name
-tc_core_name:       .skip 64            // resolved channel directory name
-tc_core_chlower:    .skip 64            // lowercased resolved channel
-tc_core_dnames:     .skip MAX_DNAMES * 8
-tc_core_darena:     .skip MAX_DNAMES * DNAME_SZ
-tc_core_dname_count:.skip 8
-tc_core_list_key:   .skip 80            // sort scratch (listing entry copy)
-tc_core_cur_state:  .skip 8             // 0 = unknown, 1 = live, 2 = offline
-tc_core_g_live:     .skip 8             // all-user all-state totals
-tc_core_g_off:      .skip 8
-tc_core_g_unk:      .skip 8
+core_fmt:        .skip 64            // datetime formatting buffer
+core_login:      .skip 32            // core_speaker_login output (<= 25 + NUL)
+core_dirpath:    .skip 640           // logs_dir + "/" + channel_name
+core_fpath:      .skip 704           // dirpath + "/" + file name
+core_name:       .skip 64            // resolved channel directory name
+core_chlower:    .skip 64            // lowercased resolved channel
+core_dnames:     .skip MAX_DNAMES * 8
+core_darena:     .skip MAX_DNAMES * DNAME_SZ
+core_dname_count:.skip 8
+core_list_key:   .skip 80            // sort scratch (listing entry copy)
+core_cur_state:  .skip 8             // 0 = unknown, 1 = live, 2 = offline
+core_g_live:     .skip 8             // all-user all-state totals
+core_g_off:      .skip 8
+core_g_unk:      .skip 8
 
 // ============================================================================
 // .rodata — message literals (lengths via label arithmetic where it matters)
@@ -211,9 +211,9 @@ lit_is_offline:     .asciz "is now offline."
 tc_count_run:
     PROLOGUE 1
     bl tc_resolve_channel
-    bl tc_build_listing
-    bl tc_complete_window
-    bl tc_count_final
+    bl core_build_listing
+    bl core_complete_window
+    bl core_count_final
     mov x0, #0
     EPILOGUE 1
     ret
@@ -228,7 +228,7 @@ tc_count_run:
     .global tc_channel_name
     FUNC_TYPE(tc_channel_name)
 tc_channel_name:
-    LEA x0, tc_core_name
+    LEA x0, core_name
     ret
 
 // ============================================================================
@@ -300,13 +300,13 @@ tc_user_state:
     ret
 
 // ============================================================================
-// tc_eff_threshold — the effective reported() floor for --users sizing:
+// core_eff_threshold — the effective reported() floor for --users sizing:
 //   max(min_count, share_floor) when a share is shown or sorted by and the
 //   share floor is nonzero, else min_count.  (Python rank_users ordering:
 //   the >= threshold filter, then the >= floor filter when it acts.)
 // ============================================================================
     .p2align 2
-tc_eff_threshold:
+core_eff_threshold:
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
@@ -341,7 +341,7 @@ tc_eff_threshold:
 
 // ============================================================================
 // tc_resolve_channel — find the channel directory (case-insensitive) and
-//   build tc_core_dirpath = <logs_dir>/<real name>; exits on error.
+//   build core_dirpath = <logs_dir>/<real name>; exits on error.
 //   Phase 6: exported so tc_cache_open can resolve the channel before it
 //   captures the channel name (the counting pass would otherwise resolve it
 //   too late for the open-time purge).  Idempotent: calling it again from
@@ -357,22 +357,22 @@ tc_resolve_channel:
     // line, the environment and the config, and the header and every error
     // show the expanded path.  In place (idempotent on a second call).
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
-    LEA x1, tc_core_scratch
+    LEA x1, core_scratch
     mov x2, #TC_O_LOGS_DIR_SZ
     bl tc_expanduser
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
-    LEA x1, tc_core_scratch
-    bl tc_copy_str
+    LEA x1, core_scratch
+    bl core_copy_str
     // lowercased channel for matching
     LEA_OFF x0, tc_opts, TC_O_CHANNEL
-    LEA x1, tc_core_chlower
-    bl lowercase_copy
+    LEA x1, core_chlower
+    bl core_lowercase_copy
     // os.path.isdir(logs_dir): anything but a directory is "not found"
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
-    LEA x1, tc_core_statbuf
+    LEA x1, core_statbuf
     bl stat
     cbnz w0, .Lrc_dir_notfound
-    LEA x0, tc_core_statbuf
+    LEA x0, core_statbuf
     LOAD_ST_MODE 1, x0
     and w1, w1, #S_IFMT
     cmp w1, #S_IFDIR
@@ -383,7 +383,7 @@ tc_resolve_channel:
     bl opendir
     cbz x0, .Lrc_dir_oserror
     mov x19, x0                        // DIR*
-    LEA x20, tc_core_dname_count
+    LEA x20, core_dname_count
     str xzr, [x20]
 .Lrc_list:
     mov x0, x19
@@ -421,11 +421,11 @@ tc_resolve_channel:
     b .Lrc_nlen
 .Lrc_nlen_done:
     // copy into the arena
-    LEA x6, tc_core_darena
+    LEA x6, core_darena
     mov x7, #DNAME_SZ
     mul x7, x3, x7
     add x6, x6, x7
-    LEA x8, tc_core_dnames
+    LEA x8, core_dnames
     str x6, [x8, x3, lsl #3]
     mov x9, #0
 .Lrc_copy:
@@ -444,28 +444,28 @@ tc_resolve_channel:
 .Lrc_list_done:
     mov x0, x19
     bl closedir
-    bl sort_dnames
+    bl core_sort_dnames
     // find the channel case-insensitively
     ldr x19, [x20]                     // count
     mov x21, #0                        // index
 .Lrc_find:
     cmp x21, x19
     b.ge .Lrc_no_channel
-    LEA x22, tc_core_dnames
+    LEA x22, core_dnames
     ldr x22, [x22, x21, lsl #3]        // name
-    LEA x1, tc_core_chlower
+    LEA x1, core_chlower
     mov x0, x22
-    bl tc_ascii_casecmp
+    bl core_ascii_casecmp
     cbz x0, .Lrc_found
     add x21, x21, #1
     b .Lrc_find
 .Lrc_found:
     // x22 = the real directory name
-    LEA x0, tc_core_name
+    LEA x0, core_name
     mov x1, x22
-    bl tc_copy_str
+    bl core_copy_str
     // dirpath = logs_dir + "/" + name
-    LEA x0, tc_core_dirpath
+    LEA x0, core_dirpath
     mov x23, x0
     LEA x0, tc_opts
     add x1, x0, #TC_O_LOGS_DIR
@@ -474,7 +474,7 @@ tc_resolve_channel:
     mov w2, #'/'
     strb w2, [x0], #1
     mov x23, x0
-    LEA x1, tc_core_name
+    LEA x1, core_name
     mov x0, x23
     bl tc_cat_cstr
     EPILOGUE 5
@@ -482,7 +482,7 @@ tc_resolve_channel:
 
 .Lrc_dir_oserror:
     bl tc_capture_errno
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
     bl tc_oserror_text
     bl tc_report_fail
@@ -510,7 +510,7 @@ tc_resolve_channel:
     b tc_resolve_channel
 .Lrc_dir_notfound_set:
     // "logs directory not found: <dir>"
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     mov x19, x0
     LEA x1, s_dir_not_found
     bl tc_cat_cstr
@@ -521,12 +521,12 @@ tc_resolve_channel:
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     bl tc_report_fail
 
 .Lrc_no_channel:
     // "no logs for channel '<ch>' in <dir>\navailable: <join|(none)>"
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     mov x19, x0
     LEA x1, s_no_logs_pre
     bl tc_cat_cstr
@@ -555,7 +555,7 @@ tc_resolve_channel:
     cbz x20, .Lrc_avail_none
     mov x21, #0
 .Lrc_avail_loop:
-    LEA x22, tc_core_dnames
+    LEA x22, core_dnames
     ldr x22, [x22, x21, lsl #3]
     mov x0, x19
     mov x1, x22
@@ -578,20 +578,20 @@ tc_resolve_channel:
 .Lrc_avail_done:
     mov w2, #0
     strb w2, [x19]
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     bl tc_fail
 
 // ============================================================================
-// tc_build_listing — fill tc_listing with every dated log file, ascending.
+// core_build_listing — fill tc_listing with every dated log file, ascending.
 // ============================================================================
     .p2align 2
-tc_build_listing:
+core_build_listing:
     PROLOGUE 5
     LEA x19, tc_listing
     str xzr, [x19, #TC_L_COUNT]
     str xzr, [x19, #TC_L_CAP]
     str xzr, [x19, #TC_L_ENTRIES]
-    LEA x0, tc_core_dirpath
+    LEA x0, core_dirpath
     bl opendir
     cbz x0, .Lbl_cant_open
     mov x20, x0                        // DIR*
@@ -601,7 +601,7 @@ tc_build_listing:
     cbz x0, .Lbl_done
     add x22, x0, #D_NAME_OFF           // d_name (callee-saved)
     mov x0, x22
-    bl parse_log_filename              // x0 = ymd or 0 (clobbers x0-x2)
+    bl core_parse_log_filename              // x0 = ymd or 0 (clobbers x0-x2)
     cbz x0, .Lbl_list
     mov x21, x0                        // ymd
     mov x23, #0                        // name len
@@ -657,15 +657,15 @@ tc_build_listing:
 .Lbl_done:
     mov x0, x20
     bl closedir
-    bl sort_listing
+    bl core_sort_listing
     EPILOGUE 5
     ret
 
 .Lbl_cant_open:
     // os.listdir(channel_dir) raised: main()'s OSError backstop text
     bl tc_capture_errno
-    LEA x0, tc_core_scratch
-    LEA x1, tc_core_dirpath
+    LEA x0, core_scratch
+    LEA x1, core_dirpath
     bl tc_oserror_text                 // x0 = the NUL-terminated text
     bl tc_report_fail                  // text or {"error": ...}, exit 1
 
@@ -674,11 +674,11 @@ tc_build_listing:
     bl tc_fail
 
 // ============================================================================
-// parse_log_filename(x0=name) -> x0 = ymd (YYYYMMDD), or 0 when the name is
+// core_parse_log_filename(x0=name) -> x0 = ymd (YYYYMMDD), or 0 when the name is
 //   not "<anything>-YYYY-MM-DD.log" with a real calendar date.
 // ============================================================================
     .p2align 2
-parse_log_filename:
+core_parse_log_filename:
     PROLOGUE 3
     mov x19, x0                        // name
     mov x0, x19
@@ -798,13 +798,13 @@ parse_log_filename:
     ret
 
 // ============================================================================
-// tc_complete_window — finish the window tc_cli left open:
+// core_complete_window — finish the window tc_cli left open:
 //   kind EARLIEST: begin = earliest log file 00:00:00 (+ no-files and
 //                  begin>end errors); kind USERS: the --users sizing.
 //   Always fills TC_W_THRESHOLD and TC_W_STATE_FILTER from the options.
 // ============================================================================
     .p2align 2
-tc_complete_window:
+core_complete_window:
     PROLOGUE 5
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_KIND]
@@ -818,27 +818,27 @@ tc_complete_window:
     ldr x22, [x21, #TC_L_COUNT]
     cbnz x22, .Lcw_earliest_ok
     // "no log files found in <dirpath>"
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     mov x23, x0
     LEA x1, s_no_files_pre
     bl tc_cat_cstr
     mov x23, x0
-    LEA x1, tc_core_dirpath
+    LEA x1, core_dirpath
     mov x0, x23
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     bl tc_fail
 .Lcw_earliest_ok:
     ldr x23, [x21, #TC_L_ENTRIES]
     ldr x24, [x23]
     str x24, [x19, #TC_W_BEGIN_YMD]
     str xzr, [x19, #TC_W_BEGIN_SOD]
-    bl tc_window_begin_after_end_check
+    bl core_window_begin_after_end_check
     b .Lcw_fill
 .Lcw_users:
-    bl tc_size_users
+    bl core_size_users
     b .Lcw_fill
 .Lcw_fill:
     LEA x20, tc_opts
@@ -850,11 +850,11 @@ tc_complete_window:
     ret
 
 // ============================================================================
-// tc_window_begin_after_end_check — "begin (B) is after end (E)" when the
+// core_window_begin_after_end_check — "begin (B) is after end (E)" when the
 //   resolved begin (kind EARLIEST) is later than the resolved end.
 // ============================================================================
     .p2align 2
-tc_window_begin_after_end_check:
+core_window_begin_after_end_check:
     PROLOGUE 3
     LEA x19, tc_window
     ldr x0, [x19, #TC_W_BEGIN_YMD]
@@ -867,7 +867,7 @@ tc_window_begin_after_end_check:
     mov x21, x0
     cmp x20, x21
     b.le .Lwae_done
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     mov x22, x0
     LEA x1, s_begin_paren
     bl tc_cat_cstr
@@ -877,7 +877,7 @@ tc_window_begin_after_end_check:
     mov x0, x1
     mov x1, x2
     mov x2, x22                          // format into the scratch cursor
-    bl fmt_ymd_sod
+    bl core_fmt_ymd_sod
     mov x22, x0
     LEA x1, s_is_after_end
     mov x0, x22
@@ -888,23 +888,23 @@ tc_window_begin_after_end_check:
     mov x0, x1
     mov x1, x2
     mov x2, x22                          // format into the scratch cursor
-    bl fmt_ymd_sod
+    bl core_fmt_ymd_sod
     mov w1, #')'
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
-    LEA x0, tc_core_scratch
+    LEA x0, core_scratch
     bl tc_fail
 .Lwae_done:
     EPILOGUE 3
     ret
 
 // ============================================================================
-// tc_size_users — the --users bisection (Python _search_width + _apply_width).
+// core_size_users — the --users bisection (Python _search_width + _apply_width).
 //   Sets TC_W_USERS_WIDTH / TC_W_USERS_FOUND and begin = end - width.
 // ============================================================================
     .p2align 2
-tc_size_users:
+core_size_users:
     PROLOGUE 5
     // end_epoch
     LEA x9, tc_window
@@ -920,11 +920,11 @@ tc_size_users:
     b.ge .Lsu_ceiling_ok
     mov x21, #1
 .Lsu_ceiling_ok:
-    bl tc_eff_threshold
+    bl core_eff_threshold
     mov x22, x0                        // eff
     // widest = reported(ceiling)
     mov x0, x21
-    bl tc_reported_width
+    bl core_reported_width
     mov x23, x0                        // widest
     cmp x23, x20
     b.lt .Lsu_unreachable
@@ -942,7 +942,7 @@ tc_size_users:
     stp x20, x21, [sp, #-16]!
     stp x22, x23, [sp, #-16]!
     mov x0, x11
-    bl tc_reported_width
+    bl core_reported_width
     ldp x22, x23, [sp], #16
     ldp x20, x21, [sp], #16
     ldp x11, x19, [sp], #16
@@ -957,7 +957,7 @@ tc_size_users:
 .Lsu_b1_done:
     mov x24, x9                        // over_width
     mov x0, x9
-    bl tc_reported_width
+    bl core_reported_width
     mov x25, x0                        // over
     // ---- bisection 2: widest width with count <= requested ----
     mov x9, #1
@@ -975,7 +975,7 @@ tc_size_users:
     stp x22, x23, [sp, #-16]!
     stp x24, x25, [sp, #-16]!
     mov x0, x11
-    bl tc_reported_width
+    bl core_reported_width
     ldp x24, x25, [sp], #16
     ldp x22, x23, [sp], #16
     ldp x20, x21, [sp], #16
@@ -991,7 +991,7 @@ tc_size_users:
 .Lsu_b2_done:
     mov x26, x9                        // under_width
     mov x0, x9
-    bl tc_reported_width
+    bl core_reported_width
     mov x27, x0                        // under
     // ---- policy ----
     LEA x9, tc_opts
@@ -1045,14 +1045,14 @@ tc_size_users:
     ret
 
 // ============================================================================
-// tc_reported_width(x0=seconds) -> x0 = the reported population for the
+// core_reported_width(x0=seconds) -> x0 = the reported population for the
 //   window [end - seconds, end]: non-excluded users whose count-column is
 //   >= the effective threshold (min_count, or share_floor when a share is
 //   shown and the floor is nonzero).  Side effect: recounts into the user
 //   table + tally for the probe window (the final pass overwrites).
 // ============================================================================
     .p2align 2
-tc_reported_width:
+core_reported_width:
     PROLOGUE 5
     mov x19, x0                        // seconds
     LEA x20, tc_window
@@ -1063,8 +1063,8 @@ tc_reported_width:
     bl tc_epoch_to_ymd_sod             // x0=ymd, x1=sod
     str x0, [x20, #TC_W_BEGIN_YMD]
     str x1, [x20, #TC_W_BEGIN_SOD]
-    bl tc_count_final
-    bl tc_eff_threshold
+    bl core_count_final
+    bl core_eff_threshold
     mov x21, x0                        // eff
     LEA x22, tc_users
     ldr x23, [x22, #TC_US_COUNT]
@@ -1097,17 +1097,17 @@ tc_reported_width:
     ret
 
 // ============================================================================
-// tc_count_final — the counting pass for the resolved window [begin, end]:
+// core_count_final — the counting pass for the resolved window [begin, end]:
 //   seed state, fold every in-range file, then finish the tally.  Fills
 //   tc_users and tc_tally (fresh each call; probes overwrite later).
 // ============================================================================
     .p2align 2
-tc_count_final:
+core_count_final:
     PROLOGUE 5
     sub sp, sp, #CF_FRAME_SZ
-    bl tc_reset_count
-    bl tc_seed_state                    // x0 = 0/1/2
-    LEA x9, tc_core_cur_state
+    bl core_reset_count
+    bl core_seed_state                    // x0 = 0/1/2
+    LEA x9, core_cur_state
     str x0, [x9]
     LEA x19, tc_listing
     ldr x19, [x19, #TC_L_COUNT]        // count
@@ -1150,8 +1150,8 @@ tc_count_final:
     str x11, [sp, #CF_LO]
     str x12, [sp, #CF_HI]
     // build the file path
-    LEA x0, tc_core_fpath
-    LEA x1, tc_core_dirpath
+    LEA x0, core_fpath
+    LEA x1, core_dirpath
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1164,10 +1164,10 @@ tc_count_final:
     // module stats the path and returns 0 = parse normally, 1 = reused (x1 =
     // cached exit_state; counts already applied to tc_users + totals), 2 =
     // stat failed (record unreadable + reset state, like Python's skip()).
-    LEA x0, tc_core_fpath
+    LEA x0, core_fpath
     ldr x1, [sp, #CF_LO]
     ldr x2, [sp, #CF_HI]
-    LEA x9, tc_core_cur_state
+    LEA x9, core_cur_state
     ldr x3, [x9]
     ldr x4, [sp, #CF_ENTRY]
     ldr x4, [x4, #TC_L_YMD]
@@ -1177,27 +1177,27 @@ tc_count_final:
     cmp w0, #2
     b.eq .Lcf_cache_unreadable
     // read the whole file
-    LEA x0, tc_core_fpath
-    bl tc_read_file                     // x0=status, x1=buf, x2=len
+    LEA x0, core_fpath
+    bl core_read_file                     // x0=status, x1=buf, x2=len
     cbnz x0, .Lcf_unreadable
     // ok: buf = x1, len = x2 -> keep them in the frame across calls
     str x1, [sp, #CF_BUF]
     str x2, [sp, #CF_LEN]
     mov x0, x1
     mov x1, x2
-    bl tc_has_newline
+    bl core_has_newline
     cbz x0, .Lcf_free
     ldr x2, [sp, #CF_LO]
     ldr x3, [sp, #CF_HI]
     ldr x0, [sp, #CF_BUF]
     ldr x1, [sp, #CF_LEN]
-    bl process_lines
+    bl core_process_lines
     ldr x11, [x26, #TC_T_PARSED]
     add x11, x11, #1
     str x11, [x26, #TC_T_PARSED]
     // ---- Phase 6: write the whole day to the rollup (no-op unless the
     // cache module stashed this file's snapshot) ----
-    LEA x9, tc_core_cur_state
+    LEA x9, core_cur_state
     ldr x0, [x9]
     bl tc_cache_put_day
     b .Lcf_free
@@ -1210,8 +1210,8 @@ tc_count_final:
     cmp x9, #1
     b.eq .Lcf_too_large
     // skip(): f"{type(exc).__name__}: {exc.strerror}" from the errno that
-    // tc_read_file captured
-    LEA x0, tc_core_reason
+    // core_read_file captured
+    LEA x0, core_reason
     bl tc_errno_reason
     mov x1, x0
     ldr x0, [sp, #CF_ENTRY]
@@ -1222,13 +1222,13 @@ tc_count_final:
     add x0, x0, #TC_L_NAME
     LEA x1, s_too_large
 .Lcf_record:
-    bl record_unreadable
+    bl core_record_unreadable
     ldr x10, [sp, #CF_BUF]
     cbz x10, .Lcf_state_reset
     mov x0, x10
     bl free
 .Lcf_state_reset:
-    LEA x9, tc_core_cur_state
+    LEA x9, core_cur_state
     str xzr, [x9]
     b .Lcf_next
 .Lcf_free:
@@ -1246,44 +1246,44 @@ tc_count_final:
     ldr x11, [x26, #TC_T_REUSED]
     add x11, x11, #1
     str x11, [x26, #TC_T_REUSED]
-    LEA x9, tc_core_cur_state
+    LEA x9, core_cur_state
     str x1, [x9]
     b .Lcf_next
 .Lcf_cache_unreadable:
     // Phase 6: stat failed inside the cache hook (errno captured there);
     // record + reset state, exactly like Python's skip().
-    LEA x0, tc_core_reason
+    LEA x0, core_reason
     bl tc_errno_reason
     mov x1, x0
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
-    bl record_unreadable
-    LEA x9, tc_core_cur_state
+    bl core_record_unreadable
+    LEA x9, core_cur_state
     str xzr, [x9]
     b .Lcf_next
 .Lcf_done:
     add sp, sp, #CF_FRAME_SZ
-    bl tc_finish_tally
+    bl core_finish_tally
     EPILOGUE 5
     ret
 
 // ============================================================================
-// tc_reset_count — zero the tally and the global counters, reset the user
+// core_reset_count — zero the tally and the global counters, reset the user
 //   table count (the entry buffer is kept and reused across probes).
 // ============================================================================
     .p2align 2
-tc_reset_count:
+core_reset_count:
     PROLOGUE 0
-    LEA x0, tc_core_g_live
+    LEA x0, core_g_live
     mov x1, #0
     str x1, [x0]
     str x1, [x0, #8]
     str x1, [x0, #16]
-    LEA x0, tc_core_cur_state
+    LEA x0, core_cur_state
     str x1, [x0]
     LEA x0, tc_tally
     mov x1, #TC_TALLY_SIZE
-    bl tc_memzero_own
+    bl core_memzero_own
     LEA x0, tc_tally
     LEA x1, tc_users
     str x1, [x0, #TC_T_USERS_PTR]
@@ -1292,15 +1292,15 @@ tc_reset_count:
     ret
 
 // ============================================================================
-// tc_finish_tally — apply exclusions to the tally: TC_T_STATES becomes the
+// core_finish_tally — apply exclusions to the tally: TC_T_STATES becomes the
 //   non-excluded all-state split, TC_T_EXCLUDED_STATES the excluded split,
 //   TC_T_MESSAGES the non-excluded count-column total.
 // ============================================================================
     .p2align 2
-tc_finish_tally:
+core_finish_tally:
     PROLOGUE 5
     LEA x19, tc_tally
-    LEA x20, tc_core_g_live
+    LEA x20, core_g_live
     ldr x21, [x20]
     ldr x22, [x20, #8]
     ldr x23, [x20, #16]
@@ -1363,7 +1363,7 @@ tc_finish_tally:
     ret
 
 // ============================================================================
-// record_unreadable(x0=name, x1=reason) — capped unreadable list.
+// core_record_unreadable(x0=name, x1=reason) — capped unreadable list.
 // ============================================================================
     .p2align 2
 // ============================================================================
@@ -1400,7 +1400,7 @@ tc_errno_reason:
     LEA x9, tc_last_errno
     ldr x20, [x9]
     mov x0, x20
-    bl errno_exc_name
+    bl core_errno_exc_name
     mov x1, x0
     mov x0, x19
     bl tc_cat_cstr
@@ -1426,7 +1426,7 @@ tc_oserror_text:
     LEA x9, tc_last_errno
     ldr x20, [x9]
     mov x0, x20
-    bl errno_exc_name
+    bl core_errno_exc_name
     mov x1, x0
     mov x0, x19
     bl tc_cat_cstr
@@ -1455,10 +1455,10 @@ tc_oserror_text:
     EPILOGUE 2
     ret
 
-// errno_exc_name(x0=errno) -> x0 = the OSError subclass Python raises for it
+// core_errno_exc_name(x0=errno) -> x0 = the OSError subclass Python raises for it
 // (the errno values below are the same on Darwin and Linux)
     .p2align 2
-errno_exc_name:
+core_errno_exc_name:
     cmp x0, #1                          // EPERM
     b.eq .Leen_perm
     cmp x0, #13                         // EACCES
@@ -1543,7 +1543,7 @@ s_exc_pipe:         .asciz "BrokenPipeError"
     .text
 
     .p2align 2
-record_unreadable:
+core_record_unreadable:
     LEA x2, tc_tally
     ldr x3, [x2, #TC_T_UNR_COUNT]
     ldr x4, =TC_T_UNR_MAX
@@ -1584,13 +1584,13 @@ record_unreadable:
     ret
 
 // ============================================================================
-// tc_seed_state — the live/offline state in force when the range opens.
+// core_seed_state — the live/offline state in force when the range opens.
 //   Walks back through files whose date < begin.date(), newest first, at most
 //   seed_lookback of them; returns the LAST marker found in the first such
 //   file that has any (0 = unknown).  Unreadable files are skipped.
 // ============================================================================
     .p2align 2
-tc_seed_state:
+core_seed_state:
     PROLOGUE 5
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
@@ -1632,8 +1632,8 @@ tc_seed_state:
     mul x9, x24, x9
     add x9, x21, x9                      // entry
     // build the file path
-    LEA x0, tc_core_fpath
-    LEA x1, tc_core_dirpath
+    LEA x0, core_fpath
+    LEA x1, core_dirpath
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1641,14 +1641,14 @@ tc_seed_state:
     add x1, x9, #TC_L_NAME
     mov x0, x10
     bl tc_cat_cstr
-    LEA x0, tc_core_fpath
-    bl tc_read_file                      // x0=status, x1=buf, x2=len
+    LEA x0, core_fpath
+    bl core_read_file                      // x0=status, x1=buf, x2=len
     cbnz x0, .Lss_next
-    // keep buf/len on the stack: scan_markers may clobber x9-x17
+    // keep buf/len on the stack: core_scan_markers may clobber x9-x17
     stp x1, x2, [sp, #-16]!
     mov x0, x1
     mov x1, x2
-    bl scan_markers                      // x0 = last marker state 0/1/2
+    bl core_scan_markers                      // x0 = last marker state 0/1/2
     mov x28, x0
     ldr x0, [sp]
     bl free
@@ -1668,11 +1668,11 @@ tc_seed_state:
     ret
 
 // ============================================================================
-// tc_read_file(x0=path) -> x0 = status (0 ok, 1 too large, 2 error),
+// core_read_file(x0=path) -> x0 = status (0 ok, 1 too large, 2 error),
 //   x1 = malloc'd buffer (caller frees; 0 on early error), x2 = bytes read.
 // ============================================================================
     .p2align 2
-tc_read_file:
+core_read_file:
     PROLOGUE 3
     mov x19, x0                         // path
     mov x0, x19
@@ -1786,10 +1786,10 @@ tc_read_file:
     ret
 
 // ============================================================================
-// tc_has_newline(x0=buf, x1=len) -> x0 = 1 when the buffer holds a '\n'.
+// core_has_newline(x0=buf, x1=len) -> x0 = 1 when the buffer holds a '\n'.
 // ============================================================================
     .p2align 2
-tc_has_newline:
+core_has_newline:
     mov x2, #0
 .Lhn:
     cmp x2, x1
@@ -1807,12 +1807,12 @@ tc_has_newline:
     ret
 
 // ============================================================================
-// scan_markers(x0=buf, x1=len) -> x0 = the LAST marker state (1 live, 2
+// core_scan_markers(x0=buf, x1=len) -> x0 = the LAST marker state (1 live, 2
 //   offline, 0 none).  Processes every line including a partial final line,
 //   exactly as the Python's seed loop does.
 // ============================================================================
     .p2align 2
-scan_markers:
+core_scan_markers:
     PROLOGUE 4
     mov x19, x0                         // buf
     add x20, x19, x1                    // end
@@ -1839,7 +1839,7 @@ scan_markers:
     cbz x24, .Lsm_next
     mov x0, x22
     mov x1, x24
-    bl line_is_marker
+    bl core_line_is_marker
     cbz x0, .Lsm_next
     mov x21, x0
 .Lsm_next:
@@ -1851,10 +1851,10 @@ scan_markers:
     ret
 
 // ============================================================================
-// line_is_marker(x0=line, x1=len) -> x0 = 1 (live), 2 (offline), or 0.
+// core_line_is_marker(x0=line, x1=len) -> x0 = 1 (live), 2 (offline), or 0.
 // ============================================================================
     .p2align 2
-line_is_marker:
+core_line_is_marker:
     PROLOGUE 1
     mov x19, x0
     mov x20, x1
@@ -1903,13 +1903,13 @@ line_is_marker:
     mov x1, x20
     LEA x2, lit_is_live
     mov x3, #8
-    bl marker_match
+    bl core_marker_match
     cbnz x0, .Llim_live
     mov x0, x19
     mov x1, x20
     LEA x2, lit_is_offline
     mov x3, #15
-    bl marker_match
+    bl core_marker_match
     cbnz x0, .Llim_off
 .Llim_no:
     mov x0, #0
@@ -1925,12 +1925,12 @@ line_is_marker:
     ret
 
 // ============================================================================
-// marker_match(x0=line, x1=len, x2=literal, x3=litlen) -> x0 = 1 when the
+// core_marker_match(x0=line, x1=len, x2=literal, x3=litlen) -> x0 = 1 when the
 //   line ends with the literal, preceded by a space and a non-empty,
 //   space-free token: "[HH:MM:SS] <token> <literal>".
 // ============================================================================
     .p2align 2
-marker_match:
+core_marker_match:
     mov x4, x3
     cmp x1, x4
     b.lt .Lmm_no
@@ -1974,18 +1974,18 @@ marker_match:
     ret
 
 // ============================================================================
-// process_lines(x0=buf, x1=len, x2=lo, x3=hi) — fold one file's complete
+// core_process_lines(x0=buf, x1=len, x2=lo, x3=hi) — fold one file's complete
 //   lines (the partial tail is dropped, as in the Python).  Updates the
 //   global cur_state from markers and counts in-window messages.
 // ============================================================================
     .p2align 2
-process_lines:
+core_process_lines:
     PROLOGUE 5
     mov x19, x0                         // buf
     add x20, x19, x1                    // end
     mov x21, x2                         // lo
     mov x22, x3                         // hi
-    LEA x23, tc_core_cur_state
+    LEA x23, core_cur_state
     ldr x23, [x23]                      // cur_state (0/1/2)
     // one past the last '\n'
     mov x24, x19
@@ -2023,14 +2023,14 @@ process_lines:
     b.eq .Lpl_next
     mov x0, x24
     mov x1, x27
-    bl line_is_marker
+    bl core_line_is_marker
     cbnz x0, .Lpl_marker
     mov x0, x24
     mov x1, x27
     mov x2, x21
     mov x3, x22
     mov x4, x23
-    bl process_message
+    bl core_process_message
     b .Lpl_next
 .Lpl_marker:
     mov x23, x0
@@ -2038,18 +2038,18 @@ process_lines:
     add x24, x26, #1
     b .Lpl_loop
 .Lpl_done:
-    LEA x9, tc_core_cur_state
+    LEA x9, core_cur_state
     str x23, [x9]
     EPILOGUE 5
     ret
 
 // ============================================================================
-// process_message(x0=line, x1=len, x2=lo, x3=hi, x4=state) -> x0 = 1 if the
-//   message was counted.  The speaker is classified by speaker_login; the
+// core_process_message(x0=line, x1=len, x2=lo, x3=hi, x4=state) -> x0 = 1 if the
+//   message was counted.  The speaker is classified by core_speaker_login; the
 //   state (0 = unknown) becomes TC_ST_UNKNOWN for the count.
 // ============================================================================
     .p2align 2
-process_message:
+core_process_message:
     PROLOGUE 4
     mov x19, x0                         // line
     mov x20, x1                         // len
@@ -2164,7 +2164,7 @@ process_message:
     // speaker login
     mov x0, x4
     mov x1, x25
-    bl speaker_login                    // x0 = login ptr or 0, x1 = login len
+    bl core_speaker_login                    // x0 = login ptr or 0, x1 = login len
     cbz x0, .Lpm_skip
     mov x24, x0                         // login ptr
     mov x25, x1                         // login len
@@ -2175,13 +2175,13 @@ process_message:
     mov x0, x24
     mov x1, x25
     LEA x2, tc_users
-    bl find_user                        // x0 = index or -1
+    bl tc_find_user                        // x0 = index or -1
     cmp x0, #0
     b.ge .Lpm_have_user
     mov x0, x24
     mov x1, x25
     LEA x2, tc_users
-    bl add_user                         // x0 = index
+    bl tc_add_user                         // x0 = index
 .Lpm_have_user:
     // entry = users.entries + index*50
     LEA x9, tc_users
@@ -2198,7 +2198,7 @@ process_message:
     ldr x11, [x10, #TC_US_LIVE]
     add x11, x11, #1
     str x11, [x10, #TC_US_LIVE]
-    LEA x12, tc_core_g_live
+    LEA x12, core_g_live
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2207,7 +2207,7 @@ process_message:
     ldr x11, [x10, #TC_US_OFFLINE]
     add x11, x11, #1
     str x11, [x10, #TC_US_OFFLINE]
-    LEA x12, tc_core_g_off
+    LEA x12, core_g_off
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2216,7 +2216,7 @@ process_message:
     ldr x11, [x10, #TC_US_UNKNOWN]
     add x11, x11, #1
     str x11, [x10, #TC_US_UNKNOWN]
-    LEA x12, tc_core_g_unk
+    LEA x12, core_g_unk
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2230,12 +2230,12 @@ process_message:
     ret
 
 // ============================================================================
-// speaker_login(x0=speaker, x1=slen) -> x0 = login_buf ptr, x1 = login len,
+// core_speaker_login(x0=speaker, x1=slen) -> x0 = login_buf ptr, x1 = login len,
 //   or x0 = 0 when the speaker is not a real chatter.  LOGIN_RE first, then
 //   LOCALIZED_RE with a non-ASCII display byte.
 // ============================================================================
     .p2align 2
-speaker_login:
+core_speaker_login:
     PROLOGUE 0
     // LOGIN_RE: ^[A-Za-z0-9_]{1,25}$
     cmp x1, #1
@@ -2247,13 +2247,13 @@ speaker_login:
     cmp x2, x1
     b.ge .Lsl_login_ok
     ldrb w3, [x0, x2]
-    bl is_login_char
+    bl core_is_login_char
     b.ne .Lsl_localized
     add x2, x2, #1
     b .Lsl_login
 .Lsl_login_ok:
     // lowercase into login_buf
-    LEA x4, tc_core_login
+    LEA x4, core_login
     mov x2, #0
 .Lsl_lower:
     cmp x2, x1
@@ -2308,7 +2308,7 @@ speaker_login:
     cmp x2, x4
     b.ge .Lsl_right_ok
     ldrb w3, [x5, x2]
-    bl is_lower_login_char
+    bl core_is_lower_login_char
     b.ne .Lsl_fail
     add x2, x2, #1
     b .Lsl_right
@@ -2333,7 +2333,7 @@ speaker_login:
 .Lsl_left_ok:
     cbz x7, .Lsl_fail
     // login = right (already lowercase); copy into login_buf
-    LEA x8, tc_core_login
+    LEA x8, core_login
     mov x2, #0
 .Lsl_copy:
     cmp x2, x4
@@ -2353,9 +2353,9 @@ speaker_login:
     EPILOGUE 0
     ret
 
-// is_login_char — sets EQ iff w3 is in [A-Za-z0-9_] (used as a predicate)
+// core_is_login_char — sets EQ iff w3 is in [A-Za-z0-9_] (used as a predicate)
     .p2align 2
-is_login_char:
+core_is_login_char:
     cmp w3, #'0'
     b.lt .Lilc_no
     cmp w3, #'9'
@@ -2377,9 +2377,9 @@ is_login_char:
     cmp w3, w3                          // force Z=1
     ret
 
-// is_lower_login_char — like is_login_char but only [a-z0-9_]
+// core_is_lower_login_char — like core_is_login_char but only [a-z0-9_]
     .p2align 2
-is_lower_login_char:
+core_is_lower_login_char:
     cmp w3, #'0'
     b.lt .Lilc2_no
     cmp w3, #'9'
@@ -2398,14 +2398,14 @@ is_lower_login_char:
     ret
 
 // ============================================================================
-// find_user(x0=login, x1=len, x2=table_base) -> x0 = index, or -1.
+// tc_find_user(x0=login, x1=len, x2=table_base) -> x0 = index, or -1.
 //   Phase 6: the base is passed in x2 (tc_users for the counting pass, a
 //   caller's table for the cache module).  Exported for tc_cache.S.
 // ============================================================================
     .p2align 2
-    .global find_user
-    FUNC_TYPE(find_user)
-find_user:
+    .global tc_find_user
+    FUNC_TYPE(tc_find_user)
+tc_find_user:
     ldr x3, [x2, #TC_US_ENTRIES]
     ldr x4, [x2, #TC_US_COUNT]
     mov x5, #0
@@ -2438,13 +2438,13 @@ find_user:
     ret
 
 // ============================================================================
-// add_user(x0=login, x1=len, x2=table_base) -> x0 = index (grows the entry
+// tc_add_user(x0=login, x1=len, x2=table_base) -> x0 = index (grows the entry
 //   array).  Phase 6: the base is passed in x2.  Exported for tc_cache.S.
 // ============================================================================
     .p2align 2
-    .global add_user
-    FUNC_TYPE(add_user)
-add_user:
+    .global tc_add_user
+    FUNC_TYPE(tc_add_user)
+tc_add_user:
     PROLOGUE 3
     mov x19, x0                         // login
     mov x20, x1                         // len
@@ -2506,7 +2506,7 @@ add_user:
 // ============================================================================
 // tc_reuse_apply(x0=login, x1=len, x2=state, x3=n) -> x0 = 0
 //   Add n to the user entry's state bucket and the matching all-state total
-//   (tc_core_g_*).  This is process_message's increment section, exported so
+//   (tc_core_g_*).  This is core_process_message's increment section, exported so
 //   the rollup cache (tc_cache.S) can serve a whole cached day into the same
 //   tables the counting pass fills.  state is TC_ST_LIVE/OFFLINE/UNKNOWN.
 // ============================================================================
@@ -2522,13 +2522,13 @@ tc_reuse_apply:
     LEA x2, tc_users
     mov x0, x19
     mov x1, x20
-    bl find_user                        // x0 = index or -1
+    bl tc_find_user                        // x0 = index or -1
     cmp x0, #0
     b.ge .Lrua_have
     mov x0, x19
     mov x1, x20
     LEA x2, tc_users
-    bl add_user                         // x0 = index
+    bl tc_add_user                         // x0 = index
 .Lrua_have:
     // entry = users.entries + index*50
     LEA x9, tc_users
@@ -2545,7 +2545,7 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_LIVE]
     add x11, x11, x22
     str x11, [x10, #TC_US_LIVE]
-    LEA x12, tc_core_g_live
+    LEA x12, core_g_live
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2554,7 +2554,7 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_OFFLINE]
     add x11, x11, x22
     str x11, [x10, #TC_US_OFFLINE]
-    LEA x12, tc_core_g_off
+    LEA x12, core_g_off
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2563,7 +2563,7 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_UNKNOWN]
     add x11, x11, x22
     str x11, [x10, #TC_US_UNKNOWN]
-    LEA x12, tc_core_g_unk
+    LEA x12, core_g_unk
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2573,13 +2573,13 @@ tc_reuse_apply:
     ret
 
 // ============================================================================
-// sort_dnames — insertion sort the tc_core_dnames pointer array by string.
+// core_sort_dnames — insertion sort the core_dnames pointer array by string.
 // ============================================================================
     .p2align 2
-sort_dnames:
+core_sort_dnames:
     PROLOGUE 3
-    LEA x19, tc_core_dnames
-    LEA x20, tc_core_dname_count
+    LEA x19, core_dnames
+    LEA x20, core_dname_count
     ldr x20, [x20]
     mov x21, #1
 .Lsd_outer:
@@ -2608,11 +2608,11 @@ sort_dnames:
     ret
 
 // ============================================================================
-// sort_listing — insertion sort tc_listing entries by (ymd, name) ascending
+// core_sort_listing — insertion sort tc_listing entries by (ymd, name) ascending
 //   (the name tiebreak mirrors Python's sorted((date, path))).
 // ============================================================================
     .p2align 2
-sort_listing:
+core_sort_listing:
     PROLOGUE 4
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
@@ -2621,11 +2621,11 @@ sort_listing:
 .Lsl_outer:
     cmp x22, x20
     b.ge .Lsl_done
-    // key = entry x22, copied into tc_core_list_key
+    // key = entry x22, copied into core_list_key
     mov x23, #TC_L_ENTRY_SZ
     mul x23, x22, x23
     add x23, x21, x23
-    LEA x24, tc_core_list_key
+    LEA x24, core_list_key
     mov x9, #0
 .Lsl_save:
     cmp x9, #TC_L_ENTRY_SZ
@@ -2692,10 +2692,10 @@ sort_listing:
     ret
 
 // ============================================================================
-// lowercase_copy(x0=src, x1=dst) — ASCII-lowercase a string into dst.
+// core_lowercase_copy(x0=src, x1=dst) — ASCII-lowercase a string into dst.
 // ============================================================================
     .p2align 2
-lowercase_copy:
+core_lowercase_copy:
     mov x2, #0
 .Llc2:
     ldrb w3, [x0, x2]
@@ -2716,11 +2716,11 @@ lowercase_copy:
     ret
 
 // ============================================================================
-// tc_ascii_casecmp(x0=a, x1=b) -> x0 = 0 when a equals b ignoring ASCII
+// core_ascii_casecmp(x0=a, x1=b) -> x0 = 0 when a equals b ignoring ASCII
 //   case (b is expected to be already lowercased).
 // ============================================================================
     .p2align 2
-tc_ascii_casecmp:
+core_ascii_casecmp:
     mov x2, #0
 .Lacc_loop:
     ldrb w3, [x0, x2]
@@ -2747,10 +2747,10 @@ tc_ascii_casecmp:
     ret
 
 // ============================================================================
-// tc_copy_str(x0=dst, x1=src) — NUL-terminated string copy.
+// core_copy_str(x0=dst, x1=src) — NUL-terminated string copy.
 // ============================================================================
     .p2align 2
-tc_copy_str:
+core_copy_str:
     mov x2, #0
 .Lcs:
     ldrb w3, [x1, x2]
@@ -2760,10 +2760,10 @@ tc_copy_str:
     ret
 
 // ============================================================================
-// tc_memzero_own(x0=ptr, x1=len)
+// core_memzero_own(x0=ptr, x1=len)
 // ============================================================================
     .p2align 2
-tc_memzero_own:
+core_memzero_own:
     mov x2, #0
 .Lmz:
     cbz x1, .Lmz_done
@@ -2774,10 +2774,10 @@ tc_memzero_own:
     ret
 
 // ============================================================================
-// fmt_pad(x0=cursor, x1=value, x2=width) -> x0 = cursor after the digits.
+// core_fmt_pad(x0=cursor, x1=value, x2=width) -> x0 = cursor after the digits.
 // ============================================================================
     .p2align 2
-fmt_pad:
+core_fmt_pad:
     PROLOGUE 5
     mov x19, x0
     mov x20, x1
@@ -2827,11 +2827,11 @@ fmt_pad:
     ret
 
 // ============================================================================
-// fmt_ymd_sod(x0=ymd, x1=sod, x2=out) -> x0 = cursor after "YYYY-MM-DD
+// core_fmt_ymd_sod(x0=ymd, x1=sod, x2=out) -> x0 = cursor after "YYYY-MM-DD
 //   HH:MM:SS" (no NUL written).
 // ============================================================================
     .p2align 2
-fmt_ymd_sod:
+core_fmt_ymd_sod:
     PROLOGUE 5
     mov x19, x0                         // ymd
     mov x20, x1                         // sod
@@ -2851,21 +2851,21 @@ fmt_ymd_sod:
     mov x0, x21
     mov x1, x23
     mov x2, #4
-    bl fmt_pad
+    bl core_fmt_pad
     mov x21, x0
     mov w0, #'-'
     strb w0, [x21], #1
     mov x0, x21
     mov x1, x25
     mov x2, #2
-    bl fmt_pad
+    bl core_fmt_pad
     mov x21, x0
     mov w0, #'-'
     strb w0, [x21], #1
     mov x0, x21
     mov x1, x24
     mov x2, #2
-    bl fmt_pad
+    bl core_fmt_pad
     mov x21, x0
     mov w0, #' '
     strb w0, [x21], #1
@@ -2873,7 +2873,7 @@ fmt_ymd_sod:
     udiv x1, x20, x26
     mov x0, x21
     mov x2, #2
-    bl fmt_pad
+    bl core_fmt_pad
     mov x21, x0
     mov w0, #':'
     strb w0, [x21], #1
@@ -2884,7 +2884,7 @@ fmt_ymd_sod:
     mov x0, x21
     mov x1, x24
     mov x2, #2
-    bl fmt_pad
+    bl core_fmt_pad
     mov x21, x0
     mov w0, #':'
     strb w0, [x21], #1
@@ -2894,7 +2894,7 @@ fmt_ymd_sod:
     mov x0, x21
     mov x1, x24
     mov x2, #2
-    bl fmt_pad
+    bl core_fmt_pad
     mov x21, x0
     mov x0, x21
     EPILOGUE 5

@@ -50,7 +50,7 @@
 //    the signal and the shell reports 130, which is observably identical to
 //    Python's KeyboardInterrupt -> report_failure(..., code=130,
 //    announce=False) printing nothing and exiting 130.
-//    --json installs tc_main_sigint_handler BEFORE the one-shot run.  The
+//    --json installs main_sigint_handler BEFORE the one-shot run.  The
 //    handler is async-signal-safe (write(2) + _exit only) and emits the
 //    report_failure JSON shape  {"error": "interrupted"}  to stderr and
 //    exits 130, matching Python's json.dump + code=130.  The previous
@@ -68,7 +68,7 @@
 //    x23 = previous SIGINT disposition (returned by the first signal(); only
 //          used on the --json one-shot path)
 //    x24 = pushed for pair balance, otherwise unused
-//    The SIGINT handler (tc_main_sigint_handler) is a separate leaf entered
+//    The SIGINT handler (main_sigint_handler) is a separate leaf entered
 //    by the kernel: it preserves callee-saved registers by construction (it
 //    uses none), saves x29/x30 for the write() call, and never returns
 //    (_exit), so no restore is needed.
@@ -142,7 +142,7 @@
 //      * A channel dir that cannot be opened after resolution prints
 //        "error: cannot open channel directory: <dir>" (the Python would
 //        surface the raw OSError).
-//      * Wave E fixed a latent memory-corruption bug in add_user: the new
+//      * Wave E fixed a latent memory-corruption bug in tc_add_user: the new
 //        table capacity was held in x6 (caller-saved) across the realloc()
 //        call, which clobbered it, so the capacity field stored garbage.
 //        A log with >54 distinct users then stopped growing the entries
@@ -165,17 +165,17 @@
 //        instead of Python's float comparison; ties break by login, so the
 //        order is total and differential-stable.
 //      * Wave E fixed TWO latent bugs exposed by the final differential:
-//        (1) the exclusion-source join used str_cat for the ", " separator,
+//        (1) the exclusion-source join used render_str_cat for the ", " separator,
 //        which copies the separator's trailing NUL and truncated every source
 //        after the first out of the header (an exclude line rendered as
 //        "[--exclude, ]" instead of "[--exclude, --exclude-broadcaster]");
-//        the separator now uses str_cat_n(dst, ", ", 2).  (2) --header none
+//        the separator now uses render_str_cat_n(dst, ", ", 2).  (2) --header none
 //        jumped straight to the table, skipping the empty-report check, so an
 //        empty range with --header none rendered an empty table instead of
 //        Python's "No users met the threshold (...)" line; TC_HDR_NONE now
 //        falls through to the shared empty check.  No other lines changed.
 //    tc_misc.S:
-//      * complete_users uses UTC "now" (the Python uses local time); the
+//      * misc_complete_users uses UTC "now" (the Python uses local time); the
 //        differential generates logs covering any 7-day window.
 //      * Config TOML errors in completions use tomlc99's message vs
 //        tomllib's; the "could not read config <path>: " prefix is identical.
@@ -192,7 +192,7 @@
 //    tc_watch.S:
 //      * Wave D shipped with [[watch.highlight]] inert (the CLI never parsed
 //        it).  Wave E resolves the rules into TC_O_HL_* at CLI time
-//        (tc_resolve_highlights) and the pcre2 machinery is live.  Making it
+//        (cli_resolve_highlights) and the pcre2 machinery is live.  Making it
 //        live exposed ONE latent bug in the previously-dead compile path:
 //        pcre2_match_data_create_from_pattern_8(code, gcontext) needs x1 =
 //        NULL so the code's own memctl is used (the preceding pcre2_compile_8
@@ -274,7 +274,7 @@ main:
     tst x1, #TC_F_JSON
     b.eq .Lmain_report_go
     mov x0, #SIGINT
-    LEA x1, tc_main_sigint_handler
+    LEA x1, main_sigint_handler
     bl signal
     mov x23, x0                      // previous disposition (callee-saved)
 .Lmain_report_go:
@@ -342,7 +342,7 @@ main:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_main_sigint_handler — SIGINT handler for the --json one-shot.
+// main_sigint_handler — SIGINT handler for the --json one-shot.
 //   Writes  {"error": "interrupted"}  to stderr and _exit(130) — the exact
 //   shape Python's report_failure produces for KeyboardInterrupt under
 //   --json.  Async-signal-safe by construction: only write(2) and _exit.
@@ -352,8 +352,8 @@ main:
 //   them across the handler anyway).
 // ----------------------------------------------------------------------------
     .p2align 2
-    FUNC_TYPE(tc_main_sigint_handler)
-tc_main_sigint_handler:
+    FUNC_TYPE(main_sigint_handler)
+main_sigint_handler:
     PROLOGUE 0
     mov x0, #STDERR
     LEA x1, s_interrupted
