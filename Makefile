@@ -86,8 +86,7 @@ TC_MODS := tc_util tc_main tc_cli tc_config tc_core tc_cache tc_render \
 TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 
 # Generated .inc blobs — COMMITTED sources (generated but part of the
-# deliverable); these rules only regenerate when the generator is newer, and
-# `make gen-inc` forces regeneration.
+# deliverable); regenerated only by an explicit `make gen-inc`.
 GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
 
 .PHONY: all run test clean third-party gen-inc drivers $(TARGET3)
@@ -170,16 +169,14 @@ $(SQLITE_O): $(SQLITE)/sqlite3.c $(SQLITE)/sqlite3.h | $(BUILD) $(TOOLCHAIN_DEP)
 third-party: $(LIBS)
 
 # ---------------------------------------------------------------------------
-# generated .inc blobs (committed sources; regenerate only when the
-# generator is newer, or explicitly with `make gen-inc`)
+# generated .inc blobs (committed sources).  Regenerated ONLY by an explicit
+# `make gen-inc`: the blobs embed text the Python renders for the machine
+# it runs on, and a fresh checkout gives every file the same mtime, so an
+# mtime-driven rule would silently rewrite committed sources on a build.
 # ---------------------------------------------------------------------------
-tc_manual.inc tc_fish.inc: gen-tc-misc-inc.sh twitch-counts.py
+gen-inc:
 	./gen-tc-misc-inc.sh
-
-tc_json_schema.inc: gen-tc-json-inc.sh twitch-counts.py
 	./gen-tc-json-inc.sh
-
-gen-inc: $(GEN_INCS)
 	@echo "regenerated: $(GEN_INCS)"
 
 # ---------------------------------------------------------------------------

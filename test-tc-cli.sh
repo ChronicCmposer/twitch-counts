@@ -224,6 +224,17 @@ expect_contains "help-channel" "--channel" --help
 # 4. Differential check vs the Python reference on error text
 # ---------------------------------------------------------------------------
 echo "-- differential error text vs python3 twitch-counts.py --"
+# CPython's argparse has flipped the quoting of the "(choose from ...)" list
+# between patch releases (3.14.4 prints `choose from auto, always, never`,
+# 3.14.6 prints `choose from 'auto', 'always', 'never'`).  The driver
+# follows one spelling; the comparison ignores that quoting on both sides
+# so the differential is about the message, not the oracle's patch level.
+choices_norm() {
+    python3 -c '
+import re, sys
+s = sys.stdin.read()
+print(re.sub(r"\(choose from ([^)]*)\)", lambda m: "(choose from " + m.group(1).replace(chr(39), "") + ")", s), end="")'
+}
 DIFF_FAIL=0
 while IFS= read -r line; do
     [ -z "$line" ] && continue
@@ -242,8 +253,8 @@ while IFS= read -r line; do
         continue
     fi
     [ "$py_rc" -eq 0 ] && continue
-    pn=$(printf '%s\n' "$py_out" | tr -s ' \n' ' ' | sed 's/twitch-counts\.py/PROG/g' | sed 's/[[:space:]]*$//')
-    an=$(printf '%s\n' "$asm_out" | tr -s ' \n' ' ' | sed 's/tc-cli-test/PROG/g' | sed 's/[[:space:]]*$//')
+    pn=$(printf '%s\n' "$py_out" | tr -s ' \n' ' ' | sed 's/twitch-counts\.py/PROG/g' | sed 's/[[:space:]]*$//' | choices_norm)
+    an=$(printf '%s\n' "$asm_out" | tr -s ' \n' ' ' | sed 's/tc-cli-test/PROG/g' | sed 's/[[:space:]]*$//' | choices_norm)
     if [ "$pn" != "$an" ]; then
         DIFF_FAIL=$((DIFF_FAIL+1))
         echo "  DIFF text ($*):"

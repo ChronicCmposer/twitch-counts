@@ -124,10 +124,17 @@ start = time.time()
 sent = False
 appended = False
 rc = "alive"
+# <sigint_after> and <append_after> count from the child's FIRST OUTPUT, not
+# from fork: the Python oracle can take longer than a second to import and
+# render on a loaded machine, and a SIGINT that lands before its
+# KeyboardInterrupt handling is installed exits with a traceback instead
+# of the shape under test.
+first_out = None
 while time.time() - start < tmo:
-    if sig_after >= 0 and not sent and time.time() - start > sig_after:
+    since = (time.time() - first_out) if first_out is not None else -1.0
+    if sig_after >= 0 and not sent and since > sig_after:
         os.kill(pid, signal.SIGINT); sent = True
-    if app_after >= 0 and not appended and time.time() - start > app_after and line:
+    if app_after >= 0 and not appended and since > app_after and line:
         with open(os.environ.get("TCWATCH_LOG", "/nonexistent"), "a") as f:
             f.write(line + "\n")
         appended = True
@@ -159,9 +166,13 @@ while time.time() - start < tmo:
     r, _, _ = select.select([fd], [], [], 0.05)
     if r:
         try:
-            buf += os.read(fd, 65536)
+            chunk = os.read(fd, 65536)
         except OSError:
-            pass
+            chunk = b""
+        if chunk:
+            buf += chunk
+            if first_out is None:
+                first_out = time.time()
 if rc == "alive":
     os.kill(pid, signal.SIGKILL)
     try: os.waitpid(pid, 0)
@@ -286,11 +297,18 @@ with open(os.path.join(base, f"{sys.argv[1].rsplit('/',1)[-1]}-{yest}.log"), "w"
         t = (now - datetime.timedelta(days=1)).replace(hour=10, minute=1+i, second=0)
         f.write(f"[{t.strftime('%H:%M:%S')}] yuser{i}: yesterday {i}\n")
     f.write("[12:00:00] Recent is offline!\n")
+# The four 'recent' messages are minutes before now; shortly after local
+# midnight some of them belong to yesterday, so each goes into the file of
+# its own date (appended, so yesterday's fixed lines above are kept).
+recent = {}
+for i in range(4):
+    t = now - datetime.timedelta(minutes=20 - i*2, seconds=5)
+    recent.setdefault(t.strftime("%Y-%m-%d"), []).append(f"[{t.strftime('%H:%M:%S')}] user{i}: msg {i}\n")
 with open(os.path.join(base, f"{sys.argv[1].rsplit('/',1)[-1]}-{today}.log"), "w") as f:
     f.write("[00:00:00] Recent is live!\n")
-    for i in range(4):
-        t = now - datetime.timedelta(minutes=20 - i*2, seconds=5)
-        f.write(f"[{t.strftime('%H:%M:%S')}] user{i}: msg {i}\n")
+for day, lines in recent.items():
+    with open(os.path.join(base, f"{sys.argv[1].rsplit('/',1)[-1]}-{day}.log"), "a") as f:
+        f.writelines(lines)
 PYEOF
 RBASE=( -c "$RCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache )
 
