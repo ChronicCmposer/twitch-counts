@@ -379,73 +379,10 @@ tc_resolve_channel:
     b.ne .Lrc_dir_notfound
     // os.listdir(logs_dir): a directory that cannot be listed is main()'s
     // OSError backstop, "PermissionError: [Errno 13] Permission denied: '...'"
-    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
-    bl opendir
+    bl core_list_channel_dirs
     cbz x0, .Lrc_dir_oserror
-    mov x19, x0                        // DIR*
-    LEA x20, core_dname_count
-    str xzr, [x20]
-.Lrc_list:
-    mov x0, x19
-    bl readdir
-    cbz x0, .Lrc_list_done
-    ldrb w1, [x0, #D_TYPE_OFF]         // d_type
-    cmp w1, #DT_DIR
-    b.ne .Lrc_list
-    add x1, x0, #D_NAME_OFF            // d_name
-    // skip "." and ".."
-    ldrb w2, [x1]
-    cmp w2, #'.'
-    b.ne .Lrc_keep
-    ldrb w2, [x1, #1]
-    cbz w2, .Lrc_list
-    cmp w2, #'.'
-    b.ne .Lrc_keep
-    ldrb w2, [x1, #2]
-    cbz w2, .Lrc_list
-.Lrc_keep:
-    ldr x3, [x20]
-    cmp x3, #MAX_DNAMES
-    b.ge .Lrc_list
-    // name length, capped at DNAME_SZ-1 (Darwin d_name can run up to 1023
-    // bytes; this cap already rejects anything that long, same as Linux)
-    mov x4, x1
-    mov x5, #0
-.Lrc_nlen:
-    ldrb w6, [x4]
-    cbz w6, .Lrc_nlen_done
-    add x4, x4, #1
-    add x5, x5, #1
-    cmp x5, #(DNAME_SZ - 1)
-    b.ge .Lrc_list
-    b .Lrc_nlen
-.Lrc_nlen_done:
-    // copy into the arena
-    LEA x6, core_darena
-    mov x7, #DNAME_SZ
-    mul x7, x3, x7
-    add x6, x6, x7
-    LEA x8, core_dnames
-    str x6, [x8, x3, lsl #3]
-    mov x9, #0
-.Lrc_copy:
-    cmp x9, x5
-    b.ge .Lrc_copy_done
-    ldrb w10, [x1, x9]
-    strb w10, [x6, x9]
-    add x9, x9, #1
-    b .Lrc_copy
-.Lrc_copy_done:
-    mov w10, #0
-    strb w10, [x6, x9]
-    add x3, x3, #1
-    str x3, [x20]
-    b .Lrc_list
-.Lrc_list_done:
-    mov x0, x19
-    bl closedir
-    bl core_sort_dnames
     // find the channel case-insensitively
+    LEA x20, core_dname_count
     ldr x19, [x20]                     // count
     mov x21, #0                        // index
 .Lrc_find:
@@ -580,6 +517,90 @@ tc_resolve_channel:
     strb w2, [x19]
     LEA x0, core_scratch
     bl tc_fail
+
+// ============================================================================
+// core_list_channel_dirs — os.listdir(logs_dir) filtered to directories:
+//   fills core_dnames/core_darena/core_dname_count with every subdirectory
+//   name (minus "." and "..", capped at MAX_DNAMES entries of DNAME_SZ-1
+//   bytes), sorted by core_sort_dnames.
+//   -> x0 = 1, or 0 when opendir failed (errno left for tc_capture_errno).
+// ============================================================================
+    .p2align 2
+core_list_channel_dirs:
+    PROLOGUE 1
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
+    bl opendir
+    cbz x0, .Llcd_fail
+    mov x19, x0                        // DIR*
+    LEA x20, core_dname_count
+    str xzr, [x20]
+.Llcd_list:
+    mov x0, x19
+    bl readdir
+    cbz x0, .Llcd_done
+    ldrb w1, [x0, #D_TYPE_OFF]         // d_type
+    cmp w1, #DT_DIR
+    b.ne .Llcd_list
+    add x1, x0, #D_NAME_OFF            // d_name
+    // skip "." and ".."
+    ldrb w2, [x1]
+    cmp w2, #'.'
+    b.ne .Llcd_keep
+    ldrb w2, [x1, #1]
+    cbz w2, .Llcd_list
+    cmp w2, #'.'
+    b.ne .Llcd_keep
+    ldrb w2, [x1, #2]
+    cbz w2, .Llcd_list
+.Llcd_keep:
+    ldr x3, [x20]
+    cmp x3, #MAX_DNAMES
+    b.ge .Llcd_list
+    // name length, capped at DNAME_SZ-1 (Darwin d_name can run up to 1023
+    // bytes; this cap already rejects anything that long, same as Linux)
+    mov x4, x1
+    mov x5, #0
+.Llcd_nlen:
+    ldrb w6, [x4]
+    cbz w6, .Llcd_nlen_done
+    add x4, x4, #1
+    add x5, x5, #1
+    cmp x5, #(DNAME_SZ - 1)
+    b.ge .Llcd_list
+    b .Llcd_nlen
+.Llcd_nlen_done:
+    // copy into the arena
+    LEA x6, core_darena
+    mov x7, #DNAME_SZ
+    mul x7, x3, x7
+    add x6, x6, x7
+    LEA x8, core_dnames
+    str x6, [x8, x3, lsl #3]
+    mov x9, #0
+.Llcd_copy:
+    cmp x9, x5
+    b.ge .Llcd_copy_done
+    ldrb w10, [x1, x9]
+    strb w10, [x6, x9]
+    add x9, x9, #1
+    b .Llcd_copy
+.Llcd_copy_done:
+    mov w10, #0
+    strb w10, [x6, x9]
+    add x3, x3, #1
+    str x3, [x20]
+    b .Llcd_list
+.Llcd_done:
+    mov x0, x19
+    bl closedir
+    bl core_sort_dnames
+    mov x0, #1
+    EPILOGUE 1
+    ret
+.Llcd_fail:
+    mov x0, #0
+    EPILOGUE 1
+    ret
 
 // ============================================================================
 // core_build_listing — fill tc_listing with every dated log file, ascending.

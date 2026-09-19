@@ -3432,7 +3432,6 @@ cli_hl_pat_free: .skip 8                // 0/1 free the current pattern string
     .p2align 2
 cli_resolve_highlights:
     PROLOGUE 5
-    sub sp, sp, #16                     // [sp] = the current rule table slot
     LEA x19, tc_opts
     str xzr, [x19, #TC_O_HL_COUNT]    // default: no rules
     // ---- env TWITCH_WATCH_HIGHLIGHT ---------------------------------------
@@ -3524,13 +3523,59 @@ cli_resolve_highlights:
     mov x0, x23
     mov x1, x24
     bl toml_table_at
-    mov x25, x0                         // the rule table
-    str x25, [sp]                       // stash it (the pattern loop reuses x25)
     // the rule's slot in the contract array
-    LEA_OFF x28, tc_opts, TC_O_HL_ARR
-    mov x0, #TC_HL_RULE_SZ
-    mul x0, x24, x0
-    add x28, x28, x0
+    LEA_OFF x2, tc_opts, TC_O_HL_ARR
+    mov x3, #TC_HL_RULE_SZ
+    madd x2, x24, x3, x2
+    mov x1, x24                         // rule index
+    mov x3, x20                         // source id
+    bl cli_hl_parse_rule                // exits on any error
+    add x24, x24, #1
+    b .Lrh_rule
+.Lrh_store_done:
+    str x20, [x19, #TC_O_SRC + TC_SET_HIGHLIGHT*8]
+    str x26, [x19, #TC_O_HL_COUNT]
+    b .Lrh_ret
+.Lrh_default_free:
+    mov x0, x21
+    bl toml_free
+.Lrh_default:
+    mov x0, #TC_SRC_DEFAULT_BUILTIN
+    str x0, [x19, #TC_O_SRC + TC_SET_HIGHLIGHT*8]
+    str xzr, [x19, #TC_O_HL_COUNT]
+.Lrh_ret:
+    EPILOGUE 5
+    ret
+
+// ---- per-rule error exits ---------------------------------------------------
+.Lrh_too_many_rules:
+    mov x0, x20
+    LEA x1, s_hl_too_many_rules
+    bl cli_hl_err                        // noreturn
+.Lrh_expected_table:
+    mov x0, x20
+    mov x1, #0
+    LEA x2, s_hl_expected_table
+    bl cli_hl_err_rule                   // noreturn
+
+// ============================================================================
+// cli_hl_parse_rule(x0=rule table, x1=rule index, x2=slot, x3=source id) --
+//   one [[watch.highlight]] entry: `match` (a string or an array of
+//   patterns, each copied into tc_hl_patterns and compile-checked with
+//   pcre2), `color` (a hex string or a 3-int array) and the optional
+//   `curve` / `k`, written into the rule's TC_HL_* slot.  Every failure
+//   prints the exact Python parse_highlights text and exits (never returns).
+// ============================================================================
+    .p2align 2
+cli_hl_parse_rule:
+    PROLOGUE 5
+    sub sp, sp, #16                     // [sp] = the rule table (x25 doubles
+                                        // as the pattern text in the loop)
+    mov x25, x0                         // the rule table
+    mov x24, x1                         // rule index
+    mov x28, x2                         // the rule's slot in the contract array
+    mov x20, x3                         // source id (for the error texts)
+    str x25, [sp]
     // ---- presence: needs both `color` and `match` --------------------------
     mov x0, x25
     LEA x1, s_key_color
@@ -3810,34 +3855,11 @@ cli_resolve_highlights:
     ldr x0, [x0]
     str x0, [x28, #TC_HL_K]             // -1.0 = inherit
 .Lrh_k_done:
-    add x24, x24, #1
-    b .Lrh_rule
-.Lrh_store_done:
-    str x20, [x19, #TC_O_SRC + TC_SET_HIGHLIGHT*8]
-    str x26, [x19, #TC_O_HL_COUNT]
-    b .Lrh_ret
-.Lrh_default_free:
-    mov x0, x21
-    bl toml_free
-.Lrh_default:
-    mov x0, #TC_SRC_DEFAULT_BUILTIN
-    str x0, [x19, #TC_O_SRC + TC_SET_HIGHLIGHT*8]
-    str xzr, [x19, #TC_O_HL_COUNT]
-.Lrh_ret:
     add sp, sp, #16
     EPILOGUE 5
     ret
 
-// ---- per-rule error exits ---------------------------------------------------
-.Lrh_too_many_rules:
-    mov x0, x20
-    LEA x1, s_hl_too_many_rules
-    bl cli_hl_err                        // noreturn
-.Lrh_expected_table:
-    mov x0, x20
-    mov x1, #0
-    LEA x2, s_hl_expected_table
-    bl cli_hl_err_rule                   // noreturn
+// ---- per-rule error exits (all noreturn) ------------------------------------
 .Lrh_needs_both:
     mov x0, x20
     mov x1, x24

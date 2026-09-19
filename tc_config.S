@@ -407,9 +407,9 @@ tc_excl_contains:
     .global tc_build_exclusions
     FUNC_TYPE(tc_build_exclusions)
 tc_build_exclusions:
-    PROLOGUE 5
+    PROLOGUE 2
     bl cfg_ensure_config_loaded
-    // ---- reset the merged set + sources --------------------------------
+    // ---- reset the merged set + sources ----------------------------------------
     LEA x0, tc_excl_set
     str xzr, [x0]                   // TC_EX_COUNT = 0
     LEA x0, tc_excl_src_count
@@ -425,7 +425,7 @@ tc_build_exclusions:
 
     LEA x0, tc_opts
     ldr x19, [x0, #TC_O_FLAGS]
-    // ---- --no-exclude: conflict check, then clear ----------------------
+    // ---- --no-exclude: conflict check, then clear ------------------------------
     tst x19, #TC_F_NO_EXCLUDE
     b.eq .Lbe_normal
     LEA x20, cfg_scratch
@@ -487,12 +487,27 @@ tc_build_exclusions:
 .Lbe_ok:
     mov x0, #0
     b .Lbe_done
-
 .Lbe_normal:
-    // ---- read the config [exclude] table -------------------------------
-    bl cfg_build_groups
+    bl cfg_build_groups                 // the config [exclude] table
+    bl cfg_excl_validate_groups
+    bl cfg_excl_layer_flat
+    bl cfg_excl_layer_always
+    bl cfg_excl_layer_group
+    bl cfg_excl_layer_env
+    bl cfg_excl_layer_cli
+    bl cfg_excl_layer_broadcaster
+    bl cfg_excl_subtract_include
+    mov x0, #0
+.Lbe_done:
+    EPILOGUE 2
+    ret
 
-    // ---- validate --exclude-group names (Python exclusion_layers) -------
+// ----------------------------------------------------------------------------
+// cfg_excl_validate_groups -- validate --exclude-group names (Python exclusion_layers)
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_validate_groups:
+    PROLOGUE 3
     LEA x0, tc_opts
     mov x1, #TC_O_EXCL_GROUP_COUNT
     add x1, x0, x1
@@ -534,24 +549,39 @@ tc_build_exclusions:
     add x22, x22, #1
     b .Lbe_grp_check
 .Lbe_grp_done:
+    EPILOGUE 3
+    ret
 
-    // ---- layer 1: config flat exclude ----------------------------------
+// ----------------------------------------------------------------------------
+// cfg_excl_layer_flat -- layer 1: config flat exclude
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_layer_flat:
+    PROLOGUE 1
     LEA x0, cfg_excl_flat_n
     ldr x0, [x0]
-    cbz x0, .Lbe_layer_always
+    cbz x0, .Lbe_layer_flat_ret
     LEA x0, s_src_excl_config_label
     bl cfg_source_add_cstr
     mov x20, x0                     // source idx
     bl cfg_apply_flat_tokens
-.Lbe_layer_always:
-    // ---- layer 2: config always:<name> --------------------------------
+.Lbe_layer_flat_ret:
+    EPILOGUE 1
+    ret
+
+// ----------------------------------------------------------------------------
+// cfg_excl_layer_always -- layer 2: config always:<name>
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_layer_always:
+    PROLOGUE 4
     LEA x0, cfg_excl_always_n
     ldr x22, [x0]
     LEA x23, cfg_excl_always
     mov x24, #0
 .Lbe_always_loop:
     cmp x24, x22
-    b.ge .Lbe_layer_group
+    b.ge .Lbe_layer_always_ret
     // the group's login array
     mov x0, x24
     bl cfg_always_group_arr
@@ -587,9 +617,16 @@ tc_build_exclusions:
 .Lbe_always_next:
     add x24, x24, #1
     b .Lbe_always_loop
+.Lbe_layer_always_ret:
+    EPILOGUE 4
+    ret
 
-.Lbe_layer_group:
-    // ---- layer 3: --exclude-group <name> ------------------------------
+// ----------------------------------------------------------------------------
+// cfg_excl_layer_group -- layer 3: --exclude-group <name>
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_layer_group:
+    PROLOGUE 4
     LEA x0, tc_opts
     mov x1, #TC_O_EXCL_GROUP_COUNT
     add x1, x0, x1
@@ -599,7 +636,7 @@ tc_build_exclusions:
     mov x24, #0
 .Lbe_grp_loop:
     cmp x24, x22
-    b.ge .Lbe_layer_env
+    b.ge .Lbe_layer_group_ret
     mov x0, #32
     mul x0, x24, x0
     add x0, x23, x0
@@ -646,23 +683,37 @@ tc_build_exclusions:
 .Lbe_grp_next2:
     add x24, x24, #1
     b .Lbe_grp_loop
+.Lbe_layer_group_ret:
+    EPILOGUE 4
+    ret
 
-.Lbe_layer_env:
-    // ---- layer 4: env TWITCH_EXCLUDE ----------------------------------
+// ----------------------------------------------------------------------------
+// cfg_excl_layer_env -- layer 4: env TWITCH_EXCLUDE
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_layer_env:
+    PROLOGUE 1
     LEA x0, s_env_exclude
     bl getenv
-    cbz x0, .Lbe_layer_cli
+    cbz x0, .Lbe_layer_env_ret
     ldrb w1, [x0]
-    cbz w1, .Lbe_layer_cli
+    cbz w1, .Lbe_layer_env_ret
     bl cfg_split_names
-    cbz x0, .Lbe_layer_cli
+    cbz x0, .Lbe_layer_env_ret
     LEA x0, s_src_excl_env_label
     bl cfg_source_add_cstr
     mov x20, x0
     bl cfg_apply_split_tokens
+.Lbe_layer_env_ret:
+    EPILOGUE 1
+    ret
 
-.Lbe_layer_cli:
-    // ---- layer 5: --exclude (repeatable, one flattened layer) ----------
+// ----------------------------------------------------------------------------
+// cfg_excl_layer_cli -- layer 5: --exclude (repeatable, one flattened layer)
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_layer_cli:
+    PROLOGUE 4
     LEA x0, tc_opts
     mov x1, #TC_O_EXCL_COUNT
     add x1, x0, x1
@@ -705,11 +756,18 @@ tc_build_exclusions:
     add x24, x24, #1
     b .Lbe_cli_loop
 .Lbe_cli_done:
+    EPILOGUE 4
+    ret
 
-    // ---- layer 6: --exclude-broadcaster --------------------------------
+// ----------------------------------------------------------------------------
+// cfg_excl_layer_broadcaster -- layer 6: --exclude-broadcaster
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_layer_broadcaster:
+    PROLOGUE 2
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_EXCL_BCAST_VAL]
-    cbz x1, .Lbe_include
+    cbz x1, .Lbe_layer_broadcaster_ret
     mov x2, #TC_O_SRC
     add x2, x0, x2
     ldr x0, [x2, #TC_SET_EXCLUDE_BCAST*8]
@@ -727,9 +785,16 @@ tc_build_exclusions:
     mov x0, x21                     // login
     mov x2, x20                     // source idx
     bl cfg_add_excl_login
+.Lbe_layer_broadcaster_ret:
+    EPILOGUE 2
+    ret
 
-.Lbe_include:
-    // ---- --include subtraction ------------------------------------------
+// ----------------------------------------------------------------------------
+// cfg_excl_subtract_include -- --include subtraction
+// ----------------------------------------------------------------------------
+    .p2align 2
+cfg_excl_subtract_include:
+    PROLOGUE 5
     LEA x0, tc_opts
     mov x1, #TC_O_INCL_COUNT
     add x1, x0, x1
@@ -789,14 +854,6 @@ tc_build_exclusions:
     bl cfg_source_add
 .Lbe_done_ok:
     mov x0, #0
-.Lbe_done:
-    LEA x0, tc_excl_src_count
-    ldr x1, [x0]
-    LEA x0, cfg_scratch2
-    mov x2, x0
-    mov x0, x2
-    mov x1, x1
-    LEA x0, cfg_scratch2
     EPILOGUE 5
     ret
 

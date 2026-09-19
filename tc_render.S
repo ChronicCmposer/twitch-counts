@@ -1558,13 +1558,36 @@ render_plan_cache_snapshot:
     ret
 
 // ============================================================================
-// render_build_header_rows — the provenance table (Python provenance_rows), in order.
+// render_build_header_rows — the provenance table (Python provenance_rows), in
+// order: one render_hdr_row_* routine per row.  The rows are independent (no
+// register state crosses from one to the next); each is self-contained.
 // ============================================================================
     .p2align 2
 render_build_header_rows:
-    PROLOGUE 5
+    PROLOGUE 0
+    bl render_hdr_row_channel
+    bl render_hdr_row_logs_dir
+    bl render_hdr_row_begin
+    bl render_hdr_row_end
+    bl render_hdr_row_threshold
+    bl render_hdr_row_users
+    bl render_hdr_row_state
+    bl render_hdr_row_exclude
+    bl render_hdr_row_columns
+    bl render_hdr_row_sort
+    bl render_hdr_row_share_floor
+    bl render_hdr_row_config
+    bl render_hdr_row_cache
+    bl render_hdr_row_unreadable
+    EPILOGUE 0
+    ret
 
-    // ---- channel ---------------------------------------------------------
+// ----------------------------------------------------------------------------
+// render_hdr_row_channel -- channel
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_channel:
+    PROLOGUE 2
     LEA x19, s_label_channel
     bl tc_channel_name
     mov x20, x0
@@ -1576,8 +1599,15 @@ render_build_header_rows:
     mov x2, x21
     mov x3, x20
     bl render_hdr_add
+    EPILOGUE 2
+    ret
 
-    // ---- logs dir --------------------------------------------------------
+// ----------------------------------------------------------------------------
+// render_hdr_row_logs_dir -- logs dir
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_logs_dir:
+    PROLOGUE 2
     LEA x19, s_label_logs_dir
     LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     bl tc_shorten_path
@@ -1596,8 +1626,15 @@ render_build_header_rows:
     mov x2, x22
     mov x3, #0
     bl render_hdr_add
+    EPILOGUE 2
+    ret
 
-    // ---- begin -----------------------------------------------------------
+// ----------------------------------------------------------------------------
+// render_hdr_row_begin -- begin
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_begin:
+    PROLOGUE 4
     LEA x19, s_label_begin
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_BEGIN_YMD]
@@ -1629,8 +1666,15 @@ render_build_header_rows:
     mov x2, x24
     mov x3, x25
     bl render_hdr_add
+    EPILOGUE 4
+    ret
 
-    // ---- end -------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// render_hdr_row_end -- end
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_end:
+    PROLOGUE 3
     LEA x19, s_label_end
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_END_YMD]
@@ -1654,8 +1698,15 @@ render_build_header_rows:
     mov x2, x24
     mov x3, #0
     bl render_hdr_add
+    EPILOGUE 3
+    ret
 
-    // ---- threshold -------------------------------------------------------
+// ----------------------------------------------------------------------------
+// render_hdr_row_threshold -- threshold
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_threshold:
+    PROLOGUE 3
     LEA x19, s_label_threshold
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_THRESHOLD]
@@ -1691,11 +1742,18 @@ render_build_header_rows:
     mov x2, x24
     mov x3, x23
     bl render_hdr_add
+    EPILOGUE 3
+    ret
 
-    // ---- users -----------------------------------------------------------
+// ----------------------------------------------------------------------------
+// render_hdr_row_users -- users
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_users:
+    PROLOGUE 5
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_USERS_WIDTH]
-    cbz x20, .Lbhr_state
+    cbz x20, .Lbhr_users_ret
     LEA x19, s_label_users
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_USERS_REQ]
@@ -1764,16 +1822,23 @@ render_build_header_rows:
     mov x2, x25
     mov x3, x28
     bl render_hdr_add
+.Lbhr_users_ret:
+    EPILOGUE 5
+    ret
 
-    // ---- state -----------------------------------------------------------
-.Lbhr_state:
+// ----------------------------------------------------------------------------
+// render_hdr_row_state -- state
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_state:
+    PROLOGUE 5
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_STATES + 0]
     ldr x21, [x19, #TC_T_STATES + 8]
     ldr x22, [x19, #TC_T_STATES + 16]
     orr x23, x20, x21
     orr x23, x23, x22
-    cbz x23, .Lbhr_exclude
+    cbz x23, .Lbhr_state_ret
     LEA x19, s_label_state
     LEA x20, tc_tally
     // value = nonzero states "name N" joined " / "  (commas)
@@ -1905,12 +1970,19 @@ render_build_header_rows:
     mov x2, x22
     mov x3, x23
     bl render_hdr_add
+.Lbhr_state_ret:
+    EPILOGUE 5
+    ret
 
-    // ---- exclude ---------------------------------------------------------
-.Lbhr_exclude:
+// ----------------------------------------------------------------------------
+// render_hdr_row_exclude -- exclude
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_exclude:
+    PROLOGUE 4
     LEA x19, tc_plan_excl_names_n
     ldr x20, [x19]                    // n names
-    cbz x20, .Lbhr_columns
+    cbz x20, .Lbhr_exclude_ret
     LEA x19, s_label_exclude
     LEA x20, tc_plan_excl_names_n
     ldr x20, [x20]                    // N
@@ -1996,12 +2068,19 @@ render_build_header_rows:
     mov x2, x24
     mov x3, x25
     bl render_hdr_add
+.Lbhr_exclude_ret:
+    EPILOGUE 4
+    ret
 
-    // ---- columns ---------------------------------------------------------
-.Lbhr_columns:
+// ----------------------------------------------------------------------------
+// render_hdr_row_columns -- columns
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_columns:
+    PROLOGUE 4
     LEA x19, tc_plan_col_count
     ldr x20, [x19]
-    cbz x20, .Lbhr_sort
+    cbz x20, .Lbhr_columns_ret
     LEA x19, s_label_columns
     bl render_arena_get
     mov x21, x0
@@ -2040,13 +2119,20 @@ render_build_header_rows:
     mov x2, x25
     mov x3, #0
     bl render_hdr_add
+.Lbhr_columns_ret:
+    EPILOGUE 4
+    ret
 
-    // ---- sort ------------------------------------------------------------
-.Lbhr_sort:
+// ----------------------------------------------------------------------------
+// render_hdr_row_sort -- sort
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_sort:
+    PROLOGUE 3
     LEA x19, tc_plan_sort
     ldr x20, [x19]
     cmp x20, #TC_M_COUNT
-    b.eq .Lbhr_share_floor
+    b.eq .Lbhr_sort_ret
     LEA x19, s_label_sort
     LEA x21, metric_names
     ldr x21, [x21, x20, lsl #3]
@@ -2070,9 +2156,16 @@ render_build_header_rows:
     mov x2, x22
     mov x3, x23
     bl render_hdr_add
+.Lbhr_sort_ret:
+    EPILOGUE 3
+    ret
 
-    // ---- share floor -----------------------------------------------------
-.Lbhr_share_floor:
+// ----------------------------------------------------------------------------
+// render_hdr_row_share_floor -- share floor
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_share_floor:
+    PROLOGUE 5
     LEA x19, tc_plan_share_floor
     ldr x20, [x19]                    // the floor that acted
     // asked = source != TC_SRC_DEFAULT_BUILTIN
@@ -2168,7 +2261,7 @@ render_build_header_rows:
     bl render_arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_skip:
-    b .Lbhr_config
+    b .Lbhr_share_floor_ret
 .Lbhr_sf_add:
     mov x0, #TC_SET_SHARE_FLOOR
     bl tc_setting_src_str
@@ -2178,12 +2271,19 @@ render_build_header_rows:
     mov x2, x25
     mov x3, x26
     bl render_hdr_add
+.Lbhr_share_floor_ret:
+    EPILOGUE 5
+    ret
 
-    // ---- config ----------------------------------------------------------
-.Lbhr_config:
+// ----------------------------------------------------------------------------
+// render_hdr_row_config -- config
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_config:
+    PROLOGUE 2
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_CONFIG_LOADED]
-    cbz x20, .Lbhr_cache
+    cbz x20, .Lbhr_config_ret
     LEA x19, s_label_config
     add x0, x19, #0
     LEA_OFF x20, tc_opts, TC_O_CONFIG_PATH
@@ -2202,9 +2302,16 @@ render_build_header_rows:
     LEA x2, s_loaded
     mov x3, #0
     bl render_hdr_add
+.Lbhr_config_ret:
+    EPILOGUE 2
+    ret
 
-    // ---- cache -----------------------------------------------------------
-.Lbhr_cache:
+// ----------------------------------------------------------------------------
+// render_hdr_row_cache -- cache
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_cache:
+    PROLOGUE 5
     LEA x19, tc_plan_cache_used
     ldr x20, [x19]                    // used
     ldr x21, [x19, #8]                // reused
@@ -2213,7 +2320,7 @@ render_build_header_rows:
     ldr x24, [x19, #32]               // rebuilt
     ldr x25, [x19, #40]               // path
     cbnz x20, .Lbhr_cache_used
-    cbz x23, .Lbhr_unreadable         // not used, no problem -> no row
+    cbz x23, .Lbhr_cache_ret         // not used, no problem -> no row
     // unavailable -- <problem>
     LEA x19, s_label_cache
     bl render_arena_get
@@ -2231,7 +2338,7 @@ render_build_header_rows:
     LEA x2, s_every_file
     LEA x3, s_no_cache_c
     bl render_hdr_add
-    b .Lbhr_unreadable
+    b .Lbhr_cache_ret
 .Lbhr_cache_used:
     LEA x19, s_label_cache
     bl render_arena_get
@@ -2283,12 +2390,19 @@ render_build_header_rows:
     mov x2, x27
     mov x3, #0
     bl render_hdr_add
+.Lbhr_cache_ret:
+    EPILOGUE 5
+    ret
 
-    // ---- unreadable ------------------------------------------------------
-.Lbhr_unreadable:
+// ----------------------------------------------------------------------------
+// render_hdr_row_unreadable -- unreadable
+// ----------------------------------------------------------------------------
+    .p2align 2
+render_hdr_row_unreadable:
+    PROLOGUE 3
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_UNR_COUNT]
-    cbz x20, .Lbhr_done
+    cbz x20, .Lbhr_unreadable_ret
     LEA x19, s_label_unreadable
     LEA x20, tc_tally
     ldr x20, [x20, #TC_T_UNR_COUNT]
@@ -2367,8 +2481,8 @@ render_build_header_rows:
     LEA x2, s_not_counted
     mov x3, x23
     bl render_hdr_add
-.Lbhr_done:
-    EPILOGUE 5
+.Lbhr_unreadable_ret:
+    EPILOGUE 3
     ret
 
 // ============================================================================
