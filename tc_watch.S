@@ -509,6 +509,7 @@ tc_watch_fpath:      .skip 704
 tc_watch_scratch:    .skip 2048
 tc_watch_scratch2:   .skip 8192
 tc_watch_replay_map: .skip PREV_MAX * PV_SZ  // launch replay: this step's counts, tc_watch_prev's layout
+tc_watch_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped file
 tc_watch_tintbuf:    .skip 4096
 tc_watch_clipbuf:    .skip 4096
 tc_watch_status:     .skip 256
@@ -2728,7 +2729,7 @@ watch_reader_refresh:
     bl open
     mov w23, w0
     cmp w23, #0
-    b.lt .Lwrrf_err
+    b.lt .Lwrrf_open_err
     mov x0, x23
     ldr x1, [x19, #RD_OFFSET]
     mov x2, #SEEK_SET
@@ -2945,7 +2946,11 @@ watch_reader_refresh:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+.Lwrrf_open_err:
+    bl tc_capture_errno                 // the skip() reason
+    b .Lwrrf_err
 .Lwrrf_close_err:
+    bl tc_capture_errno                 // before close() can clobber errno
     mov x0, x23
     bl close
 .Lwrrf_err:
@@ -5321,7 +5326,7 @@ watch_gather_file:
     add x20, x20, LO12(tc_watch_stat)
     mov x1, x20
     bl stat
-    cbnz w0, .Lwgf_unreadable
+    cbnz w0, .Lwgf_stat_fail
     // entry was clobbered by the path build; reload it
     adrp x9, PAGE(tc_listing)
     add x9, x9, LO12(tc_listing)
@@ -5555,10 +5560,15 @@ watch_gather_file:
     mov x0, x23
     bl watch_win_add
     b .Lwgf_done
+.Lwgf_stat_fail:
+    bl tc_capture_errno
 .Lwgf_unreadable:
+    // skip(): the errno captured at the failing call, as tc_core.S
+    adrp x0, PAGE(tc_watch_reason)
+    add x0, x0, LO12(tc_watch_reason)
+    bl tc_errno_reason
+    mov x1, x0
     add x0, x19, #TC_L_NAME
-    adrp x1, PAGE(s_cannot_read)
-    add x1, x1, LO12(s_cannot_read)
     bl watch_record_unreadable
     adrp x9, PAGE(tc_watch_g_enter)
     add x9, x9, LO12(tc_watch_g_enter)

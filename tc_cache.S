@@ -656,6 +656,7 @@ tc_cache_day:
     mov x0, #0
     b .Lcd_done
 .Lcd_statfail:
+    bl tc_capture_errno             // the reason tc_core reports
     mov x0, #2
     b .Lcd_done
 .Lcd_nocache:

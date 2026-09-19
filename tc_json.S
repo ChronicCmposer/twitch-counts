@@ -1402,20 +1402,24 @@ emit_unreadable:
     bl jputc
     add x21, x19, #TC_T_UNR_ENTRIES
     mov x22, #0
+    // json.dumps(indent=2) of [{"file": ..., "problem": ...}, ...] under a
+    // key at indent 4: rows open at 6, their keys sit at 8, "]" at 4.  (The
+    // rows were two levels too deep, and s_j_file/s_j_problem lacked their
+    // NUL, so "file" ran on into "problem": invalid JSON.)
 .Ljun_loop:
     cmp x22, x20
     b.ge .Ljun_done
-    adrp x0, PAGE(s_j_ind8)
-    add x0, x0, LO12(s_j_ind8)
-    mov x1, #8
+    adrp x0, PAGE(s_j_ind6)
+    add x0, x0, LO12(s_j_ind6)
+    mov x1, #6
     bl jputraw
     adrp x0, PAGE(s_j_row_open)
     add x0, x0, LO12(s_j_row_open)
     mov x1, #2
     bl jputraw
-    adrp x0, PAGE(s_j_ind10)
-    add x0, x0, LO12(s_j_ind10)
-    mov x1, #10
+    adrp x0, PAGE(s_j_ind8)
+    add x0, x0, LO12(s_j_ind8)
+    mov x1, #8
     bl jputraw
     adrp x0, PAGE(s_j_file)
     add x0, x0, LO12(s_j_file)
@@ -1427,9 +1431,9 @@ emit_unreadable:
     adrp x0, PAGE(s_j_comma_nl)
     add x0, x0, LO12(s_j_comma_nl)
     bl jputs
-    adrp x0, PAGE(s_j_ind10)
-    add x0, x0, LO12(s_j_ind10)
-    mov x1, #10
+    adrp x0, PAGE(s_j_ind8)
+    add x0, x0, LO12(s_j_ind8)
+    mov x1, #8
     bl jputraw
     adrp x0, PAGE(s_j_problem)
     add x0, x0, LO12(s_j_problem)
@@ -1441,8 +1445,8 @@ emit_unreadable:
     bl jquoted
     mov w0, #'\n'
     bl jputc
-    adrp x0, PAGE(s_j_close8)
-    add x0, x0, LO12(s_j_close8)
+    adrp x0, PAGE(s_j_close6nl)
+    add x0, x0, LO12(s_j_close6nl)
     bl jputs
     add x9, x22, #1
     cmp x9, x20
@@ -1455,9 +1459,11 @@ emit_unreadable:
     add x22, x22, #1
     b .Ljun_loop
 .Ljun_done:
-    adrp x0, PAGE(s_j_close6nl)
-    add x0, x0, LO12(s_j_close6nl)
+    adrp x0, PAGE(s_j_ind4)
+    add x0, x0, LO12(s_j_ind4)
     bl jputs
+    mov w0, #']'
+    bl jputc
     b .Ljun_out
 .Ljun_empty:
     mov w0, #'['
@@ -1725,7 +1731,7 @@ s_js_sort:          .asciz "sort"
 s_js_state:         .asciz "state"
 s_js_top:           .asciz "top"
 s_j_ind10:          .ascii "          "
-s_j_file:           .ascii "\"file\": "
-s_j_problem:        .ascii "\"problem\": "
+s_j_file:           .asciz "\"file\": "
+s_j_problem:        .asciz "\"problem\": "
 
     .end

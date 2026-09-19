@@ -108,6 +108,9 @@
     .globl free
     .globl realloc
     .globl opendir
+    .globl strerror
+    .globl stat
+    .globl tc_expanduser
     .globl readdir
     .globl closedir
     .globl open
@@ -152,6 +155,10 @@
     .bss
     .p2align 4
 tc_core_scratch:    .skip 2048          // error-message composition buffer
+tc_core_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped file
+tc_core_statbuf:    .skip STAT_SZ       // os.path.isdir(logs_dir)
+    .global tc_last_errno
+tc_last_errno:      .skip 8             // errno of the last captured failure
 tc_core_fmt:        .skip 64            // datetime formatting buffer
 tc_core_login:      .skip 32            // speaker_login output (<= 25 + NUL)
 tc_core_dirpath:    .skip 640           // logs_dir + "/" + channel_name
@@ -360,6 +367,23 @@ tc_resolve_channel:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
+    // os.path.expanduser(logs_dir): the Python expands the setting when it
+    // resolves it, whatever its source, so "~/..." works from the command
+    // line, the environment and the config, and the header and every error
+    // show the expanded path.  In place (idempotent on a second call).
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    add x0, x0, #TC_O_LOGS_DIR
+    adrp x1, PAGE(tc_core_scratch)
+    add x1, x1, LO12(tc_core_scratch)
+    mov x2, #TC_O_LOGS_DIR_SZ
+    bl tc_expanduser
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    add x0, x0, #TC_O_LOGS_DIR
+    adrp x1, PAGE(tc_core_scratch)
+    add x1, x1, LO12(tc_core_scratch)
+    bl tc_copy_str
     // lowercased channel for matching
     adrp x0, PAGE(tc_opts)
     add x0, x0, LO12(tc_opts)
@@ -367,12 +391,27 @@ tc_resolve_channel:
     adrp x1, PAGE(tc_core_chlower)
     add x1, x1, LO12(tc_core_chlower)
     bl lowercase_copy
-    // open the logs dir
+    // os.path.isdir(logs_dir): anything but a directory is "not found"
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
+    add x0, x0, #TC_O_LOGS_DIR
+    adrp x1, PAGE(tc_core_statbuf)
+    add x1, x1, LO12(tc_core_statbuf)
+    bl stat
+    cbnz w0, .Lrc_dir_notfound
+    adrp x0, PAGE(tc_core_statbuf)
+    add x0, x0, LO12(tc_core_statbuf)
+    LOAD_ST_MODE 1, x0
+    and w1, w1, #0xF000                // S_IFMT
+    cmp w1, #0x4000                    // S_IFDIR
+    b.ne .Lrc_dir_notfound
+    // os.listdir(logs_dir): a directory that cannot be listed is main()'s
+    // OSError backstop, "PermissionError: [Errno 13] Permission denied: '...'"
     adrp x0, PAGE(tc_opts)
     add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_LOGS_DIR
     bl opendir
-    cbz x0, .Lrc_dir_notfound
+    cbz x0, .Lrc_dir_oserror
     mov x19, x0                        // DIR*
     adrp x20, PAGE(tc_core_dname_count)
     add x20, x20, LO12(tc_core_dname_count)
@@ -484,6 +523,16 @@ tc_resolve_channel:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+
+.Lrc_dir_oserror:
+    bl tc_capture_errno
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
+    add x1, x1, #TC_O_LOGS_DIR
+    bl tc_oserror_text
+    bl .Lrc_emit_fail
 
 .Lrc_dir_notfound:
     // logs_dir unset (empty string): the resolved setting has no value at
@@ -696,22 +745,14 @@ tc_build_listing:
     ret
 
 .Lbl_cant_open:
+    // os.listdir(channel_dir) raised: main()'s OSError backstop text
+    bl tc_capture_errno
     adrp x0, PAGE(tc_core_scratch)
     add x0, x0, LO12(tc_core_scratch)
-    mov x19, x0
-    adrp x1, PAGE(s_cant_open_dir)
-    add x1, x1, LO12(s_cant_open_dir)
-    bl tc_cat_cstr
-    mov x19, x0
     adrp x1, PAGE(tc_core_dirpath)
     add x1, x1, LO12(tc_core_dirpath)
-    mov x0, x19
-    bl tc_cat_cstr
-    mov w1, #0
-    strb w1, [x0]
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
-    bl tc_fail
+    bl tc_oserror_text                 // x0 = the NUL-terminated text
+    bl .Lrc_emit_fail                  // text or {"error": ...}, exit 1
 
 .Lbl_oom:
     adrp x0, PAGE(s_oom)
@@ -1365,14 +1406,20 @@ tc_count_final:
     bl tc_cache_discard_day             // Phase 6: drop any pending stash
     ldp x9, x1, [sp], #16
     str x1, [sp, #CF_BUF]               // buf (may be 0)
-    ldr x0, [sp, #CF_ENTRY]
-    add x0, x0, #TC_L_NAME
     cmp x9, #1
     b.eq .Lcf_too_large
-    adrp x1, PAGE(s_cannot_read)
-    add x1, x1, LO12(s_cannot_read)
+    // skip(): f"{type(exc).__name__}: {exc.strerror}" from the errno that
+    // tc_read_file captured
+    adrp x0, PAGE(tc_core_reason)
+    add x0, x0, LO12(tc_core_reason)
+    bl tc_errno_reason
+    mov x1, x0
+    ldr x0, [sp, #CF_ENTRY]
+    add x0, x0, #TC_L_NAME
     b .Lcf_record
 .Lcf_too_large:
+    ldr x0, [sp, #CF_ENTRY]
+    add x0, x0, #TC_L_NAME
     adrp x1, PAGE(s_too_large)
     add x1, x1, LO12(s_too_large)
 .Lcf_record:
@@ -1406,12 +1453,14 @@ tc_count_final:
     str x1, [x9]
     b .Lcf_next
 .Lcf_cache_unreadable:
-    // Phase 6: stat failed inside the cache hook; record + reset state,
-    // exactly like Python's skip().
+    // Phase 6: stat failed inside the cache hook (errno captured there);
+    // record + reset state, exactly like Python's skip().
+    adrp x0, PAGE(tc_core_reason)
+    add x0, x0, LO12(tc_core_reason)
+    bl tc_errno_reason
+    mov x1, x0
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
-    adrp x1, PAGE(s_cannot_read)
-    add x1, x1, LO12(s_cannot_read)
     bl record_unreadable
     adrp x9, PAGE(tc_core_cur_state)
     add x9, x9, LO12(tc_core_cur_state)
@@ -1544,6 +1593,204 @@ tc_finish_tally:
 // ============================================================================
 // record_unreadable(x0=name, x1=reason) — capped unreadable list.
 // ============================================================================
+    .p2align 2
+// ============================================================================
+// errno -> the text Python attaches to an OSError.
+//   tc_capture_errno()            stores errno in tc_last_errno; call it right
+//                                 after the failing libc call, before anything
+//                                 else can clobber errno.
+//   tc_errno_reason(x0=dst)       "{ExcClass}: {strerror}"   (skip(): the
+//                                 header/JSON reason for an unreadable file)
+//   tc_oserror_text(x0=dst, x1=path)
+//                                 "{ExcClass}: [Errno N] {strerror}: '{path}'"
+//                                 (main()'s backstop: f"{type(exc).__name__}:
+//                                 {exc}" for an OSError with a filename)
+//   All three preserve x19-x28; the text is NUL-terminated and x0 = dst.
+// ============================================================================
+    .p2align 2
+    .global tc_capture_errno
+    FUNC_TYPE(tc_capture_errno)
+tc_capture_errno:
+    stp x29, x30, [sp, #-16]!
+    bl __errno_location
+    ldr w0, [x0]
+    adrp x9, PAGE(tc_last_errno)
+    add x9, x9, LO12(tc_last_errno)
+    str x0, [x9]
+    ldp x29, x30, [sp], #16
+    ret
+
+    .p2align 2
+    .global tc_errno_reason
+    FUNC_TYPE(tc_errno_reason)
+tc_errno_reason:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    mov x19, x0
+    adrp x9, PAGE(tc_last_errno)
+    add x9, x9, LO12(tc_last_errno)
+    ldr x20, [x9]
+    mov x0, x20
+    bl errno_exc_name
+    mov x1, x0
+    mov x0, x19
+    bl tc_cat_cstr
+    adrp x1, PAGE(s_exc_sep)
+    add x1, x1, LO12(s_exc_sep)
+    bl tc_cat_cstr
+    str x0, [sp, #-16]!                // the cursor, across strerror()
+    mov x0, x20
+    bl strerror
+    mov x1, x0
+    ldr x0, [sp], #16
+    bl tc_cat_cstr
+    mov x0, x19                        // dst (before x19 is restored)
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+    .p2align 2
+    .global tc_oserror_text
+    FUNC_TYPE(tc_oserror_text)
+tc_oserror_text:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    mov x19, x0                        // dst (kept for the return)
+    mov x21, x1                        // path
+    adrp x9, PAGE(tc_last_errno)
+    add x9, x9, LO12(tc_last_errno)
+    ldr x20, [x9]
+    mov x0, x20
+    bl errno_exc_name
+    mov x1, x0
+    mov x0, x19
+    bl tc_cat_cstr
+    adrp x1, PAGE(s_exc_errno_pre)     // ": [Errno "
+    add x1, x1, LO12(s_exc_errno_pre)
+    bl tc_cat_cstr
+    mov x22, x0
+    // the errno number
+    mov x1, x20
+    bl core_fmt_u64
+    adrp x1, PAGE(s_exc_errno_post)    // "] "
+    add x1, x1, LO12(s_exc_errno_post)
+    bl tc_cat_cstr
+    mov x22, x0
+    mov x0, x20
+    bl strerror
+    mov x1, x0
+    mov x0, x22
+    bl tc_cat_cstr
+    adrp x1, PAGE(s_exc_path_pre)      // ": '"
+    add x1, x1, LO12(s_exc_path_pre)
+    bl tc_cat_cstr
+    mov x1, x21
+    bl tc_cat_cstr
+    mov w1, #'\''
+    strb w1, [x0], #1
+    strb wzr, [x0]
+    mov x0, x19
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// errno_exc_name(x0=errno) -> x0 = the OSError subclass Python raises for it
+// (the errno values below are the same on Darwin and Linux)
+    .p2align 2
+errno_exc_name:
+    cmp x0, #1                          // EPERM
+    b.eq .Leen_perm
+    cmp x0, #13                         // EACCES
+    b.eq .Leen_perm
+    cmp x0, #2                          // ENOENT
+    b.eq .Leen_notfound
+    cmp x0, #21                         // EISDIR
+    b.eq .Leen_isdir
+    cmp x0, #20                         // ENOTDIR
+    b.eq .Leen_notdir
+    cmp x0, #17                         // EEXIST
+    b.eq .Leen_exists
+    cmp x0, #4                          // EINTR
+    b.eq .Leen_intr
+    cmp x0, #32                         // EPIPE
+    b.eq .Leen_pipe
+    adrp x0, PAGE(s_exc_oserror)
+    add x0, x0, LO12(s_exc_oserror)
+    ret
+.Leen_perm:
+    adrp x0, PAGE(s_exc_perm)
+    add x0, x0, LO12(s_exc_perm)
+    ret
+.Leen_notfound:
+    adrp x0, PAGE(s_exc_notfound)
+    add x0, x0, LO12(s_exc_notfound)
+    ret
+.Leen_isdir:
+    adrp x0, PAGE(s_exc_isdir)
+    add x0, x0, LO12(s_exc_isdir)
+    ret
+.Leen_notdir:
+    adrp x0, PAGE(s_exc_notdir)
+    add x0, x0, LO12(s_exc_notdir)
+    ret
+.Leen_exists:
+    adrp x0, PAGE(s_exc_exists)
+    add x0, x0, LO12(s_exc_exists)
+    ret
+.Leen_intr:
+    adrp x0, PAGE(s_exc_intr)
+    add x0, x0, LO12(s_exc_intr)
+    ret
+.Leen_pipe:
+    adrp x0, PAGE(s_exc_pipe)
+    add x0, x0, LO12(s_exc_pipe)
+    ret
+
+// core_fmt_u64(x0=cursor, x1=value) -> x0 = cursor after the decimal digits
+    .p2align 2
+core_fmt_u64:
+    sub sp, sp, #32
+    add x9, sp, #31
+    mov x10, #0                         // digit count
+    mov x11, x1
+.Lcfu_gen:
+    mov x12, #10
+    udiv x13, x11, x12
+    msub x14, x13, x12, x11
+    add x14, x14, #'0'
+    strb w14, [x9]
+    sub x9, x9, #1
+    add x10, x10, #1
+    mov x11, x13
+    cbnz x11, .Lcfu_gen
+.Lcfu_copy:
+    cbz x10, .Lcfu_done
+    ldrb w14, [x9, #1]!
+    strb w14, [x0], #1
+    sub x10, x10, #1
+    b .Lcfu_copy
+.Lcfu_done:
+    strb wzr, [x0]
+    add sp, sp, #32
+    ret
+
+    RODATA
+s_exc_sep:          .asciz ": "
+s_exc_errno_pre:    .asciz ": [Errno "
+s_exc_errno_post:   .asciz "] "
+s_exc_path_pre:     .asciz ": '"
+s_exc_oserror:      .asciz "OSError"
+s_exc_perm:         .asciz "PermissionError"
+s_exc_notfound:     .asciz "FileNotFoundError"
+s_exc_isdir:        .asciz "IsADirectoryError"
+s_exc_notdir:       .asciz "NotADirectoryError"
+s_exc_exists:       .asciz "FileExistsError"
+s_exc_intr:         .asciz "InterruptedError"
+s_exc_pipe:         .asciz "BrokenPipeError"
+    .text
+
     .p2align 2
 record_unreadable:
     adrp x2, PAGE(tc_tally)
@@ -1750,6 +1997,9 @@ tc_read_file:
     // clobbers only x0-x17 like any libc call.
     bl __errno_location                // x0 = &errno
     ldr w0, [x0]
+    adrp x9, PAGE(tc_last_errno)       // read() failed (e.g. EISDIR): keep
+    add x9, x9, LO12(tc_last_errno)    // the reason before close()/free()
+    str x0, [x9]                       // can clobber errno
     cmp w0, #EINTR
     b.eq .Lrf_read
     b .Lrf_read_err
@@ -1789,6 +2039,7 @@ tc_read_file:
     ldp x29, x30, [sp], #16
     ret
 .Lrf_open_fail:
+    bl tc_capture_errno                 // open() failed: the reason
     mov x0, #2
     mov x1, #0
     mov x2, #0

@@ -462,8 +462,8 @@
     .equ TC_T_UNR_ENTRIES,   96
     .equ TC_T_UNR_MAX,       64
     .equ TC_T_UNR_NAME_SZ,   64
-    .equ TC_T_UNR_REASON_SZ, 32
-    .equ TC_T_UNR_ENTRY_SZ,  (64 + 32)                    // 96
+    .equ TC_T_UNR_REASON_SZ, 64         // "PermissionError: Permission denied"
+    .equ TC_T_UNR_ENTRY_SZ,  (64 + 64)                    // 128
     .equ TC_TALLY_SIZE,      (96 + TC_T_UNR_MAX * TC_T_UNR_ENTRY_SZ)
 
 // ----------------------------------------------------------------------------
