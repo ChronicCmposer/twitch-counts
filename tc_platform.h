@@ -205,6 +205,7 @@
 //  stp/ldp chains produced before the macros existed.
     .macro PROLOGUE n=0
     stp x29, x30, [sp, #-16]!
+    mov x29, sp
     .if \n >= 1
     stp x19, x20, [sp, #-16]!
     .endif
