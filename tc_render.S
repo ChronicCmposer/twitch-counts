@@ -344,8 +344,7 @@ h_m_liveshare:      .asciz "live%"
 tc_report_fail:
     stp x19, x30, [sp, #-16]!
     mov x19, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_JSON
     b.eq .Lrf_text
@@ -363,8 +362,7 @@ tc_report_fail:
 // never reads stale bytes from the previous line.
 line_zero:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_render_line)
-    add x0, x0, LO12(tc_render_line)
+    LEA x0, tc_render_line
     mov x1, #0
     mov x2, #LINE_SZ
     bl memset
@@ -373,8 +371,7 @@ line_zero:
 
 compact_zero:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_render_compact)
-    add x0, x0, LO12(tc_render_compact)
+    LEA x0, tc_render_compact
     mov x1, #0
     mov x2, #LINE_SZ
     bl memset
@@ -388,21 +385,17 @@ compact_zero:
 line_puts:
     stp x19, x30, [sp, #-16]!
     mov x19, x0
-    adrp x9, PAGE(tc_frame_capture)
-    add x9, x9, LO12(tc_frame_capture)
+    LEA x9, tc_frame_capture
     ldr x9, [x9]
     cbz x9, .Llp_print
     // capture: copy into tc_frame_lines[count] (drop when the frame is full)
-    adrp x9, PAGE(tc_frame_count)
-    add x9, x9, LO12(tc_frame_count)
+    LEA x9, tc_frame_count
     ldr x10, [x9]
-    adrp x11, PAGE(tc_frame_max)
-    add x11, x11, LO12(tc_frame_max)
+    LEA x11, tc_frame_max
     ldr x11, [x11]
     cmp x10, x11
     b.ge .Llp_cap_done
-    adrp x11, PAGE(tc_frame_lines)
-    add x11, x11, LO12(tc_frame_lines)
+    LEA x11, tc_frame_lines
     ldr x11, [x11]
     ldr x11, [x11, x10, lsl #3]
     mov x0, x11
@@ -415,8 +408,7 @@ line_puts:
     ret
 .Llp_print:
     bl tc_puts
-    adrp x0, PAGE(s_newline)
-    add x0, x0, LO12(s_newline)
+    LEA x0, s_newline
     bl tc_puts
     ldp x19, x30, [sp], #16
     ret
@@ -425,20 +417,16 @@ line_puts:
     .p2align 2
 line_blank:
     stp x19, x30, [sp, #-16]!
-    adrp x9, PAGE(tc_frame_capture)
-    add x9, x9, LO12(tc_frame_capture)
+    LEA x9, tc_frame_capture
     ldr x9, [x9]
     cbz x9, .Llb_print
-    adrp x9, PAGE(tc_frame_count)
-    add x9, x9, LO12(tc_frame_count)
+    LEA x9, tc_frame_count
     ldr x10, [x9]
-    adrp x11, PAGE(tc_frame_max)
-    add x11, x11, LO12(tc_frame_max)
+    LEA x11, tc_frame_max
     ldr x11, [x11]
     cmp x10, x11
     b.ge .Llb_done
-    adrp x11, PAGE(tc_frame_lines)
-    add x11, x11, LO12(tc_frame_lines)
+    LEA x11, tc_frame_lines
     ldr x11, [x11]
     ldr x11, [x11, x10, lsl #3]
     mov w0, #0
@@ -449,8 +437,7 @@ line_blank:
     ldp x19, x30, [sp], #16
     ret
 .Llb_print:
-    adrp x0, PAGE(s_newline)
-    add x0, x0, LO12(s_newline)
+    LEA x0, s_newline
     bl tc_puts
     ldp x19, x30, [sp], #16
     ret
@@ -463,17 +450,13 @@ line_blank:
     FUNC_TYPE(tc_frame_begin)
 tc_frame_begin:
     stp x29, x30, [sp, #-16]!
-    adrp x9, PAGE(tc_frame_lines)
-    add x9, x9, LO12(tc_frame_lines)
+    LEA x9, tc_frame_lines
     str x0, [x9]
-    adrp x9, PAGE(tc_frame_max)
-    add x9, x9, LO12(tc_frame_max)
+    LEA x9, tc_frame_max
     str x1, [x9]
-    adrp x9, PAGE(tc_frame_count)
-    add x9, x9, LO12(tc_frame_count)
+    LEA x9, tc_frame_count
     str xzr, [x9]
-    adrp x9, PAGE(tc_frame_capture)
-    add x9, x9, LO12(tc_frame_capture)
+    LEA x9, tc_frame_capture
     mov x10, #1
     str x10, [x9]
     ldp x29, x30, [sp], #16
@@ -484,8 +467,7 @@ tc_frame_begin:
     FUNC_TYPE(tc_frame_end)
 tc_frame_end:
     stp x29, x30, [sp, #-16]!
-    adrp x9, PAGE(tc_frame_capture)
-    add x9, x9, LO12(tc_frame_capture)
+    LEA x9, tc_frame_capture
     str xzr, [x9]
     ldp x29, x30, [sp], #16
     ret
@@ -495,8 +477,7 @@ tc_frame_end:
     FUNC_TYPE(tc_frame_set_pin)
 tc_frame_set_pin:
     stp x29, x30, [sp, #-16]!
-    adrp x9, PAGE(tc_frame_pin_width)
-    add x9, x9, LO12(tc_frame_pin_width)
+    LEA x9, tc_frame_pin_width
     str x0, [x9]
     ldp x29, x30, [sp], #16
     ret
@@ -506,11 +487,9 @@ tc_frame_set_pin:
     FUNC_TYPE(tc_frame_set_tint)
 tc_frame_set_tint:
     stp x29, x30, [sp, #-16]!
-    adrp x9, PAGE(tc_frame_tint_fn)
-    add x9, x9, LO12(tc_frame_tint_fn)
+    LEA x9, tc_frame_tint_fn
     str x0, [x9]
-    adrp x9, PAGE(tc_frame_tint_ctx)
-    add x9, x9, LO12(tc_frame_tint_ctx)
+    LEA x9, tc_frame_tint_ctx
     str x1, [x9]
     ldp x29, x30, [sp], #16
     ret
@@ -531,8 +510,7 @@ pin_cell:
     mov x19, x0                        // dst
     mov x20, x1                        // src
     mov x21, x2                        // width
-    adrp x9, PAGE(tc_frame_pin_width)
-    add x9, x9, LO12(tc_frame_pin_width)
+    LEA x9, tc_frame_pin_width
     ldr x9, [x9]
     cbz x9, .Lpc_pad
     mov x0, x20
@@ -934,8 +912,7 @@ fmt_share_cell:
     b .Lfsc_go
 .Lfsc_div:
     ucvtf d0, x1
-    adrp x9, PAGE(dbl_100)
-    add x9, x9, LO12(dbl_100)
+    LEA x9, dbl_100
     ldr d1, [x9]
     fmul d0, d0, d1
     ucvtf d1, x20
@@ -943,8 +920,7 @@ fmt_share_cell:
 .Lfsc_go:
     mov x0, x19
     mov x1, #CELL_SZ
-    adrp x2, PAGE(s_share_fmt)
-    add x2, x2, LO12(s_share_fmt)
+    LEA x2, s_share_fmt
     bl tc_snprintf_d
     add x0, x19, x0
     ldp x19, x20, [sp], #16
@@ -958,35 +934,29 @@ fmt_share_cell:
 // arena_get() -> x0 = current end pointer
     .p2align 2
 arena_get:
-    adrp x1, PAGE(tc_plan_arena_cur)
-    add x1, x1, LO12(tc_plan_arena_cur)
+    LEA x1, tc_plan_arena_cur
     ldr x2, [x1]
-    adrp x0, PAGE(tc_plan_arena)
-    add x0, x0, LO12(tc_plan_arena)
+    LEA x0, tc_plan_arena
     add x0, x0, x2
     ret
 
 // arena_set_end(x0=end ptr): cur = end - arena_base
     .p2align 2
 arena_set_end:
-    adrp x1, PAGE(tc_plan_arena)
-    add x1, x1, LO12(tc_plan_arena)
+    LEA x1, tc_plan_arena
     sub x0, x0, x1
-    adrp x2, PAGE(tc_plan_arena_cur)
-    add x2, x2, LO12(tc_plan_arena_cur)
+    LEA x2, tc_plan_arena_cur
     str x0, [x2]
     ret
 
 // hdr_add(label, value, source, compact) — append one HeaderRow descriptor
     .p2align 2
 hdr_add:
-    adrp x4, PAGE(tc_plan_hdr_count)
-    add x4, x4, LO12(tc_plan_hdr_count)
+    LEA x4, tc_plan_hdr_count
     ldr x5, [x4]
     cmp x5, #HDR_MAX
     b.ge .Lha_done
-    adrp x6, PAGE(tc_plan_rows)
-    add x6, x6, LO12(tc_plan_rows)
+    LEA x6, tc_plan_rows
     mov x7, #HDR_DESC_SZ
     mul x7, x5, x7
     add x6, x6, x7
@@ -1004,8 +974,7 @@ hdr_add:
 src_str:
     stp x19, x30, [sp, #-16]!
     mov x19, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     movz x2, #TC_O_SRC
     add x0, x0, x2
     ldr x0, [x0, x19, lsl #3]
@@ -1022,26 +991,19 @@ src_str:
 tc_plan_presentation:
     stp x29, x30, [sp, #-16]!
     // reset the plan
-    adrp x0, PAGE(tc_plan_arena_cur)
-    add x0, x0, LO12(tc_plan_arena_cur)
+    LEA x0, tc_plan_arena_cur
     str xzr, [x0]
-    adrp x0, PAGE(tc_plan_hdr_count)
-    add x0, x0, LO12(tc_plan_hdr_count)
+    LEA x0, tc_plan_hdr_count
     str xzr, [x0]
-    adrp x0, PAGE(tc_plan_src_join)
-    add x0, x0, LO12(tc_plan_src_join)
+    LEA x0, tc_plan_src_join
     str xzr, [x0]
-    adrp x0, PAGE(tc_plan_reported)
-    add x0, x0, LO12(tc_plan_reported)
+    LEA x0, tc_plan_reported
     str xzr, [x0]
-    adrp x0, PAGE(tc_plan_excl_names)
-    add x0, x0, LO12(tc_plan_excl_names)
+    LEA x0, tc_plan_excl_names
     str xzr, [x0]
-    adrp x0, PAGE(tc_plan_share_floor)
-    add x0, x0, LO12(tc_plan_share_floor)
+    LEA x0, tc_plan_share_floor
     str xzr, [x0]
-    adrp x0, PAGE(tc_plan_below_floor)
-    add x0, x0, LO12(tc_plan_below_floor)
+    LEA x0, tc_plan_below_floor
     str xzr, [x0]
 
     bl plan_degeneracy_check
@@ -1065,12 +1027,10 @@ plan_degeneracy_check:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
-    adrp x19, PAGE(tc_window)
-    add x19, x19, LO12(tc_window)
+    LEA x19, tc_window
     ldr x20, [x19, #TC_W_STATE_FILTER]
     cbz x20, .Lpdeg_done
-    adrp x21, PAGE(tc_opts)
-    add x21, x21, LO12(tc_opts)
+    LEA x21, tc_opts
     ldr x22, [x21, #TC_O_SORT]
     cmp x22, #TC_M_LIVE
     b.lt .Lpdeg_cols
@@ -1092,23 +1052,19 @@ plan_degeneracy_check:
     add x24, x24, #1
     b .Lpdeg_col_loop
 .Lpdeg_fail:
-    adrp x0, PAGE(tc_render_errbuf)
-    add x0, x0, LO12(tc_render_errbuf)
+    LEA x0, tc_render_errbuf
     mov w1, #'-'
     strb w1, [x0], #1
     mov w1, #'-'
     strb w1, [x0], #1
-    adrp x1, PAGE(state_names)
-    add x1, x1, LO12(state_names)
+    LEA x1, state_names
     sub x2, x20, #1
     ldr x1, [x1, x2, lsl #3]
     bl str_cat
     sub x0, x0, #1                    // overwrite the trailing NUL
-    adrp x1, PAGE(s_degen_mid)
-    add x1, x1, LO12(s_degen_mid)
+    LEA x1, s_degen_mid
     bl str_cat
-    adrp x0, PAGE(tc_render_errbuf)
-    add x0, x0, LO12(tc_render_errbuf)
+    LEA x0, tc_render_errbuf
     bl tc_report_fail
 .Lpdeg_done:
     ldp x25, x26, [sp], #16
@@ -1129,11 +1085,9 @@ plan_columns:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_COLUMN_COUNT]
-    adrp x21, PAGE(tc_plan_columns)
-    add x21, x21, LO12(tc_plan_columns)
+    LEA x21, tc_plan_columns
     str x20, [x21, #48]              // plan_col_count
     mov x22, #0
 .Lpc_copy:
@@ -1194,12 +1148,10 @@ plan_rank:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // pass 1: counts
-    adrp x19, PAGE(tc_users)
-    add x19, x19, LO12(tc_users)
+    LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]
     ldr x21, [x19, #TC_US_ENTRIES]
-    adrp x22, PAGE(tc_window)
-    add x22, x22, LO12(tc_window)
+    LEA x22, tc_window
     ldr x23, [x22, #TC_W_THRESHOLD]
     mov x24, #0                      // reported_n
     mov x25, #0                      // in_range
@@ -1237,17 +1189,13 @@ plan_rank:
     add x28, x28, #1
     b .Lpr_walk1
 .Lpr_walk1_done:
-    adrp x28, PAGE(tc_plan_reported_n)
-    add x28, x28, LO12(tc_plan_reported_n)
+    LEA x28, tc_plan_reported_n
     str x24, [x28]
-    adrp x28, PAGE(tc_plan_in_range)
-    add x28, x28, LO12(tc_plan_in_range)
+    LEA x28, tc_plan_in_range
     str x25, [x28]
-    adrp x28, PAGE(tc_plan_excl_appeared)
-    add x28, x28, LO12(tc_plan_excl_appeared)
+    LEA x28, tc_plan_excl_appeared
     str x26, [x28]
-    adrp x28, PAGE(tc_plan_excl_msgs)
-    add x28, x28, LO12(tc_plan_excl_msgs)
+    LEA x28, tc_plan_excl_msgs
     str x27, [x28]
     // allocate
     cbz x24, .Lpr_alloc_done
@@ -1255,20 +1203,16 @@ plan_rank:
     mul x0, x24, x0
     bl malloc
     cbz x0, .Lpr_oom
-    adrp x28, PAGE(tc_plan_reported)
-    add x28, x28, LO12(tc_plan_reported)
+    LEA x28, tc_plan_reported
     str x0, [x28]
 .Lpr_alloc_done:
     // pass 2: fill
-    adrp x19, PAGE(tc_users)
-    add x19, x19, LO12(tc_users)
+    LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]
     ldr x21, [x19, #TC_US_ENTRIES]
-    adrp x22, PAGE(tc_window)
-    add x22, x22, LO12(tc_window)
+    LEA x22, tc_window
     ldr x23, [x22, #TC_W_THRESHOLD]
-    adrp x24, PAGE(tc_plan_reported)
-    add x24, x24, LO12(tc_plan_reported)
+    LEA x24, tc_plan_reported
     ldr x24, [x24]
     mov x25, #0                      // fill index
     mov x26, #0                      // i
@@ -1327,21 +1271,16 @@ plan_rank:
     add x26, x26, #1
     b .Lpr_walk2
 .Lpr_walk2_done:
-    adrp x28, PAGE(tc_plan_reported_n)
-    add x28, x28, LO12(tc_plan_reported_n)
+    LEA x28, tc_plan_reported_n
     str x25, [x28]
     // ---- share floor -----------------------------------------------------
-    adrp x19, PAGE(tc_plan_shares_shown)
-    add x19, x19, LO12(tc_plan_shares_shown)
+    LEA x19, tc_plan_shares_shown
     ldr x19, [x19]
-    adrp x20, PAGE(tc_opts)
-    add x20, x20, LO12(tc_opts)
+    LEA x20, tc_opts
     ldr x20, [x20, #TC_O_SHARE_FLOOR]
-    adrp x21, PAGE(tc_plan_reported)
-    add x21, x21, LO12(tc_plan_reported)
+    LEA x21, tc_plan_reported
     ldr x21, [x21]
-    adrp x22, PAGE(tc_plan_reported_n)
-    add x22, x22, LO12(tc_plan_reported_n)
+    LEA x22, tc_plan_reported_n
     ldr x22, [x22]
     cbz x19, .Lpr_floor_none
     cbz x20, .Lpr_floor_none
@@ -1375,34 +1314,28 @@ plan_rank:
     add x24, x24, #1
     b .Lpr_floor_loop
 .Lpr_floor_apply:
-    adrp x24, PAGE(tc_plan_share_floor)
-    add x24, x24, LO12(tc_plan_share_floor)
+    LEA x24, tc_plan_share_floor
     str x20, [x24]
-    adrp x25, PAGE(tc_plan_below_floor)
-    add x25, x25, LO12(tc_plan_below_floor)
+    LEA x25, tc_plan_below_floor
     sub x26, x22, x23
     str x26, [x25]
-    adrp x25, PAGE(tc_plan_reported_n)
-    add x25, x25, LO12(tc_plan_reported_n)
+    LEA x25, tc_plan_reported_n
     str x23, [x25]
     mov x22, x23
     b .Lpr_keys
 .Lpr_floor_none:
-    adrp x24, PAGE(tc_plan_share_floor)
-    add x24, x24, LO12(tc_plan_share_floor)
+    LEA x24, tc_plan_share_floor
     str xzr, [x24]
 .Lpr_keys:
     // share sort keys (fixed point 1000*state/count)
-    adrp x19, PAGE(tc_plan_sort)
-    add x19, x19, LO12(tc_plan_sort)
+    LEA x19, tc_plan_sort
     ldr x20, [x19]
     cmp x20, #TC_M_OFFLINE_SHARE
     b.eq .Lpr_keys_do
     cmp x20, #TC_M_LIVE_SHARE
     b.ne .Lpr_sort
 .Lpr_keys_do:
-    adrp x21, PAGE(tc_plan_reported)
-    add x21, x21, LO12(tc_plan_reported)
+    LEA x21, tc_plan_reported
     ldr x21, [x21]
     mov x23, #0
 .Lpr_keys_loop:
@@ -1427,23 +1360,19 @@ plan_rank:
     b .Lpr_keys_loop
 .Lpr_sort:
     cbz x22, .Lpr_unknown
-    adrp x0, PAGE(tc_plan_reported)
-    add x0, x0, LO12(tc_plan_reported)
+    LEA x0, tc_plan_reported
     ldr x0, [x0]
     mov x1, x22
     mov x2, #ROW_SZ
-    adrp x3, PAGE(tc_render_cmp)
-    add x3, x3, LO12(tc_render_cmp)
+    LEA x3, tc_render_cmp
     bl qsort
 .Lpr_unknown:
     // unknown joins when --by-state and any reported row has unknown > 0
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_FLAGS]
     tst x20, #TC_F_BY_STATE
     b.eq .Lpr_done
-    adrp x21, PAGE(tc_plan_reported)
-    add x21, x21, LO12(tc_plan_reported)
+    LEA x21, tc_plan_reported
     ldr x21, [x21]
     mov x23, #0
 .Lpr_unk_scan:
@@ -1457,11 +1386,9 @@ plan_rank:
     add x23, x23, #1
     b .Lpr_unk_scan
 .Lpr_unk_insert:
-    adrp x24, PAGE(tc_plan_col_count)
-    add x24, x24, LO12(tc_plan_col_count)
+    LEA x24, tc_plan_col_count
     ldr x25, [x24]
-    adrp x26, PAGE(tc_plan_columns)
-    add x26, x26, LO12(tc_plan_columns)
+    LEA x26, tc_plan_columns
     mov x27, #0
 .Lpr_unk_dedupe:
     cmp x27, x25
@@ -1505,8 +1432,7 @@ plan_rank:
     ldp x29, x30, [sp], #16
     ret
 .Lpr_oom:
-    adrp x0, PAGE(s_oom)
-    add x0, x0, LO12(s_oom)
+    LEA x0, s_oom
     bl tc_report_fail
 
 // ============================================================================
@@ -1518,19 +1444,16 @@ plan_exclusions:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, PAGE(tc_excl_set)
-    add x19, x19, LO12(tc_excl_set)
+    LEA x19, tc_excl_set
     ldr x20, [x19]                   // exclusion count
-    adrp x21, PAGE(tc_plan_excl_names_n)
-    add x21, x21, LO12(tc_plan_excl_names_n)
+    LEA x21, tc_plan_excl_names_n
     str x20, [x21]
     cbz x20, .Lpex_sources
     mov x0, #NAME_SZ
     mul x0, x20, x0
     bl malloc
     cbz x0, .Lpex_oom
-    adrp x21, PAGE(tc_plan_excl_names)
-    add x21, x21, LO12(tc_plan_excl_names)
+    LEA x21, tc_plan_excl_names
     str x0, [x21]
     ldr x21, [x21]
     add x22, x19, #8                 // entries base
@@ -1556,25 +1479,21 @@ plan_exclusions:
     add x23, x23, #1
     b .Lpex_copy
 .Lpex_sort:
-    adrp x0, PAGE(tc_plan_excl_names)
-    add x0, x0, LO12(tc_plan_excl_names)
+    LEA x0, tc_plan_excl_names
     ldr x0, [x0]
     mov x1, x20
     mov x2, #NAME_SZ
-    adrp x3, PAGE(excl_name_cmp)
-    add x3, x3, LO12(excl_name_cmp)
+    LEA x3, excl_name_cmp
     bl qsort
 .Lpex_sources:
     // ", "-join the exclusion source records into the arena
-    adrp x19, PAGE(tc_excl_src_count)
-    add x19, x19, LO12(tc_excl_src_count)
+    LEA x19, tc_excl_src_count
     ldr x20, [x19]
     bl arena_get
     mov x21, x0                      // dst start
     mov x22, x0                      // cursor
     mov x23, #0                      // i
-    adrp x24, PAGE(tc_excl_sources)
-    add x24, x24, LO12(tc_excl_sources)
+    LEA x24, tc_excl_sources
 .Lpex_join:
     cmp x23, x20
     b.ge .Lpex_join_done
@@ -1588,8 +1507,7 @@ plan_exclusions:
     // "[--exclude, --exclude-broadcaster]").  str_cat_n copies exactly the
     // separator without a NUL, matching the .Lbhr_excl_preview join below.
     mov x0, x22
-    adrp x1, PAGE(s_comma)
-    add x1, x1, LO12(s_comma)
+    LEA x1, s_comma
     mov x2, #2
     bl str_cat_n
     mov x22, x0
@@ -1610,8 +1528,7 @@ plan_exclusions:
     add x0, x22, #1
     bl arena_set_end
     cbz x20, .Lpex_join_skip         // no source records: keep src_join = 0
-    adrp x0, PAGE(tc_plan_src_join)
-    add x0, x0, LO12(tc_plan_src_join)
+    LEA x0, tc_plan_src_join
     str x21, [x0]
 .Lpex_join_skip:
     ldp x23, x24, [sp], #16
@@ -1620,8 +1537,7 @@ plan_exclusions:
     ldp x29, x30, [sp], #16
     ret
 .Lpex_oom:
-    adrp x0, PAGE(s_oom)
-    add x0, x0, LO12(s_oom)
+    LEA x0, s_oom
     bl tc_report_fail
 
 // excl_name_cmp — qsort comparator for 26-byte login records
@@ -1642,8 +1558,7 @@ tc_render_cmp:
     stp x21, x22, [sp, #-16]!
     mov x19, x0
     mov x20, x1
-    adrp x21, PAGE(tc_plan_sort)
-    add x21, x21, LO12(tc_plan_sort)
+    LEA x21, tc_plan_sort
     ldr x21, [x21]
     cmp x21, #TC_M_LOGIN
     b.eq .Lcmp_login
@@ -1717,8 +1632,7 @@ plan_cache_snapshot:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CACHE
     b.ne .Lpcs_off
@@ -1729,8 +1643,7 @@ plan_cache_snapshot:
     mov x22, x3                      // problem
     mov x23, x4                      // rebuilt
     mov x24, x5                      // path
-    adrp x1, PAGE(tc_plan_cache_used)
-    add x1, x1, LO12(tc_plan_cache_used)
+    LEA x1, tc_plan_cache_used
     str x19, [x1]
     str x20, [x1, #8]
     str x21, [x1, #16]
@@ -1739,8 +1652,7 @@ plan_cache_snapshot:
     str x24, [x1, #40]
     b .Lpcs_done
 .Lpcs_off:
-    adrp x1, PAGE(tc_plan_cache_used)
-    add x1, x1, LO12(tc_plan_cache_used)
+    LEA x1, tc_plan_cache_used
     str xzr, [x1]
     str xzr, [x1, #8]
     str xzr, [x1, #16]
@@ -1767,8 +1679,7 @@ build_header_rows:
     stp x27, x28, [sp, #-16]!
 
     // ---- channel ---------------------------------------------------------
-    adrp x19, PAGE(s_label_channel)
-    add x19, x19, LO12(s_label_channel)
+    LEA x19, s_label_channel
     bl tc_channel_name
     mov x20, x0
     mov x0, #TC_SET_CHANNEL
@@ -1781,11 +1692,8 @@ build_header_rows:
     bl hdr_add
 
     // ---- logs dir --------------------------------------------------------
-    adrp x19, PAGE(s_label_logs_dir)
-    add x19, x19, LO12(s_label_logs_dir)
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
+    LEA x19, s_label_logs_dir
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     bl tc_shorten_path
     mov x20, x0                       // shortened (scratch — copy now)
     bl arena_get
@@ -1804,10 +1712,8 @@ build_header_rows:
     bl hdr_add
 
     // ---- begin -----------------------------------------------------------
-    adrp x19, PAGE(s_label_begin)
-    add x19, x19, LO12(s_label_begin)
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x19, s_label_begin
+    LEA x20, tc_window
     ldr x21, [x20, #TC_W_BEGIN_YMD]
     ldr x22, [x20, #TC_W_BEGIN_SOD]
     bl arena_get
@@ -1839,10 +1745,8 @@ build_header_rows:
     bl hdr_add
 
     // ---- end -------------------------------------------------------------
-    adrp x19, PAGE(s_label_end)
-    add x19, x19, LO12(s_label_end)
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x19, s_label_end
+    LEA x20, tc_window
     ldr x21, [x20, #TC_W_END_YMD]
     ldr x22, [x20, #TC_W_END_SOD]
     bl arena_get
@@ -1866,30 +1770,25 @@ build_header_rows:
     bl hdr_add
 
     // ---- threshold -------------------------------------------------------
-    adrp x19, PAGE(s_label_threshold)
-    add x19, x19, LO12(s_label_threshold)
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x19, s_label_threshold
+    LEA x20, tc_window
     ldr x21, [x20, #TC_W_THRESHOLD]
     bl arena_get
     mov x22, x0
     mov x0, x22
-    adrp x1, PAGE(s_ge)
-    add x1, x1, LO12(s_ge)
+    LEA x1, s_ge
     bl str_cat
     sub x0, x0, #1                    // back to before the NUL
     mov x1, x21
     bl fmt_u64_plain
-    adrp x1, PAGE(s_msgs)
-    add x1, x1, LO12(s_msgs)
+    LEA x1, s_msgs
     bl str_cat
     mov x0, x0
     bl arena_set_end
     bl arena_get
     mov x23, x0
     mov x0, x23
-    adrp x1, PAGE(s_ge_only)
-    add x1, x1, LO12(s_ge_only)
+    LEA x1, s_ge_only
     bl str_cat
     sub x0, x0, #1
     mov x1, x21
@@ -1908,14 +1807,11 @@ build_header_rows:
     bl hdr_add
 
     // ---- users -----------------------------------------------------------
-    adrp x19, PAGE(tc_window)
-    add x19, x19, LO12(tc_window)
+    LEA x19, tc_window
     ldr x20, [x19, #TC_W_USERS_WIDTH]
     cbz x20, .Lbhr_state
-    adrp x19, PAGE(s_label_users)
-    add x19, x19, LO12(s_label_users)
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x19, s_label_users
+    LEA x20, tc_window
     ldr x21, [x20, #TC_W_USERS_REQ]
     ldr x22, [x20, #TC_W_USERS_FOUND]
     ldr x23, [x20, #TC_W_USERS_WIDTH]
@@ -1924,14 +1820,12 @@ build_header_rows:
     mov x0, x24
     mov x1, x21
     bl fmt_u64_commas
-    adrp x1, PAGE(s_asked_for)
-    add x1, x1, LO12(s_asked_for)
+    LEA x1, s_asked_for
     bl str_cat
     sub x0, x0, #1
     mov x1, x22
     bl fmt_u64_commas
-    adrp x1, PAGE(s_found_over)
-    add x1, x1, LO12(s_found_over)
+    LEA x1, s_found_over
     bl str_cat
     sub x0, x0, #1
     mov x1, x23
@@ -1949,10 +1843,8 @@ build_header_rows:
     sub x0, x0, #1
     mov w1, #' '
     strb w1, [x0], #1
-    adrp x1, PAGE(policy_names)
-    add x1, x1, LO12(policy_names)
-    adrp x2, PAGE(tc_opts)
-    add x2, x2, LO12(tc_opts)
+    LEA x1, policy_names
+    LEA x2, tc_opts
     ldr x2, [x2, #TC_O_USERS_POLICY]
     ldr x1, [x1, x2, lsl #3]
     bl str_cat
@@ -1968,14 +1860,12 @@ build_header_rows:
     mov x0, x28
     mov x1, x27
     bl fmt_u64_commas
-    adrp x1, PAGE(s_slash)
-    add x1, x1, LO12(s_slash)
+    LEA x1, s_slash
     bl str_cat
     sub x0, x0, #1
     mov x1, x26
     bl fmt_u64_commas
-    adrp x1, PAGE(s_users_c)
-    add x1, x1, LO12(s_users_c)
+    LEA x1, s_users_c
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -1991,18 +1881,15 @@ build_header_rows:
 
     // ---- state -----------------------------------------------------------
 .Lbhr_state:
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x20, [x19, #TC_T_STATES + 0]
     ldr x21, [x19, #TC_T_STATES + 8]
     ldr x22, [x19, #TC_T_STATES + 16]
     orr x23, x20, x21
     orr x23, x23, x22
     cbz x23, .Lbhr_exclude
-    adrp x19, PAGE(s_label_state)
-    add x19, x19, LO12(s_label_state)
-    adrp x20, PAGE(tc_tally)
-    add x20, x20, LO12(tc_tally)
+    LEA x19, s_label_state
+    LEA x20, tc_tally
     // value = nonzero states "name N" joined " / "  (commas)
     bl arena_get
     mov x21, x0                       // value start
@@ -2019,14 +1906,12 @@ build_header_rows:
     b .Lbhr_state_cell
 .Lbhr_state_sep:
     mov x0, x22
-    adrp x1, PAGE(s_of_slash)
-    add x1, x1, LO12(s_of_slash)
+    LEA x1, s_of_slash
     bl str_cat
     sub x0, x0, #1
     mov x22, x0
 .Lbhr_state_cell:
-    adrp x1, PAGE(state_names)
-    add x1, x1, LO12(state_names)
+    LEA x1, state_names
     ldr x1, [x1, x24, lsl #3]
     mov x0, x22
     bl str_cat
@@ -2047,8 +1932,7 @@ build_header_rows:
     add x0, x22, #1
     bl arena_set_end
     // source (filter id rides in x25; x21 keeps the value start)
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x20, tc_window
     ldr x25, [x20, #TC_W_STATE_FILTER]
     bl arena_get
     mov x22, x0                       // source start
@@ -2059,12 +1943,10 @@ build_header_rows:
     mov x0, x22
     bl str_cat
     sub x0, x0, #1
-    adrp x1, PAGE(s_keeps)
-    add x1, x1, LO12(s_keeps)
+    LEA x1, s_keeps
     bl str_cat
     sub x0, x0, #1
-    adrp x1, PAGE(state_names)
-    add x1, x1, LO12(state_names)
+    LEA x1, state_names
     sub x2, x25, #1
     ldr x1, [x1, x2, lsl #3]
     bl str_cat
@@ -2073,8 +1955,7 @@ build_header_rows:
     b .Lbhr_state_src_done
 .Lbhr_state_nofilter:
     mov x0, x22
-    adrp x1, PAGE(s_not_filtered)
-    add x1, x1, LO12(s_not_filtered)
+    LEA x1, s_not_filtered
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -2083,15 +1964,13 @@ build_header_rows:
     bl arena_get
     mov x23, x0                       // compact start
     cbz x25, .Lbhr_state_comp_split
-    adrp x1, PAGE(state_names)
-    add x1, x1, LO12(state_names)
+    LEA x1, state_names
     sub x2, x25, #1
     ldr x1, [x1, x2, lsl #3]
     mov x0, x23
     bl str_cat
     sub x0, x0, #1
-    adrp x1, PAGE(s_only)
-    add x1, x1, LO12(s_only)
+    LEA x1, s_only
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -2100,8 +1979,7 @@ build_header_rows:
     mov x24, x0                       // cursor
     mov x25, #0                       // first
     mov x26, #0                       // state idx
-    adrp x27, PAGE(tc_tally)
-    add x27, x27, LO12(tc_tally)
+    LEA x27, tc_tally
 .Lbhr_state_comp_loop:
     cmp x26, #3
     b.ge .Lbhr_state_comp_done
@@ -2114,8 +1992,7 @@ build_header_rows:
     mov w1, #' '
     strb w1, [x24], #1
 .Lbhr_state_comp_cell:
-    adrp x1, PAGE(state_names)
-    add x1, x1, LO12(state_names)
+    LEA x1, state_names
     ldr x1, [x1, x26, lsl #3]
     mov x0, x24
     bl str_cat
@@ -2136,8 +2013,7 @@ build_header_rows:
     add x0, x24, #1
     bl arena_set_end
 .Lbhr_state_add:
-    adrp x19, PAGE(s_label_state)
-    add x19, x19, LO12(s_label_state)
+    LEA x19, s_label_state
     mov x0, x19
     mov x1, x21
     mov x2, x22
@@ -2146,17 +2022,13 @@ build_header_rows:
 
     // ---- exclude ---------------------------------------------------------
 .Lbhr_exclude:
-    adrp x19, PAGE(tc_plan_excl_names_n)
-    add x19, x19, LO12(tc_plan_excl_names_n)
+    LEA x19, tc_plan_excl_names_n
     ldr x20, [x19]                    // n names
     cbz x20, .Lbhr_columns
-    adrp x19, PAGE(s_label_exclude)
-    add x19, x19, LO12(s_label_exclude)
-    adrp x20, PAGE(tc_plan_excl_names_n)
-    add x20, x20, LO12(tc_plan_excl_names_n)
+    LEA x19, s_label_exclude
+    LEA x20, tc_plan_excl_names_n
     ldr x20, [x20]                    // N
-    adrp x21, PAGE(tc_plan_excl_appeared)
-    add x21, x21, LO12(tc_plan_excl_appeared)
+    LEA x21, tc_plan_excl_appeared
     ldr x21, [x21]                    // M appeared
     // value: "N login(s), M in range: preview"
     bl arena_get
@@ -2164,19 +2036,16 @@ build_header_rows:
     mov x0, x22
     mov x1, x20
     bl fmt_u64_plain
-    adrp x1, PAGE(s_login_s)
-    add x1, x1, LO12(s_login_s)
+    LEA x1, s_login_s
     bl str_cat
     sub x0, x0, #1
     mov x1, x21
     bl fmt_u64_plain
-    adrp x1, PAGE(s_in_range_colon)
-    add x1, x1, LO12(s_in_range_colon)
+    LEA x1, s_in_range_colon
     bl str_cat
     sub x0, x0, #1                    // overwrite the trailing NUL
     // preview: first 3 names joined ", ", then ", +K more" if > 3
-    adrp x23, PAGE(tc_plan_excl_names)
-    add x23, x23, LO12(tc_plan_excl_names)
+    LEA x23, tc_plan_excl_names
     ldr x23, [x23]
     mov x24, #0                        // i
     mov x25, #0                        // first flag
@@ -2189,8 +2058,7 @@ build_header_rows:
     b .Lbhr_excl_name
 .Lbhr_excl_sep:
     sub x0, x0, #1                    // overwrite the trailing NUL
-    adrp x1, PAGE(s_comma)
-    add x1, x1, LO12(s_comma)
+    LEA x1, s_comma
     mov x2, #2
     bl str_cat_n
 .Lbhr_excl_name:
@@ -2206,21 +2074,18 @@ build_header_rows:
     b.le .Lbhr_excl_val_done
     sub x0, x0, #1                    // overwrite the trailing NUL (str_cat
                                       // returns the cursor past it)
-    adrp x1, PAGE(s_comma_more)
-    add x1, x1, LO12(s_comma_more)
+    LEA x1, s_comma_more
     bl str_cat
     sub x0, x0, #1
     sub x1, x20, #3
     bl fmt_u64_plain
-    adrp x1, PAGE(s_more)
-    add x1, x1, LO12(s_more)
+    LEA x1, s_more
     bl str_cat
 .Lbhr_excl_val_done:
     mov x0, x0
     bl arena_set_end
     // source = joined sources
-    adrp x24, PAGE(tc_plan_src_join)
-    add x24, x24, LO12(tc_plan_src_join)
+    LEA x24, tc_plan_src_join
     ldr x24, [x24]
     // compact = "-M excl" when appeared
     cbz x21, .Lbhr_excl_noc
@@ -2232,8 +2097,7 @@ build_header_rows:
     add x0, x0, #1
     mov x1, x21
     bl fmt_u64_plain
-    adrp x1, PAGE(s_excl)
-    add x1, x1, LO12(s_excl)
+    LEA x1, s_excl
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -2249,32 +2113,26 @@ build_header_rows:
 
     // ---- columns ---------------------------------------------------------
 .Lbhr_columns:
-    adrp x19, PAGE(tc_plan_col_count)
-    add x19, x19, LO12(tc_plan_col_count)
+    LEA x19, tc_plan_col_count
     ldr x20, [x19]
     cbz x20, .Lbhr_sort
-    adrp x19, PAGE(s_label_columns)
-    add x19, x19, LO12(s_label_columns)
+    LEA x19, s_label_columns
     bl arena_get
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_m_count)
-    add x1, x1, LO12(s_m_count)
+    LEA x1, s_m_count
     bl str_cat
     sub x0, x0, #1
-    adrp x22, PAGE(tc_plan_columns)
-    add x22, x22, LO12(tc_plan_columns)
+    LEA x22, tc_plan_columns
     mov x23, #0
 .Lbhr_col_loop:
     cmp x23, x20
     b.ge .Lbhr_col_done
-    adrp x1, PAGE(s_comma)
-    add x1, x1, LO12(s_comma)
+    LEA x1, s_comma
     bl str_cat
     sub x0, x0, #1
     ldr x24, [x22, x23, lsl #3]
-    adrp x1, PAGE(metric_names)
-    add x1, x1, LO12(metric_names)
+    LEA x1, metric_names
     ldr x1, [x1, x24, lsl #3]
     bl str_cat
     sub x0, x0, #1
@@ -2288,8 +2146,7 @@ build_header_rows:
     // source ptr: tc_cli.S composes it into TC_O_COLUMNS_SRC_BUF but its
     // TC_O_COLUMNS_SRC_PTR store clobbers x1 (tc_opts_off); point at the
     // composed buffer directly.
-    adrp x24, PAGE(tc_opts)
-    add x24, x24, LO12(tc_opts)
+    LEA x24, tc_opts
     movz x25, #TC_O_COLUMNS_SRC_BUF
     add x25, x24, x25
     mov x0, x19
@@ -2300,15 +2157,12 @@ build_header_rows:
 
     // ---- sort ------------------------------------------------------------
 .Lbhr_sort:
-    adrp x19, PAGE(tc_plan_sort)
-    add x19, x19, LO12(tc_plan_sort)
+    LEA x19, tc_plan_sort
     ldr x20, [x19]
     cmp x20, #TC_M_COUNT
     b.eq .Lbhr_share_floor
-    adrp x19, PAGE(s_label_sort)
-    add x19, x19, LO12(s_label_sort)
-    adrp x21, PAGE(metric_names)
-    add x21, x21, LO12(metric_names)
+    LEA x19, s_label_sort
+    LEA x21, metric_names
     ldr x21, [x21, x20, lsl #3]
     mov x0, #TC_SET_SORT
     bl src_str
@@ -2317,12 +2171,10 @@ build_header_rows:
     bl arena_get
     mov x23, x0
     mov x0, x23
-    adrp x1, PAGE(s_by)
-    add x1, x1, LO12(s_by)
+    LEA x1, s_by
     bl str_cat
     sub x0, x0, #1
-    adrp x1, PAGE(metric_names)
-    add x1, x1, LO12(metric_names)
+    LEA x1, metric_names
     ldr x1, [x1, x20, lsl #3]
     bl str_cat
     mov x0, x0
@@ -2335,12 +2187,10 @@ build_header_rows:
 
     // ---- share floor -----------------------------------------------------
 .Lbhr_share_floor:
-    adrp x19, PAGE(tc_plan_share_floor)
-    add x19, x19, LO12(tc_plan_share_floor)
+    LEA x19, tc_plan_share_floor
     ldr x20, [x19]                    // the floor that acted
     // asked = source != TC_SRC_DEFAULT_BUILTIN
-    adrp x21, PAGE(tc_opts)
-    add x21, x21, LO12(tc_opts)
+    LEA x21, tc_opts
     ldr x22, [x21, #TC_O_SRC + TC_SET_SHARE_FLOOR*8]
     mov x23, #0                        // asked
     cmp x22, #TC_SRC_DEFAULT_BUILTIN
@@ -2351,28 +2201,23 @@ build_header_rows:
     cbnz x23, .Lbhr_sf_acted
     // (acted implies asked)
 .Lbhr_sf_acted:
-    adrp x19, PAGE(s_label_share_floor)
-    add x19, x19, LO12(s_label_share_floor)
+    LEA x19, s_label_share_floor
     bl arena_get
     mov x24, x0
     mov x0, x24
-    adrp x1, PAGE(s_ge)
-    add x1, x1, LO12(s_ge)
+    LEA x1, s_ge
     bl str_cat
     sub x0, x0, #1
     mov x1, x20
     bl fmt_u64_commas
-    adrp x1, PAGE(s_floor_msgs)
-    add x1, x1, LO12(s_floor_msgs)
+    LEA x1, s_floor_msgs
     bl str_cat
-    adrp x25, PAGE(tc_plan_below_floor)
-    add x25, x25, LO12(tc_plan_below_floor)
+    LEA x25, tc_plan_below_floor
     ldr x25, [x25]
     sub x0, x0, #1
     mov x1, x25
     bl fmt_u64_commas
-    adrp x1, PAGE(s_floor_dropped)
-    add x1, x1, LO12(s_floor_dropped)
+    LEA x1, s_floor_dropped
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -2380,14 +2225,12 @@ build_header_rows:
     bl arena_get
     mov x26, x0
     mov x0, x26
-    adrp x1, PAGE(s_floor_compact)
-    add x1, x1, LO12(s_floor_compact)
+    LEA x1, s_floor_compact
     bl str_cat
     sub x0, x0, #1
     mov x1, x20
     bl fmt_u64_commas
-    adrp x1, PAGE(s_floor_minus)
-    add x1, x1, LO12(s_floor_minus)
+    LEA x1, s_floor_minus
     bl str_cat
     sub x0, x0, #1
     mov x1, x25
@@ -2399,18 +2242,15 @@ build_header_rows:
     b .Lbhr_sf_add
 .Lbhr_sf_not_acted:
     cbz x23, .Lbhr_sf_skip            // not acted and not asked -> no row
-    adrp x27, PAGE(tc_plan_shares_shown)
-    add x27, x27, LO12(tc_plan_shares_shown)
+    LEA x27, tc_plan_shares_shown
     ldr x27, [x27]
     cbz x27, .Lbhr_sf_noshare
     // shares shown but floor 0: "disabled ..."
-    adrp x19, PAGE(s_label_share_floor)
-    add x19, x19, LO12(s_label_share_floor)
+    LEA x19, s_label_share_floor
     bl arena_get
     mov x24, x0
     mov x0, x24
-    adrp x1, PAGE(s_floor_disabled)
-    add x1, x1, LO12(s_floor_disabled)
+    LEA x1, s_floor_disabled
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -2418,29 +2258,25 @@ build_header_rows:
     bl arena_get
     mov x26, x0
     mov x0, x26
-    adrp x1, PAGE(s_floor_off)
-    add x1, x1, LO12(s_floor_off)
+    LEA x1, s_floor_off
     bl str_cat
     mov x0, x0
     bl arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_noshare:
     // no share shown/sorted: "not applied -- ..."
-    adrp x19, PAGE(s_label_share_floor)
-    add x19, x19, LO12(s_label_share_floor)
+    LEA x19, s_label_share_floor
     bl arena_get
     mov x24, x0
     mov x0, x24
-    adrp x1, PAGE(s_floor_not)
-    add x1, x1, LO12(s_floor_not)
+    LEA x1, s_floor_not
     bl str_cat
     mov x0, x0
     bl arena_set_end
     bl arena_get
     mov x26, x0
     mov x0, x26
-    adrp x1, PAGE(s_floor_unused)
-    add x1, x1, LO12(s_floor_unused)
+    LEA x1, s_floor_unused
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -2459,16 +2295,12 @@ build_header_rows:
 
     // ---- config ----------------------------------------------------------
 .Lbhr_config:
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_CONFIG_LOADED]
     cbz x20, .Lbhr_cache
-    adrp x19, PAGE(s_label_config)
-    add x19, x19, LO12(s_label_config)
+    LEA x19, s_label_config
     add x0, x19, #0
-    adrp x20, PAGE(tc_opts)
-    add x20, x20, LO12(tc_opts)
-    add x20, x20, #TC_O_CONFIG_PATH
+    LEA_OFF x20, tc_opts, TC_O_CONFIG_PATH
     mov x0, x20
     bl tc_shorten_path
     mov x20, x0
@@ -2481,15 +2313,13 @@ build_header_rows:
     bl arena_set_end
     mov x0, x19
     mov x1, x21
-    adrp x2, PAGE(s_loaded)
-    add x2, x2, LO12(s_loaded)
+    LEA x2, s_loaded
     mov x3, #0
     bl hdr_add
 
     // ---- cache -----------------------------------------------------------
 .Lbhr_cache:
-    adrp x19, PAGE(tc_plan_cache_used)
-    add x19, x19, LO12(tc_plan_cache_used)
+    LEA x19, tc_plan_cache_used
     ldr x20, [x19]                    // used
     ldr x21, [x19, #8]                // reused
     ldr x22, [x19, #16]               // parsed
@@ -2499,13 +2329,11 @@ build_header_rows:
     cbnz x20, .Lbhr_cache_used
     cbz x23, .Lbhr_unreadable         // not used, no problem -> no row
     // unavailable -- <problem>
-    adrp x19, PAGE(s_label_cache)
-    add x19, x19, LO12(s_label_cache)
+    LEA x19, s_label_cache
     bl arena_get
     mov x26, x0
     mov x0, x26
-    adrp x1, PAGE(s_unavailable)
-    add x1, x1, LO12(s_unavailable)
+    LEA x1, s_unavailable
     bl str_cat
     sub x0, x0, #1
     mov x1, x23
@@ -2514,43 +2342,36 @@ build_header_rows:
     bl arena_set_end
     mov x0, x19
     mov x1, x26
-    adrp x2, PAGE(s_every_file)
-    add x2, x2, LO12(s_every_file)
-    adrp x3, PAGE(s_no_cache_c)
-    add x3, x3, LO12(s_no_cache_c)
+    LEA x2, s_every_file
+    LEA x3, s_no_cache_c
     bl hdr_add
     b .Lbhr_unreadable
 .Lbhr_cache_used:
-    adrp x19, PAGE(s_label_cache)
-    add x19, x19, LO12(s_label_cache)
+    LEA x19, s_label_cache
     bl arena_get
     mov x26, x0
     mov x0, x26
     mov x1, x21
     bl fmt_u64_commas
-    adrp x1, PAGE(s_day_s_reused)
-    add x1, x1, LO12(s_day_s_reused)
+    LEA x1, s_day_s_reused
     bl str_cat
     sub x0, x0, #1
     mov x1, x22
     bl fmt_u64_commas
-    adrp x1, PAGE(s_parsed)
-    add x1, x1, LO12(s_parsed)
+    LEA x1, s_parsed
     bl str_cat
     mov x0, x0
     bl arena_set_end
     // source
     cbnz x24, .Lbhr_cache_rebuilt
     cbnz x25, .Lbhr_cache_path
-    adrp x27, PAGE(s_rollup_db)
-    add x27, x27, LO12(s_rollup_db)
+    LEA x27, s_rollup_db
     b .Lbhr_cache_src_done
 .Lbhr_cache_rebuilt:
     bl arena_get
     mov x27, x0
     mov x0, x27
-    adrp x1, PAGE(s_rebuilt)
-    add x1, x1, LO12(s_rebuilt)
+    LEA x1, s_rebuilt
     bl str_cat
     sub x0, x0, #1
     mov x1, x24
@@ -2579,28 +2400,22 @@ build_header_rows:
 
     // ---- unreadable ------------------------------------------------------
 .Lbhr_unreadable:
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x20, [x19, #TC_T_UNR_COUNT]
     cbz x20, .Lbhr_done
-    adrp x19, PAGE(s_label_unreadable)
-    add x19, x19, LO12(s_label_unreadable)
-    adrp x20, PAGE(tc_tally)
-    add x20, x20, LO12(tc_tally)
+    LEA x19, s_label_unreadable
+    LEA x20, tc_tally
     ldr x20, [x20, #TC_T_UNR_COUNT]
     bl arena_get
     mov x21, x0
     mov x0, x21
     mov x1, x20
     bl fmt_u64_plain
-    adrp x1, PAGE(s_file_s_skipped)
-    add x1, x1, LO12(s_file_s_skipped)
+    LEA x1, s_file_s_skipped
     bl str_cat
     sub x0, x0, #1                    // overwrite the trailing NUL
     // first 2 names joined ", ", ", +K more" if > 2
-    adrp x22, PAGE(tc_tally)
-    add x22, x22, LO12(tc_tally)
-    add x22, x22, #TC_T_UNR_ENTRIES
+    LEA_OFF x22, tc_tally, TC_T_UNR_ENTRIES
     mov x23, #0                        // i
     mov x24, #0                        // first
 .Lbhr_unr_preview:
@@ -2612,8 +2427,7 @@ build_header_rows:
     b .Lbhr_unr_name
 .Lbhr_unr_sep:
     sub x0, x0, #1                    // overwrite the trailing NUL
-    adrp x1, PAGE(s_comma)
-    add x1, x1, LO12(s_comma)
+    LEA x1, s_comma
     mov x2, #2
     bl str_cat_n
 .Lbhr_unr_name:
@@ -2629,14 +2443,12 @@ build_header_rows:
     b.le .Lbhr_unr_reason
     sub x0, x0, #1                    // overwrite the trailing NUL (str_cat
                                       // returns the cursor past it)
-    adrp x1, PAGE(s_comma_more)
-    add x1, x1, LO12(s_comma_more)
+    LEA x1, s_comma_more
     bl str_cat
     sub x0, x0, #1
     sub x1, x20, #2
     bl fmt_u64_plain
-    adrp x1, PAGE(s_more)
-    add x1, x1, LO12(s_more)
+    LEA x1, s_more
     bl str_cat
 .Lbhr_unr_reason:
     sub x0, x0, #1                    // overwrite the trailing NUL
@@ -2644,9 +2456,7 @@ build_header_rows:
     strb w1, [x0], #1
     mov w1, #'('
     strb w1, [x0], #1
-    adrp x22, PAGE(tc_tally)
-    add x22, x22, LO12(tc_tally)
-    add x22, x22, #TC_T_UNR_ENTRIES
+    LEA_OFF x22, tc_tally, TC_T_UNR_ENTRIES
     add x1, x22, #TC_T_UNR_NAME_SZ     // first reason
     bl str_cat
     sub x0, x0, #1
@@ -2662,15 +2472,13 @@ build_header_rows:
     mov x0, x23
     mov x1, x20
     bl fmt_u64_plain
-    adrp x1, PAGE(s_unread)
-    add x1, x1, LO12(s_unread)
+    LEA x1, s_unread
     bl str_cat
     mov x0, x0
     bl arena_set_end
     mov x0, x19
     mov x1, x21
-    adrp x2, PAGE(s_not_counted)
-    add x2, x2, LO12(s_not_counted)
+    LEA x2, s_not_counted
     mov x3, x23
     bl hdr_add
 .Lbhr_done:
@@ -2696,13 +2504,11 @@ fmt_window_span:
     mov x20, x1                       // begin ymd
     mov x21, x2                       // begin sod
     // end defaulted?
-    adrp x22, PAGE(tc_opts)
-    add x22, x22, LO12(tc_opts)
+    LEA x22, tc_opts
     ldr x22, [x22, #TC_O_SRC + TC_SET_END*8]
     cmp x22, #TC_SRC_DEFAULT_NOW
     b.eq .Lfws_now
-    adrp x22, PAGE(tc_window)
-    add x22, x22, LO12(tc_window)
+    LEA x22, tc_window
     ldr x22, [x22, #TC_W_END_YMD]
     cmp x20, x22
     b.eq .Lfws_same
@@ -2710,12 +2516,10 @@ fmt_window_span:
     mov x0, x19
     mov x1, x20
     bl fmt_ymd
-    adrp x1, PAGE(s_dotdot)
-    add x1, x1, LO12(s_dotdot)
+    LEA x1, s_dotdot
     bl str_cat
     sub x0, x0, #1
-    adrp x22, PAGE(tc_window)
-    add x22, x22, LO12(tc_window)
+    LEA x22, tc_window
     ldr x1, [x22, #TC_W_END_YMD]
     bl fmt_ymd
     b .Lfws_done
@@ -2725,12 +2529,10 @@ fmt_window_span:
     mov x1, x20
     mov x2, x21
     bl fmt_mmdd_hhmm
-    adrp x1, PAGE(s_dotdot)
-    add x1, x1, LO12(s_dotdot)
+    LEA x1, s_dotdot
     bl str_cat
     sub x0, x0, #1
-    adrp x22, PAGE(tc_window)
-    add x22, x22, LO12(tc_window)
+    LEA x22, tc_window
     ldr x1, [x22, #TC_W_END_SOD]
     bl fmt_hhmm
     b .Lfws_done
@@ -2740,8 +2542,7 @@ fmt_window_span:
     mov x1, x20
     mov x2, x21
     bl fmt_mmdd_hhmm
-    adrp x1, PAGE(s_now)
-    add x1, x1, LO12(s_now)
+    LEA x1, s_now
     bl str_cat
     sub x0, x0, #1
 .Lfws_done:
@@ -2761,41 +2562,33 @@ choose_limit:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     // top given?
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_SRC + TC_SET_TOP*8]
     cmp x20, #TC_SRC_DEFAULT
     b.eq .Lcl_json
     ldr x21, [x19, #TC_O_TOP]
-    adrp x22, PAGE(tc_plan_limit)
-    add x22, x22, LO12(tc_plan_limit)
+    LEA x22, tc_plan_limit
     str x21, [x22]
     mov x0, x20                       // x20 is already a TC_SRC_* id
     bl tc_source_str
-    adrp x22, PAGE(tc_plan_limit_src)
-    add x22, x22, LO12(tc_plan_limit_src)
+    LEA x22, tc_plan_limit_src
     str x0, [x22]
     b .Lcl_done
 .Lcl_json:
     ldr x21, [x19, #TC_O_FLAGS]
     tst x21, #TC_F_JSON
     b.eq .Lcl_term
-    adrp x22, PAGE(tc_plan_limit)
-    add x22, x22, LO12(tc_plan_limit)
+    LEA x22, tc_plan_limit
     str xzr, [x22]
-    adrp x22, PAGE(tc_plan_limit_src)
-    add x22, x22, LO12(tc_plan_limit_src)
-    adrp x0, PAGE(s_unlimited_json)
-    add x0, x0, LO12(s_unlimited_json)
+    LEA x22, tc_plan_limit_src
+    LEA x0, s_unlimited_json
     str x0, [x22]
     b .Lcl_done
 .Lcl_term:
     // reserved
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_HEADER_MODE]
-    adrp x21, PAGE(tc_plan_hdr_count)
-    add x21, x21, LO12(tc_plan_hdr_count)
+    LEA x21, tc_plan_hdr_count
     ldr x22, [x21]
     cmp x20, #TC_HDR_FULL
     b.ne .Lcl_res_compact
@@ -2831,23 +2624,17 @@ choose_limit:
     b.ge .Lcl_term_store
     mov x23, #5
 .Lcl_term_store:
-    adrp x22, PAGE(tc_plan_limit)
-    add x22, x22, LO12(tc_plan_limit)
+    LEA x22, tc_plan_limit
     str x23, [x22]
-    adrp x22, PAGE(tc_plan_limit_src)
-    add x22, x22, LO12(tc_plan_limit_src)
-    adrp x0, PAGE(s_terminal_height)
-    add x0, x0, LO12(s_terminal_height)
+    LEA x22, tc_plan_limit_src
+    LEA x0, s_terminal_height
     str x0, [x22]
     b .Lcl_done
 .Lcl_term_unlimited:
-    adrp x22, PAGE(tc_plan_limit)
-    add x22, x22, LO12(tc_plan_limit)
+    LEA x22, tc_plan_limit
     str xzr, [x22]
-    adrp x22, PAGE(tc_plan_limit_src)
-    add x22, x22, LO12(tc_plan_limit_src)
-    adrp x0, PAGE(s_terminal_height)
-    add x0, x0, LO12(s_terminal_height)
+    LEA x22, tc_plan_limit_src
+    LEA x0, s_terminal_height
     str x0, [x22]
 .Lcl_done:
     ldp x23, x24, [sp], #16
@@ -2867,11 +2654,9 @@ plan_split_display:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_plan_reported_n)
-    add x19, x19, LO12(tc_plan_reported_n)
+    LEA x19, tc_plan_reported_n
     ldr x20, [x19]                     // reported_n
-    adrp x21, PAGE(tc_plan_limit)
-    add x21, x21, LO12(tc_plan_limit)
+    LEA x21, tc_plan_limit
     ldr x22, [x21]                     // limit
     cbz x22, .Lpsd_all
     cbz x20, .Lpsd_all
@@ -2885,16 +2670,13 @@ plan_split_display:
 .Lpsd_all:
     mov x23, x20
 .Lpsd_store:
-    adrp x24, PAGE(tc_plan_displayed_n)
-    add x24, x24, LO12(tc_plan_displayed_n)
+    LEA x24, tc_plan_displayed_n
     str x23, [x24]
-    adrp x24, PAGE(tc_plan_hidden_n)
-    add x24, x24, LO12(tc_plan_hidden_n)
+    LEA x24, tc_plan_hidden_n
     sub x25, x20, x23
     str x25, [x24]
     // message sums
-    adrp x26, PAGE(tc_plan_reported)
-    add x26, x26, LO12(tc_plan_reported)
+    LEA x26, tc_plan_reported
     ldr x26, [x26]
     mov x27, #0
     mov x28, #0
@@ -2909,8 +2691,7 @@ plan_split_display:
     add x28, x28, #1
     b .Lpsd_shown_loop
 .Lpsd_shown_done:
-    adrp x28, PAGE(tc_plan_msgs_shown)
-    add x28, x28, LO12(tc_plan_msgs_shown)
+    LEA x28, tc_plan_msgs_shown
     str x27, [x28]
     mov x27, #0
     mov x28, x23
@@ -2925,8 +2706,7 @@ plan_split_display:
     add x28, x28, #1
     b .Lpsd_hidden_loop
 .Lpsd_hidden_done:
-    adrp x28, PAGE(tc_plan_msgs_hidden)
-    add x28, x28, LO12(tc_plan_msgs_hidden)
+    LEA x28, tc_plan_msgs_hidden
     str x27, [x28]
     // top row
     cbz x22, .Lpsd_done
@@ -2952,43 +2732,35 @@ build_top_row:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
-    adrp x19, PAGE(tc_plan_limit)
-    add x19, x19, LO12(tc_plan_limit)
+    LEA x19, tc_plan_limit
     ldr x19, [x19]                     // limit
-    adrp x20, PAGE(tc_plan_hidden_n)
-    add x20, x20, LO12(tc_plan_hidden_n)
+    LEA x20, tc_plan_hidden_n
     ldr x20, [x20]                     // hidden
-    adrp x21, PAGE(tc_plan_displayed_n)
-    add x21, x21, LO12(tc_plan_displayed_n)
+    LEA x21, tc_plan_displayed_n
     ldr x21, [x21]                     // displayed
-    adrp x22, PAGE(tc_plan_reported_n)
-    add x22, x22, LO12(tc_plan_reported_n)
+    LEA x22, tc_plan_reported_n
     ldr x22, [x22]                     // reported
     bl arena_get
     mov x23, x0
     mov x0, x23
     mov x1, x19
     bl fmt_u64_commas
-    adrp x1, PAGE(s_row_s)
-    add x1, x1, LO12(s_row_s)
+    LEA x1, s_row_s
     bl str_cat
     cbz x20, .Lbtr_val_done
     sub x0, x0, #1                    // overwrite the trailing NUL
-    adrp x1, PAGE(s_comma)
-    add x1, x1, LO12(s_comma)
+    LEA x1, s_comma
     bl str_cat
     sub x0, x0, #1
     mov x1, x20
     bl fmt_u64_commas
-    adrp x1, PAGE(s_hidden)
-    add x1, x1, LO12(s_hidden)
+    LEA x1, s_hidden
     bl str_cat
 .Lbtr_val_done:
     mov x0, x0
     bl arena_set_end
     // source
-    adrp x24, PAGE(tc_plan_limit_src)
-    add x24, x24, LO12(tc_plan_limit_src)
+    LEA x24, tc_plan_limit_src
     ldr x24, [x24]
     // compact "D/R rows" when hidden
     cbz x20, .Lbtr_noc
@@ -2997,14 +2769,12 @@ build_top_row:
     mov x0, x25
     mov x1, x21
     bl fmt_u64_commas
-    adrp x1, PAGE(s_slash)
-    add x1, x1, LO12(s_slash)
+    LEA x1, s_slash
     bl str_cat
     sub x0, x0, #1
     mov x1, x22
     bl fmt_u64_commas
-    adrp x1, PAGE(s_rows)
-    add x1, x1, LO12(s_rows)
+    LEA x1, s_rows
     bl str_cat
     mov x0, x0
     bl arena_set_end
@@ -3012,8 +2782,7 @@ build_top_row:
 .Lbtr_noc:
     mov x25, #0
 .Lbtr_add:
-    adrp x0, PAGE(s_label_top)
-    add x0, x0, LO12(s_label_top)
+    LEA x0, s_label_top
     mov x1, x23
     mov x2, x24
     mov x3, x25
@@ -3035,8 +2804,7 @@ tc_render_text:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_HEADER_MODE]
     // Wave E fix: --header none used to jump straight to the table, skipping
     // the empty-report check, so an empty range with --header none rendered an
@@ -3052,35 +2820,28 @@ tc_render_text:
 .Lrt_compact:
     bl render_compact_header
 .Lrt_after:
-    adrp x19, PAGE(tc_plan_reported_n)
-    add x19, x19, LO12(tc_plan_reported_n)
+    LEA x19, tc_plan_reported_n
     ldr x20, [x19]
     cbnz x20, .Lrt_table
     // empty report
     bl line_zero
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x20, [x19, #TC_T_MESSAGES]
-    adrp x21, PAGE(tc_render_line)
-    add x21, x21, LO12(tc_render_line)
+    LEA x21, tc_render_line
     mov x0, x21
-    adrp x1, PAGE(s_no_users)
-    add x1, x1, LO12(s_no_users)
+    LEA x1, s_no_users
     bl str_cat
     sub x0, x0, #1
     mov x1, x20
     bl fmt_u64_plain
-    adrp x1, PAGE(s_msg_range)
-    add x1, x1, LO12(s_msg_range)
+    LEA x1, s_msg_range
     bl str_cat
     sub x0, x0, #1
-    adrp x1, PAGE(s_period)
-    add x1, x1, LO12(s_period)
+    LEA x1, s_period
     bl str_cat
     mov x0, x21
     bl line_puts
-    adrp x19, PAGE(tc_plan_excl_appeared)
-    add x19, x19, LO12(tc_plan_excl_appeared)
+    LEA x19, tc_plan_excl_appeared
     ldr x20, [x19]
     cbz x20, .Lrt_done
     bl emit_excluded_line
@@ -3104,8 +2865,7 @@ render_full_header:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     // pass 1: widths
-    adrp x19, PAGE(tc_plan_hdr_count)
-    add x19, x19, LO12(tc_plan_hdr_count)
+    LEA x19, tc_plan_hdr_count
     ldr x20, [x19]                     // row count
     mov x21, #0                        // w0 (max label+1)
     mov x22, #0                        // w1 (max value)
@@ -3113,8 +2873,7 @@ render_full_header:
 .Lrfh_w_loop:
     cmp x23, x20
     b.ge .Lrfh_w_done
-    adrp x24, PAGE(tc_plan_rows)
-    add x24, x24, LO12(tc_plan_rows)
+    LEA x24, tc_plan_rows
     mov x25, #HDR_DESC_SZ
     mul x25, x23, x25
     add x24, x24, x25
@@ -3145,8 +2904,7 @@ render_full_header:
 .Lrfh_line_loop:
     cmp x23, x20
     b.ge .Lrfh_lines_done
-    adrp x24, PAGE(tc_plan_rows)
-    add x24, x24, LO12(tc_plan_rows)
+    LEA x24, tc_plan_rows
     mov x25, #HDR_DESC_SZ
     mul x25, x23, x25
     add x24, x24, x25
@@ -3161,10 +2919,8 @@ render_full_header:
 .Lrfh_ret:
 .Lrfh_lines_done:
     // files line
-    adrp x0, PAGE(s_label_files)
-    add x0, x0, LO12(s_label_files)
-    adrp x1, PAGE(tc_tally)
-    add x1, x1, LO12(tc_tally)
+    LEA x0, s_label_files
+    LEA x1, tc_tally
     ldr x1, [x1, #TC_T_FILES]
     mov x2, x21
     mov x3, x22
@@ -3192,8 +2948,7 @@ emit_header_line:
     mov x22, x3                        // w0
     mov x23, x4                        // w1
     bl line_zero
-    adrp x24, PAGE(tc_render_line)
-    add x24, x24, LO12(tc_render_line)
+    LEA x24, tc_render_line
     // label + ':'
     mov x0, x24
     mov x1, x19
@@ -3281,8 +3036,7 @@ emit_files_line:
     mov x20, x1                        // count
     mov x21, x2                        // w0
     bl line_zero
-    adrp x22, PAGE(tc_render_line)
-    add x22, x22, LO12(tc_render_line)
+    LEA x22, tc_render_line
     mov x0, x22
     mov x1, x19
     bl str_cat
@@ -3309,8 +3063,7 @@ emit_files_line:
     add x0, x22, x23
     mov x1, x20
     bl fmt_u64_plain
-    adrp x1, PAGE(s_files_val)
-    add x1, x1, LO12(s_files_val)
+    LEA x1, s_files_val
     bl str_cat
     mov x0, x22
     bl line_puts
@@ -3331,19 +3084,16 @@ render_compact_header:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     bl compact_zero
-    adrp x19, PAGE(tc_plan_hdr_count)
-    add x19, x19, LO12(tc_plan_hdr_count)
+    LEA x19, tc_plan_hdr_count
     ldr x20, [x19]
-    adrp x21, PAGE(tc_render_compact)
-    add x21, x21, LO12(tc_render_compact)
+    LEA x21, tc_render_compact
     mov x22, x21                       // cursor
     mov x23, #0                        // first flag
     mov x24, #0                        // i
 .Lrch_loop:
     cmp x24, x20
     b.ge .Lrch_done
-    adrp x25, PAGE(tc_plan_rows)
-    add x25, x25, LO12(tc_plan_rows)
+    LEA x25, tc_plan_rows
     mov x26, #HDR_DESC_SZ
     mul x26, x24, x26
     add x25, x25, x26
@@ -3353,8 +3103,7 @@ render_compact_header:
     b .Lrch_cell
 .Lrch_sep:
     sub x0, x22, #1                   // overwrite the trailing NUL
-    adrp x1, PAGE(s_middot)
-    add x1, x1, LO12(s_middot)
+    LEA x1, s_middot
     mov x2, #s_middot_len
     bl str_cat_n
     mov x22, x0
@@ -3395,25 +3144,21 @@ others_widths:
     mov x19, x22                       // widths base
     mov x20, x26                       // hidden_n
     // zero the shared cell buffer
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
     // login: "+ N others"
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov w1, #'+'
     strb w1, [x0], #1
     mov w1, #' '
     strb w1, [x0], #1
     mov x1, x20
     bl fmt_u64_commas
-    adrp x1, PAGE(s_others)
-    add x1, x1, LO12(s_others)
+    LEA x1, s_others
     bl str_cat
-    adrp x21, PAGE(tc_render_cell)
-    add x21, x21, LO12(tc_render_cell)
+    LEA x21, tc_render_cell
     mov x0, x21
     bl tc_strlen
     ldr x28, [x19]
@@ -3422,11 +3167,9 @@ others_widths:
     str x0, [x19]
 .Low_login_done:
     // pooled states over hidden rows
-    adrp x21, PAGE(tc_plan_reported)
-    add x21, x21, LO12(tc_plan_reported)
+    LEA x21, tc_plan_reported
     ldr x21, [x21]
-    adrp x22, PAGE(tc_plan_displayed_n)
-    add x22, x22, LO12(tc_plan_displayed_n)
+    LEA x22, tc_plan_displayed_n
     ldr x22, [x22]
     mov x26, #0                        // pooled live
     mov x27, #0                        // pooled offline
@@ -3449,19 +3192,15 @@ others_widths:
     b .Low_pool
 .Low_pool_done:
     // count cell: hidden messages
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
-    adrp x1, PAGE(tc_plan_msgs_hidden)
-    add x1, x1, LO12(tc_plan_msgs_hidden)
+    LEA x0, tc_render_cell
+    LEA x1, tc_plan_msgs_hidden
     ldr x1, [x1]
     bl fmt_u64_commas
-    adrp x21, PAGE(tc_render_cell)
-    add x21, x21, LO12(tc_render_cell)
+    LEA x21, tc_render_cell
     mov x0, x21
     bl tc_strlen
     ldr x28, [x19, #8]
@@ -3470,24 +3209,20 @@ others_widths:
     str x0, [x19, #8]
 .Low_count_done:
     // metric cells (width slots 2+i)
-    adrp x21, PAGE(tc_plan_col_count)
-    add x21, x21, LO12(tc_plan_col_count)
+    LEA x21, tc_plan_col_count
     ldr x22, [x21]                     // col_count
     mov x23, #0                        // metric index i
 .Low_loop:
     cmp x23, x22
     b.ge .Low_done
-    adrp x24, PAGE(tc_plan_columns)
-    add x24, x24, LO12(tc_plan_columns)
+    LEA x24, tc_plan_columns
     ldr x24, [x24, x23, lsl #3]        // col id
-    adrp x25, PAGE(tc_render_cell)
-    add x25, x25, LO12(tc_render_cell)
+    LEA x25, tc_render_cell
     mov x0, x25
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    adrp x25, PAGE(tc_render_cell)
-    add x25, x25, LO12(tc_render_cell)
+    LEA x25, tc_render_cell
     cmp x24, #TC_M_LIVE
     b.eq .Low_live
     cmp x24, #TC_M_OFFLINE
@@ -3523,8 +3258,7 @@ others_widths:
     mov x1, x28
     bl fmt_u64_commas
 .Low_place:
-    adrp x25, PAGE(tc_render_cell)
-    add x25, x25, LO12(tc_render_cell)
+    LEA x25, tc_render_cell
     mov x0, x25
     bl tc_strlen
     add x26, x23, #2
@@ -3555,13 +3289,11 @@ render_table:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_plan_col_count)
-    add x19, x19, LO12(tc_plan_col_count)
+    LEA x19, tc_plan_col_count
     ldr x20, [x19]                     // n metric columns
     add x21, x20, #2                   // total cells: user + count + metrics
     // widths: w[i], i in 0..x21-1
-    adrp x22, PAGE(tc_render_widths)
-    add x22, x22, LO12(tc_render_widths)
+    LEA x22, tc_render_widths
     // header row: "user" + "count" + metric headers
     mov w23, #4
     str x23, [x22]                     // w[0] = 4 ("user")
@@ -3571,10 +3303,8 @@ render_table:
 .Lrt_hdr_w:
     cmp x23, x20
     b.ge .Lrt_hdr_w_done
-    adrp x24, PAGE(metric_headers)
-    add x24, x24, LO12(metric_headers)
-    adrp x25, PAGE(tc_plan_columns)
-    add x25, x25, LO12(tc_plan_columns)
+    LEA x24, metric_headers
+    LEA x25, tc_plan_columns
     ldr x25, [x25, x23, lsl #3]
     ldr x24, [x24, x25, lsl #3]
     mov x0, x24
@@ -3585,11 +3315,9 @@ render_table:
     b .Lrt_hdr_w
 .Lrt_hdr_w_done:
     // rows
-    adrp x23, PAGE(tc_plan_reported)
-    add x23, x23, LO12(tc_plan_reported)
+    LEA x23, tc_plan_reported
     ldr x23, [x23]                     // reported base
-    adrp x24, PAGE(tc_plan_displayed_n)
-    add x24, x24, LO12(tc_plan_displayed_n)
+    LEA x24, tc_plan_displayed_n
     ldr x24, [x24]                     // displayed_n
     mov x25, #0                        // i
 .Lrt_row_w:
@@ -3611,8 +3339,7 @@ render_table:
     add x9, x27, #1                   // width slot index (1 + i)
     cmp x27, #0
     b.eq .Lrt_row_w_count
-    adrp x28, PAGE(tc_plan_columns)
-    add x28, x28, LO12(tc_plan_columns)
+    LEA x28, tc_plan_columns
     sub x10, x27, #1
     ldr x28, [x28, x10, lsl #3]
     b .Lrt_row_w_len
@@ -3637,8 +3364,7 @@ render_table:
     b .Lrt_row_w
 .Lrt_row_w_done:
     // "+ N others" row: login + count + metric widths (Python includes it)
-    adrp x25, PAGE(tc_plan_hidden_n)
-    add x25, x25, LO12(tc_plan_hidden_n)
+    LEA x25, tc_plan_hidden_n
     ldr x26, [x25]
     cbz x26, .Lrt_pin
     bl others_widths
@@ -3646,15 +3372,13 @@ render_table:
     // Phase 7: a pinned login column is fixed, not merely capped: the clip in
     // pin_cell already bounded every login at `pin` characters, so widths[0]
     // is set to the pin exactly (Python: widths[0] = pinned).
-    adrp x25, PAGE(tc_frame_pin_width)
-    add x25, x25, LO12(tc_frame_pin_width)
+    LEA x25, tc_frame_pin_width
     ldr x26, [x25]
     cbz x26, .Lrt_emit
     str x26, [x22]
 .Lrt_emit:
     // header line
-    adrp x19, PAGE(tc_render_line)
-    add x19, x19, LO12(tc_render_line)
+    LEA x19, tc_render_line
     mov x0, x19
     mov x1, x21                       // cell count
     mov x2, #1                        // header flag
@@ -3664,11 +3388,9 @@ render_table:
     mov x1, x21
     bl emit_rule
     // rows
-    adrp x23, PAGE(tc_plan_reported)
-    add x23, x23, LO12(tc_plan_reported)
+    LEA x23, tc_plan_reported
     ldr x23, [x23]
-    adrp x24, PAGE(tc_plan_displayed_n)
-    add x24, x24, LO12(tc_plan_displayed_n)
+    LEA x24, tc_plan_displayed_n
     ldr x24, [x24]
     mov x25, #0
 .Lrt_row_emit:
@@ -3685,8 +3407,7 @@ render_table:
     b .Lrt_row_emit
 .Lrt_row_emit_done:
     // "+ N others" row
-    adrp x26, PAGE(tc_plan_hidden_n)
-    add x26, x26, LO12(tc_plan_hidden_n)
+    LEA x26, tc_plan_hidden_n
     ldr x26, [x26]
     cbz x26, .Lrt_rule2
     mov x0, x19
@@ -3716,13 +3437,11 @@ cell_len:
     stp x21, x22, [sp, #-16]!
     mov x19, x0                        // rec
     mov x20, x1                        // col
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     cmp x20, #TC_M_COUNT
     b.eq .Lcl_count
     cmp x20, #TC_M_LIVE
@@ -3759,8 +3478,7 @@ cell_len:
     ldr x1, [x19, #ROW_UNKNOWN]
     bl fmt_u64_commas
 .Lcl_len:
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     bl tc_strlen
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -3782,11 +3500,9 @@ emit_table_header:
     bl line_zero
     mov x21, x0
     // cell 0: "user" ljust (pin-aware under watch)
-    adrp x22, PAGE(tc_render_widths)
-    add x22, x22, LO12(tc_render_widths)
+    LEA x22, tc_render_widths
     ldr x2, [x22]
-    adrp x1, PAGE(s_user4)
-    add x1, x1, LO12(s_user4)
+    LEA x1, s_user4
     mov x0, x19
     bl pin_cell
     mov x21, x0
@@ -3795,17 +3511,14 @@ emit_table_header:
     strb w1, [x21], #1
     mov w1, #' '
     strb w1, [x21], #1
-    adrp x24, PAGE(metric_headers)
-    add x24, x24, LO12(metric_headers)   // table base (kept in x24)
+    LEA x24, metric_headers  // table base (kept in x24)
     ldr x26, [x24, #0]                 // "count" header string (rodata)
-    adrp x27, PAGE(tc_render_cell)
-    add x27, x27, LO12(tc_render_cell)
+    LEA x27, tc_render_cell
     mov x0, x27
     mov x1, x26
     bl str_cat                          // copy into writable cell buffer
     ldr x27, [x22, #8]                 // w[1]
-    adrp x26, PAGE(tc_render_cell)
-    add x26, x26, LO12(tc_render_cell)
+    LEA x26, tc_render_cell
     mov x0, x21                        // line cursor
     mov x1, x26                        // cell
     mov x2, x27                        // width
@@ -3821,19 +3534,16 @@ emit_table_header:
     strb w1, [x21], #1
     mov w1, #' '
     strb w1, [x21], #1
-    adrp x25, PAGE(tc_plan_columns)
-    add x25, x25, LO12(tc_plan_columns)
+    LEA x25, tc_plan_columns
     ldr x25, [x25, x23, lsl #3]
     ldr x26, [x24, x25, lsl #3]        // header string (rodata)
-    adrp x27, PAGE(tc_render_cell)
-    add x27, x27, LO12(tc_render_cell)
+    LEA x27, tc_render_cell
     mov x0, x27
     mov x1, x26
     bl str_cat
     add x27, x23, #2
     ldr x27, [x22, x27, lsl #3]        // width
-    adrp x26, PAGE(tc_render_cell)
-    add x26, x26, LO12(tc_render_cell)
+    LEA x26, tc_render_cell
     mov x0, x21                        // line cursor
     mov x1, x26
     mov x2, x27
@@ -3867,8 +3577,7 @@ emit_rule:
     mov x21, x0
     bl line_zero
     mov x21, x0
-    adrp x22, PAGE(tc_render_widths)
-    add x22, x22, LO12(tc_render_widths)
+    LEA x22, tc_render_widths
     mov x23, #0
 .Leru_loop:
     cmp x23, x20
@@ -3919,8 +3628,7 @@ emit_table_row:
     mov x22, x0                        // cursor
     bl line_zero
     mov x22, x0
-    adrp x23, PAGE(tc_render_widths)
-    add x23, x23, LO12(tc_render_widths)
+    LEA x23, tc_render_widths
     // login cell (pin-aware under watch)
     ldr x24, [x23]
     mov x0, x19
@@ -3933,13 +3641,11 @@ emit_table_row:
     strb w1, [x22], #1
     mov w1, #' '
     strb w1, [x22], #1
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov x1, #TC_M_COUNT
     mov x0, x20
     bl cell_render
-    adrp x25, PAGE(tc_render_cell)
-    add x25, x25, LO12(tc_render_cell)
+    LEA x25, tc_render_cell
     ldr x26, [x23, #8]                 // w[1]
     mov x0, x22                        // line cursor
     mov x1, x25
@@ -3956,14 +3662,12 @@ emit_table_row:
     mov w1, #' '
     strb w1, [x22], #1
     // render metric cell into tc_render_cell
-    adrp x25, PAGE(tc_plan_columns)
-    add x25, x25, LO12(tc_plan_columns)
+    LEA x25, tc_plan_columns
     ldr x26, [x25, x24, lsl #3]
     mov x0, x20
     mov x1, x26
     bl cell_render
-    adrp x25, PAGE(tc_render_cell)
-    add x25, x25, LO12(tc_render_cell)
+    LEA x25, tc_render_cell
     add x26, x24, #2
     ldr x26, [x23, x26, lsl #3]
     mov x0, x22                        // line cursor
@@ -3977,12 +3681,10 @@ emit_table_row:
     mov w1, #0
     strb w1, [x22]
     // Phase 7: a tint hook (watch mode) wraps each displayed row's text.
-    adrp x9, PAGE(tc_frame_tint_fn)
-    add x9, x9, LO12(tc_frame_tint_fn)
+    LEA x9, tc_frame_tint_fn
     ldr x9, [x9]
     cbz x9, .Letr_puts
-    adrp x0, PAGE(tc_frame_tint_ctx)
-    add x0, x0, LO12(tc_frame_tint_ctx)
+    LEA x0, tc_frame_tint_ctx
     ldr x0, [x0]
     mov x1, x20                        // rec
     mov x2, x19                        // text
@@ -4006,13 +3708,11 @@ cell_render:
     stp x21, x22, [sp, #-16]!
     mov x19, x0
     mov x20, x1
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     cmp x20, #TC_M_COUNT
     b.eq .Lcr_count
     cmp x20, #TC_M_LIVE
@@ -4067,28 +3767,23 @@ emit_others_row:
     mov x22, x0                        // cursor
     bl line_zero
     mov x22, x0
-    adrp x23, PAGE(tc_render_widths)
-    add x23, x23, LO12(tc_render_widths)
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x23, tc_render_widths
+    LEA x0, tc_render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
     // login cell "+ N others" (built in the cell buffer: pin-aware under watch)
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov w1, #'+'
     strb w1, [x0], #1
     mov w1, #' '
     strb w1, [x0], #1
     mov x1, x20
     bl fmt_u64_commas
-    adrp x1, PAGE(s_others)
-    add x1, x1, LO12(s_others)
+    LEA x1, s_others
     bl str_cat
     ldr x24, [x23]
-    adrp x1, PAGE(tc_render_cell)
-    add x1, x1, LO12(tc_render_cell)
+    LEA x1, tc_render_cell
     mov x0, x19
     mov x2, x24
     bl pin_cell
@@ -4096,17 +3791,14 @@ emit_others_row:
     // The metric cells render into tc_render_cell and rely on it being
     // zeroed (fmt_u64_commas writes no NUL); the login-cell build above
     // wrote into it, so clear it again before the cell loop.
-    adrp x0, PAGE(tc_render_cell)
-    add x0, x0, LO12(tc_render_cell)
+    LEA x0, tc_render_cell
     mov x1, #0
     mov x2, #CELL_SZ
     bl memset
     // pooled states over hidden rows
-    adrp x24, PAGE(tc_plan_reported)
-    add x24, x24, LO12(tc_plan_reported)
+    LEA x24, tc_plan_reported
     ldr x24, [x24]
-    adrp x25, PAGE(tc_plan_displayed_n)
-    add x25, x25, LO12(tc_plan_displayed_n)
+    LEA x25, tc_plan_displayed_n
     ldr x25, [x25]
     mov x26, #0                        // pooled live
     mov x27, #0                        // pooled offline
@@ -4141,12 +3833,10 @@ emit_others_row:
     strb w1, [x22], #1
     cmp x24, #0
     b.eq .Leor_count
-    adrp x11, PAGE(tc_plan_columns)
-    add x11, x11, LO12(tc_plan_columns)
+    LEA x11, tc_plan_columns
     sub x13, x24, #1
     ldr x11, [x11, x13, lsl #3]
-    adrp x12, PAGE(tc_render_cell)
-    add x12, x12, LO12(tc_render_cell)
+    LEA x12, tc_render_cell
     cmp x11, #TC_M_LIVE
     b.eq .Leor_live
     cmp x11, #TC_M_OFFLINE
@@ -4168,11 +3858,9 @@ emit_others_row:
     bl fmt_share_cell
     b .Leor_place
 .Leor_count:
-    adrp x12, PAGE(tc_render_cell)
-    add x12, x12, LO12(tc_render_cell)
+    LEA x12, tc_render_cell
     mov x0, x12
-    adrp x13, PAGE(tc_plan_msgs_hidden)
-    add x13, x13, LO12(tc_plan_msgs_hidden)
+    LEA x13, tc_plan_msgs_hidden
     ldr x1, [x13]
     bl fmt_u64_commas
     b .Leor_place
@@ -4191,8 +3879,7 @@ emit_others_row:
     mov x1, x28
     bl fmt_u64_commas
 .Leor_place:
-    adrp x12, PAGE(tc_render_cell)
-    add x12, x12, LO12(tc_render_cell)
+    LEA x12, tc_render_cell
     add x10, x24, #1                   // width slot (recomputed: cell renders
     ldr x13, [x23, x10, lsl #3]        // clobber caller-saved x10)
     mov x0, x22                        // line cursor
@@ -4289,20 +3976,15 @@ emit_footer:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     bl line_zero
-    adrp x19, PAGE(tc_render_line)
-    add x19, x19, LO12(tc_render_line)
+    LEA x19, tc_render_line
     mov x20, x19                       // cursor
-    adrp x21, PAGE(tc_plan_displayed_n)
-    add x21, x21, LO12(tc_plan_displayed_n)
+    LEA x21, tc_plan_displayed_n
     ldr x22, [x21]                     // displayed
-    adrp x21, PAGE(tc_plan_reported_n)
-    add x21, x21, LO12(tc_plan_reported_n)
+    LEA x21, tc_plan_reported_n
     ldr x23, [x21]                     // reported
-    adrp x21, PAGE(tc_plan_hidden_n)
-    add x21, x21, LO12(tc_plan_hidden_n)
+    LEA x21, tc_plan_hidden_n
     ldr x24, [x21]                     // hidden
-    adrp x21, PAGE(tc_plan_in_range)
-    add x21, x21, LO12(tc_plan_in_range)
+    LEA x21, tc_plan_in_range
     ldr x25, [x21]                     // in_range
     cbnz x24, .Lef_hidden
     // "R of K user(s)"
@@ -4310,8 +3992,7 @@ emit_footer:
     mov x1, x23
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_of)
-    add x1, x1, LO12(s_of)
+    LEA x1, s_of
     mov x0, x20
     bl str_cat
     sub x0, x0, #1
@@ -4319,8 +4000,7 @@ emit_footer:
     mov x1, x25
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_user_s)
-    add x1, x1, LO12(s_user_s)
+    LEA x1, s_user_s
     mov x0, x20
     bl str_cat
     mov x20, x0
@@ -4331,8 +4011,7 @@ emit_footer:
     mov x1, x22
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_of)
-    add x1, x1, LO12(s_of)
+    LEA x1, s_of
     mov x0, x20
     bl str_cat
     sub x0, x0, #1
@@ -4340,14 +4019,12 @@ emit_footer:
     mov x1, x23
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_user_s)
-    add x1, x1, LO12(s_user_s)
+    LEA x1, s_user_s
     mov x0, x20
     bl str_cat
     sub x0, x0, #1
     mov x20, x0
-    adrp x1, PAGE(s_above_threshold)
-    add x1, x1, LO12(s_above_threshold)
+    LEA x1, s_above_threshold
     mov x0, x20
     bl str_cat
     sub x0, x0, #1
@@ -4355,46 +4032,39 @@ emit_footer:
     mov x1, x25
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_in_range_paren)
-    add x1, x1, LO12(s_in_range_paren)
+    LEA x1, s_in_range_paren
     mov x0, x20
     bl str_cat
     mov x20, x0
 .Lef_msgs:
     // "; S of T message(s) in range"
-    adrp x1, PAGE(s_semicolon)
-    add x1, x1, LO12(s_semicolon)
+    LEA x1, s_semicolon
     sub x0, x20, #1                  // overwrite the trailing NUL
     bl str_cat
     mov x20, x0
-    adrp x21, PAGE(tc_plan_msgs_shown)
-    add x21, x21, LO12(tc_plan_msgs_shown)
+    LEA x21, tc_plan_msgs_shown
     ldr x21, [x21]
     sub x0, x20, #1
     mov x1, x21
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_of)
-    add x1, x1, LO12(s_of)
+    LEA x1, s_of
     mov x0, x20
     bl str_cat
     sub x0, x0, #1
     mov x20, x0
-    adrp x21, PAGE(tc_tally)
-    add x21, x21, LO12(tc_tally)
+    LEA x21, tc_tally
     ldr x21, [x21, #TC_T_MESSAGES]
     mov x1, x21
     bl fmt_u64_commas
     mov x20, x0
-    adrp x1, PAGE(s_msg_range)
-    add x1, x1, LO12(s_msg_range)
+    LEA x1, s_msg_range
     mov x0, x20
     bl str_cat
     mov x0, x19
     bl line_puts
     // excluded line
-    adrp x21, PAGE(tc_plan_excl_appeared)
-    add x21, x21, LO12(tc_plan_excl_appeared)
+    LEA x21, tc_plan_excl_appeared
     ldr x22, [x21]
     cbz x22, .Lef_done
     bl emit_excluded_line
@@ -4412,27 +4082,21 @@ emit_excluded_line:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     bl line_zero
-    adrp x19, PAGE(tc_render_line)
-    add x19, x19, LO12(tc_render_line)
+    LEA x19, tc_render_line
     mov x0, x19
-    adrp x1, PAGE(s_excluded_pre)
-    add x1, x1, LO12(s_excluded_pre)
+    LEA x1, s_excluded_pre
     bl str_cat
     sub x0, x0, #1
-    adrp x20, PAGE(tc_plan_excl_appeared)
-    add x20, x20, LO12(tc_plan_excl_appeared)
+    LEA x20, tc_plan_excl_appeared
     ldr x1, [x20]
     bl fmt_u64_commas
-    adrp x1, PAGE(s_excluded_mid)
-    add x1, x1, LO12(s_excluded_mid)
+    LEA x1, s_excluded_mid
     bl str_cat
-    adrp x20, PAGE(tc_plan_excl_msgs)
-    add x20, x20, LO12(tc_plan_excl_msgs)
+    LEA x20, tc_plan_excl_msgs
     ldr x1, [x20]
     sub x0, x0, #1
     bl fmt_u64_commas
-    adrp x1, PAGE(s_not_counted2)
-    add x1, x1, LO12(s_not_counted2)
+    LEA x1, s_not_counted2
     bl str_cat
     mov x0, x19
     bl line_puts
@@ -4449,8 +4113,7 @@ emit_excluded_line:
 tc_render_report:
     stp x29, x30, [sp, #-16]!
     bl tc_plan_presentation
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_JSON
     b.ne .Lrr_json

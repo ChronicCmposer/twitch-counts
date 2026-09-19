@@ -49,8 +49,7 @@ main:
     mov x20, x1                         // argv
     bl tc_cli_parse
     // flags -> dispatch
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_MANUAL
     b.ne .Lmain_manual
@@ -68,8 +67,7 @@ main:
     bl tc_misc_fish
     b .Lmain_out
 .Lmain_complete:
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x0, [x0, #TC_O_COMPLETE_KIND]
     bl tc_misc_complete
     b .Lmain_out

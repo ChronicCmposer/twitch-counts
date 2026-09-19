@@ -257,8 +257,7 @@ main:
     mov x1, x20
     bl tc_cli_parse                  // exits 2/1/0 on its own
 
-    adrp x21, PAGE(tc_opts)
-    add x21, x21, LO12(tc_opts)
+    LEA x21, tc_opts
     ldr x1, [x21, #TC_O_FLAGS]
 
     // ---- Python main() dispatch order: manual -> fish -> complete ----
@@ -278,8 +277,7 @@ main:
     tst x1, #TC_F_JSON
     b.eq .Lmain_report_go
     mov x0, #SIGINT
-    adrp x1, PAGE(tc_main_sigint_handler)
-    add x1, x1, LO12(tc_main_sigint_handler)
+    LEA x1, tc_main_sigint_handler
     bl signal
     mov x23, x0                      // previous disposition (callee-saved)
 .Lmain_report_go:
@@ -334,10 +332,8 @@ main:
     mov x0, #0
     bl fflush                        // order this write after any stdio
     mov x0, #STDERR
-    adrp x1, PAGE(s_interrupted)
-    add x1, x1, LO12(s_interrupted)
-    adrp x2, PAGE(s_interrupted_end)
-    add x2, x2, LO12(s_interrupted_end)
+    LEA x1, s_interrupted
+    LEA x2, s_interrupted_end
     sub x2, x2, x1
     bl write
 .Lmain_watch_done:
@@ -366,10 +362,8 @@ main:
 tc_main_sigint_handler:
     stp x29, x30, [sp, #-16]!
     mov x0, #STDERR
-    adrp x1, PAGE(s_interrupted)
-    add x1, x1, LO12(s_interrupted)
-    adrp x2, PAGE(s_interrupted_end)
-    add x2, x2, LO12(s_interrupted_end)
+    LEA x1, s_interrupted
+    LEA x2, s_interrupted_end
     sub x2, x2, x1
     bl write
     mov w0, #130

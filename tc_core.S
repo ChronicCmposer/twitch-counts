@@ -225,8 +225,7 @@ tc_count_run:
     .global tc_channel_name
     FUNC_TYPE(tc_channel_name)
 tc_channel_name:
-    adrp x0, PAGE(tc_core_name)
-    add x0, x0, LO12(tc_core_name)
+    LEA x0, tc_core_name
     ret
 
 // ============================================================================
@@ -240,14 +239,12 @@ tc_channel_name:
 tc_count_column:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x1, PAGE(tc_users)
-    add x1, x1, LO12(tc_users)
+    LEA x1, tc_users
     ldr x2, [x1, #TC_US_ENTRIES]
     mov x3, #TC_US_ENTRY_SZ
     mul x3, x0, x3
     add x2, x2, x3                  // entry ptr
-    adrp x3, PAGE(tc_window)
-    add x3, x3, LO12(tc_window)
+    LEA x3, tc_window
     ldr x4, [x3, #TC_W_STATE_FILTER]
     cmp x4, #TC_ST_LIVE
     b.eq .Lcc_live
@@ -286,8 +283,7 @@ tc_count_column:
     .global tc_user_state
     FUNC_TYPE(tc_user_state)
 tc_user_state:
-    adrp x2, PAGE(tc_users)
-    add x2, x2, LO12(tc_users)
+    LEA x2, tc_users
     ldr x3, [x2, #TC_US_ENTRIES]
     mov x4, #TC_US_ENTRY_SZ
     mul x4, x0, x4
@@ -313,8 +309,7 @@ tc_user_state:
 // ============================================================================
     .p2align 2
 tc_eff_threshold:
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
     cmp x2, #TC_M_OFFLINE_SHARE
@@ -368,50 +363,34 @@ tc_resolve_channel:
     // resolves it, whatever its source, so "~/..." works from the command
     // line, the environment and the config, and the header and every error
     // show the expanded path.  In place (idempotent on a second call).
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
-    adrp x1, PAGE(tc_core_scratch)
-    add x1, x1, LO12(tc_core_scratch)
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
+    LEA x1, tc_core_scratch
     mov x2, #TC_O_LOGS_DIR_SZ
     bl tc_expanduser
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
-    adrp x1, PAGE(tc_core_scratch)
-    add x1, x1, LO12(tc_core_scratch)
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
+    LEA x1, tc_core_scratch
     bl tc_copy_str
     // lowercased channel for matching
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_CHANNEL
-    adrp x1, PAGE(tc_core_chlower)
-    add x1, x1, LO12(tc_core_chlower)
+    LEA_OFF x0, tc_opts, TC_O_CHANNEL
+    LEA x1, tc_core_chlower
     bl lowercase_copy
     // os.path.isdir(logs_dir): anything but a directory is "not found"
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
-    adrp x1, PAGE(tc_core_statbuf)
-    add x1, x1, LO12(tc_core_statbuf)
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
+    LEA x1, tc_core_statbuf
     bl stat
     cbnz w0, .Lrc_dir_notfound
-    adrp x0, PAGE(tc_core_statbuf)
-    add x0, x0, LO12(tc_core_statbuf)
+    LEA x0, tc_core_statbuf
     LOAD_ST_MODE 1, x0
     and w1, w1, #S_IFMT
     cmp w1, #S_IFDIR
     b.ne .Lrc_dir_notfound
     // os.listdir(logs_dir): a directory that cannot be listed is main()'s
     // OSError backstop, "PermissionError: [Errno 13] Permission denied: '...'"
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     bl opendir
     cbz x0, .Lrc_dir_oserror
     mov x19, x0                        // DIR*
-    adrp x20, PAGE(tc_core_dname_count)
-    add x20, x20, LO12(tc_core_dname_count)
+    LEA x20, tc_core_dname_count
     str xzr, [x20]
 .Lrc_list:
     mov x0, x19
@@ -449,13 +428,11 @@ tc_resolve_channel:
     b .Lrc_nlen
 .Lrc_nlen_done:
     // copy into the arena
-    adrp x6, PAGE(tc_core_darena)
-    add x6, x6, LO12(tc_core_darena)
+    LEA x6, tc_core_darena
     mov x7, #DNAME_SZ
     mul x7, x3, x7
     add x6, x6, x7
-    adrp x8, PAGE(tc_core_dnames)
-    add x8, x8, LO12(tc_core_dnames)
+    LEA x8, tc_core_dnames
     str x6, [x8, x3, lsl #3]
     mov x9, #0
 .Lrc_copy:
@@ -481,11 +458,9 @@ tc_resolve_channel:
 .Lrc_find:
     cmp x21, x19
     b.ge .Lrc_no_channel
-    adrp x22, PAGE(tc_core_dnames)
-    add x22, x22, LO12(tc_core_dnames)
+    LEA x22, tc_core_dnames
     ldr x22, [x22, x21, lsl #3]        // name
-    adrp x1, PAGE(tc_core_chlower)
-    add x1, x1, LO12(tc_core_chlower)
+    LEA x1, tc_core_chlower
     mov x0, x22
     bl tc_ascii_casecmp
     cbz x0, .Lrc_found
@@ -493,24 +468,20 @@ tc_resolve_channel:
     b .Lrc_find
 .Lrc_found:
     // x22 = the real directory name
-    adrp x0, PAGE(tc_core_name)
-    add x0, x0, LO12(tc_core_name)
+    LEA x0, tc_core_name
     mov x1, x22
     bl tc_copy_str
     // dirpath = logs_dir + "/" + name
-    adrp x0, PAGE(tc_core_dirpath)
-    add x0, x0, LO12(tc_core_dirpath)
+    LEA x0, tc_core_dirpath
     mov x23, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     add x1, x0, #TC_O_LOGS_DIR
     mov x0, x23
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
     mov x23, x0
-    adrp x1, PAGE(tc_core_name)
-    add x1, x1, LO12(tc_core_name)
+    LEA x1, tc_core_name
     mov x0, x23
     bl tc_cat_cstr
     ldp x27, x28, [sp], #16
@@ -523,11 +494,8 @@ tc_resolve_channel:
 
 .Lrc_dir_oserror:
     bl tc_capture_errno
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
-    adrp x1, PAGE(tc_opts)
-    add x1, x1, LO12(tc_opts)
-    add x1, x1, #TC_O_LOGS_DIR
+    LEA x0, tc_core_scratch
+    LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
     bl tc_oserror_text
     bl .Lrc_emit_fail
 
@@ -537,9 +505,7 @@ tc_resolve_channel:
     // Unsupported on Linux; macOS always has a built-in default so this
     // is unreachable there once tc_cli applies it).  logs_dir set but the
     // directory does not exist: today's "logs directory not found: <path>".
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     ldrb w1, [x0]
     cbnz w1, .Lrc_dir_notfound_set
     // `root = logs_dir.value or PLATFORM.require_logs_dir()`: an empty value
@@ -548,8 +514,7 @@ tc_resolve_channel:
     mov x1, #TC_O_LOGS_DIR_SZ
     bl tc_platform_default_logs_dir    // x0 = length, 0 = no default
     cbnz x0, .Lrc_dir_defaulted
-    adrp x0, PAGE(s_logs_dir_unsupported)
-    add x0, x0, LO12(s_logs_dir_unsupported)
+    LEA x0, s_logs_dir_unsupported
     bl .Lrc_emit_fail
 .Lrc_dir_defaulted:
     // start over with the default in place (expanduser + isdir + opendir)
@@ -562,22 +527,18 @@ tc_resolve_channel:
     b tc_resolve_channel
 .Lrc_dir_notfound_set:
     // "logs directory not found: <dir>"
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     mov x19, x0
-    adrp x1, PAGE(s_dir_not_found)
-    add x1, x1, LO12(s_dir_not_found)
+    LEA x1, s_dir_not_found
     bl tc_cat_cstr
     mov x19, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     add x1, x0, #TC_O_LOGS_DIR
     mov x0, x19
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     bl .Lrc_emit_fail
 
 // ----------------------------------------------------------------------------
@@ -588,8 +549,7 @@ tc_resolve_channel:
 .Lrc_emit_fail:
     stp x29, x30, [sp, #-16]!
     mov x1, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x0, [x0, #TC_O_FLAGS]
     tst x0, #TC_F_JSON
     mov x0, x1
@@ -600,34 +560,28 @@ tc_resolve_channel:
 
 .Lrc_no_channel:
     // "no logs for channel '<ch>' in <dir>\navailable: <join|(none)>"
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     mov x19, x0
-    adrp x1, PAGE(s_no_logs_pre)
-    add x1, x1, LO12(s_no_logs_pre)
+    LEA x1, s_no_logs_pre
     bl tc_cat_cstr
     mov x19, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     add x1, x0, #TC_O_CHANNEL
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
-    adrp x1, PAGE(s_no_logs_mid)
-    add x1, x1, LO12(s_no_logs_mid)
+    LEA x1, s_no_logs_mid
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     add x1, x0, #TC_O_LOGS_DIR
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
     mov w2, #'\n'
     strb w2, [x19], #1
-    adrp x1, PAGE(s_avail)
-    add x1, x1, LO12(s_avail)
+    LEA x1, s_avail
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
@@ -635,8 +589,7 @@ tc_resolve_channel:
     cbz x20, .Lrc_avail_none
     mov x21, #0
 .Lrc_avail_loop:
-    adrp x22, PAGE(tc_core_dnames)
-    add x22, x22, LO12(tc_core_dnames)
+    LEA x22, tc_core_dnames
     ldr x22, [x22, x21, lsl #3]
     mov x0, x19
     mov x1, x22
@@ -652,16 +605,14 @@ tc_resolve_channel:
     mov x21, x23
     b .Lrc_avail_loop
 .Lrc_avail_none:
-    adrp x1, PAGE(s_none_paren)
-    add x1, x1, LO12(s_none_paren)
+    LEA x1, s_none_paren
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
 .Lrc_avail_done:
     mov w2, #0
     strb w2, [x19]
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     bl tc_fail
 
 // ============================================================================
@@ -675,13 +626,11 @@ tc_build_listing:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     str xzr, [x19, #TC_L_COUNT]
     str xzr, [x19, #TC_L_CAP]
     str xzr, [x19, #TC_L_ENTRIES]
-    adrp x0, PAGE(tc_core_dirpath)
-    add x0, x0, LO12(tc_core_dirpath)
+    LEA x0, tc_core_dirpath
     bl opendir
     cbz x0, .Lbl_cant_open
     mov x20, x0                        // DIR*
@@ -759,16 +708,13 @@ tc_build_listing:
 .Lbl_cant_open:
     // os.listdir(channel_dir) raised: main()'s OSError backstop text
     bl tc_capture_errno
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
-    adrp x1, PAGE(tc_core_dirpath)
-    add x1, x1, LO12(tc_core_dirpath)
+    LEA x0, tc_core_scratch
+    LEA x1, tc_core_dirpath
     bl tc_oserror_text                 // x0 = the NUL-terminated text
     bl .Lrc_emit_fail                  // text or {"error": ...}, exit 1
 
 .Lbl_oom:
-    adrp x0, PAGE(s_oom)
-    add x0, x0, LO12(s_oom)
+    LEA x0, s_oom
     bl tc_fail
 
 // ============================================================================
@@ -910,8 +856,7 @@ parse_log_filename:
     .p2align 2
 days_in_month:
     sub x1, x1, #1
-    adrp x2, PAGE(month_days)
-    add x2, x2, LO12(month_days)
+    LEA x2, month_days
     ldrb w0, [x2, x1]
     cmp x1, #1                         // February
     b.ne .Ldim_out
@@ -951,8 +896,7 @@ tc_complete_window:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_window)
-    add x19, x19, LO12(tc_window)
+    LEA x19, tc_window
     ldr x20, [x19, #TC_W_KIND]
     cmp x20, #TC_WIN_EARLIEST
     b.eq .Lcw_earliest
@@ -960,26 +904,21 @@ tc_complete_window:
     b.eq .Lcw_users
     b .Lcw_fill
 .Lcw_earliest:
-    adrp x21, PAGE(tc_listing)
-    add x21, x21, LO12(tc_listing)
+    LEA x21, tc_listing
     ldr x22, [x21, #TC_L_COUNT]
     cbnz x22, .Lcw_earliest_ok
     // "no log files found in <dirpath>"
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     mov x23, x0
-    adrp x1, PAGE(s_no_files_pre)
-    add x1, x1, LO12(s_no_files_pre)
+    LEA x1, s_no_files_pre
     bl tc_cat_cstr
     mov x23, x0
-    adrp x1, PAGE(tc_core_dirpath)
-    add x1, x1, LO12(tc_core_dirpath)
+    LEA x1, tc_core_dirpath
     mov x0, x23
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     bl tc_fail
 .Lcw_earliest_ok:
     ldr x23, [x21, #TC_L_ENTRIES]
@@ -992,8 +931,7 @@ tc_complete_window:
     bl tc_size_users
     b .Lcw_fill
 .Lcw_fill:
-    adrp x20, PAGE(tc_opts)
-    add x20, x20, LO12(tc_opts)
+    LEA x20, tc_opts
     ldr x21, [x20, #TC_O_MIN_COUNT]
     str x21, [x19, #TC_W_THRESHOLD]
     ldr x21, [x20, #TC_O_STATE_FILTER]
@@ -1016,8 +954,7 @@ tc_window_begin_after_end_check:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, PAGE(tc_window)
-    add x19, x19, LO12(tc_window)
+    LEA x19, tc_window
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
     bl tc_ymd_sod_to_epoch
@@ -1028,11 +965,9 @@ tc_window_begin_after_end_check:
     mov x21, x0
     cmp x20, x21
     b.le .Lwae_done
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     mov x22, x0
-    adrp x1, PAGE(s_begin_paren)
-    add x1, x1, LO12(s_begin_paren)
+    LEA x1, s_begin_paren
     bl tc_cat_cstr
     mov x22, x0
     ldr x1, [x19, #TC_W_BEGIN_YMD]
@@ -1042,8 +977,7 @@ tc_window_begin_after_end_check:
     mov x2, x22                          // format into the scratch cursor
     bl fmt_ymd_sod
     mov x22, x0
-    adrp x1, PAGE(s_is_after_end)
-    add x1, x1, LO12(s_is_after_end)
+    LEA x1, s_is_after_end
     mov x0, x22
     bl tc_cat_cstr
     mov x22, x0
@@ -1057,8 +991,7 @@ tc_window_begin_after_end_check:
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_core_scratch)
-    add x0, x0, LO12(tc_core_scratch)
+    LEA x0, tc_core_scratch
     bl tc_fail
 .Lwae_done:
     ldp x23, x24, [sp], #16
@@ -1080,15 +1013,13 @@ tc_size_users:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // end_epoch
-    adrp x9, PAGE(tc_window)
-    add x9, x9, LO12(tc_window)
+    LEA x9, tc_window
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
     mov x19, x0                        // end_epoch
     // requested / ceiling
-    adrp x9, PAGE(tc_opts)
-    add x9, x9, LO12(tc_opts)
+    LEA x9, tc_opts
     ldr x20, [x9, #TC_O_USERS]
     ldr x21, [x9, #TC_O_USERS_MAX]
     cmp x21, #1
@@ -1169,8 +1100,7 @@ tc_size_users:
     bl tc_reported_width
     mov x27, x0                        // under
     // ---- policy ----
-    adrp x9, PAGE(tc_opts)
-    add x9, x9, LO12(tc_opts)
+    LEA x9, tc_opts
     ldr x9, [x9, #TC_O_USERS_POLICY]
     cmp x9, #TC_POLICY_AT_MOST
     b.eq .Lsu_at_most
@@ -1209,14 +1139,12 @@ tc_size_users:
     mov x2, x23                       // found = widest
     b .Lsu_apply
 .Lsu_apply:
-    adrp x9, PAGE(tc_window)
-    add x9, x9, LO12(tc_window)
+    LEA x9, tc_window
     str x1, [x9, #TC_W_USERS_WIDTH]
     str x2, [x9, #TC_W_USERS_FOUND]
     sub x0, x19, x1                   // begin = end - width
     bl tc_epoch_to_ymd_sod
-    adrp x9, PAGE(tc_window)                // reload: the call clobbered x9
-    add x9, x9, LO12(tc_window)
+    LEA x9, tc_window  // reload: the call clobbered x9
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
     ldp x27, x28, [sp], #16
@@ -1243,8 +1171,7 @@ tc_reported_width:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0                        // seconds
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x20, tc_window
     ldr x0, [x20, #TC_W_END_YMD]
     ldr x1, [x20, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
@@ -1255,8 +1182,7 @@ tc_reported_width:
     bl tc_count_final
     bl tc_eff_threshold
     mov x21, x0                        // eff
-    adrp x22, PAGE(tc_users)
-    add x22, x22, LO12(tc_users)
+    LEA x22, tc_users
     ldr x23, [x22, #TC_US_COUNT]
     ldr x24, [x22, #TC_US_ENTRIES]
     mov x25, #0                        // n
@@ -1307,23 +1233,18 @@ tc_count_final:
     sub sp, sp, #CF_FRAME_SZ
     bl tc_reset_count
     bl tc_seed_state                    // x0 = 0/1/2
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     str x0, [x9]
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x19, [x19, #TC_L_COUNT]        // count
-    adrp x20, PAGE(tc_listing)
-    add x20, x20, LO12(tc_listing)
+    LEA x20, tc_listing
     ldr x20, [x20, #TC_L_ENTRIES]      // entries
-    adrp x21, PAGE(tc_window)
-    add x21, x21, LO12(tc_window)
+    LEA x21, tc_window
     ldr x22, [x21, #TC_W_BEGIN_YMD]
     ldr x23, [x21, #TC_W_BEGIN_SOD]
     ldr x24, [x21, #TC_W_END_YMD]
     ldr x25, [x21, #TC_W_END_SOD]
-    adrp x26, PAGE(tc_tally)
-    add x26, x26, LO12(tc_tally)
+    LEA x26, tc_tally
     mov x27, #0                         // i
 .Lcf_loop:
     cmp x27, x19
@@ -1355,10 +1276,8 @@ tc_count_final:
     str x11, [sp, #CF_LO]
     str x12, [sp, #CF_HI]
     // build the file path
-    adrp x0, PAGE(tc_core_fpath)
-    add x0, x0, LO12(tc_core_fpath)
-    adrp x1, PAGE(tc_core_dirpath)
-    add x1, x1, LO12(tc_core_dirpath)
+    LEA x0, tc_core_fpath
+    LEA x1, tc_core_dirpath
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1371,12 +1290,10 @@ tc_count_final:
     // module stats the path and returns 0 = parse normally, 1 = reused (x1 =
     // cached exit_state; counts already applied to tc_users + totals), 2 =
     // stat failed (record unreadable + reset state, like Python's skip()).
-    adrp x0, PAGE(tc_core_fpath)
-    add x0, x0, LO12(tc_core_fpath)
+    LEA x0, tc_core_fpath
     ldr x1, [sp, #CF_LO]
     ldr x2, [sp, #CF_HI]
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     ldr x3, [x9]
     ldr x4, [sp, #CF_ENTRY]
     ldr x4, [x4, #TC_L_YMD]
@@ -1386,8 +1303,7 @@ tc_count_final:
     cmp w0, #2
     b.eq .Lcf_cache_unreadable
     // read the whole file
-    adrp x0, PAGE(tc_core_fpath)
-    add x0, x0, LO12(tc_core_fpath)
+    LEA x0, tc_core_fpath
     bl tc_read_file                     // x0=status, x1=buf, x2=len
     cbnz x0, .Lcf_unreadable
     // ok: buf = x1, len = x2 -> keep them in the frame across calls
@@ -1407,8 +1323,7 @@ tc_count_final:
     str x11, [x26, #TC_T_PARSED]
     // ---- Phase 6: write the whole day to the rollup (no-op unless the
     // cache module stashed this file's snapshot) ----
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     ldr x0, [x9]
     bl tc_cache_put_day
     b .Lcf_free
@@ -1422,8 +1337,7 @@ tc_count_final:
     b.eq .Lcf_too_large
     // skip(): f"{type(exc).__name__}: {exc.strerror}" from the errno that
     // tc_read_file captured
-    adrp x0, PAGE(tc_core_reason)
-    add x0, x0, LO12(tc_core_reason)
+    LEA x0, tc_core_reason
     bl tc_errno_reason
     mov x1, x0
     ldr x0, [sp, #CF_ENTRY]
@@ -1432,8 +1346,7 @@ tc_count_final:
 .Lcf_too_large:
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
-    adrp x1, PAGE(s_too_large)
-    add x1, x1, LO12(s_too_large)
+    LEA x1, s_too_large
 .Lcf_record:
     bl record_unreadable
     ldr x10, [sp, #CF_BUF]
@@ -1441,8 +1354,7 @@ tc_count_final:
     mov x0, x10
     bl free
 .Lcf_state_reset:
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     str xzr, [x9]
     b .Lcf_next
 .Lcf_free:
@@ -1460,22 +1372,19 @@ tc_count_final:
     ldr x11, [x26, #TC_T_REUSED]
     add x11, x11, #1
     str x11, [x26, #TC_T_REUSED]
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     str x1, [x9]
     b .Lcf_next
 .Lcf_cache_unreadable:
     // Phase 6: stat failed inside the cache hook (errno captured there);
     // record + reset state, exactly like Python's skip().
-    adrp x0, PAGE(tc_core_reason)
-    add x0, x0, LO12(tc_core_reason)
+    LEA x0, tc_core_reason
     bl tc_errno_reason
     mov x1, x0
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
     bl record_unreadable
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     str xzr, [x9]
     b .Lcf_next
 .Lcf_done:
@@ -1496,23 +1405,18 @@ tc_count_final:
     .p2align 2
 tc_reset_count:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_core_g_live)
-    add x0, x0, LO12(tc_core_g_live)
+    LEA x0, tc_core_g_live
     mov x1, #0
     str x1, [x0]
     str x1, [x0, #8]
     str x1, [x0, #16]
-    adrp x0, PAGE(tc_core_cur_state)
-    add x0, x0, LO12(tc_core_cur_state)
+    LEA x0, tc_core_cur_state
     str x1, [x0]
-    adrp x0, PAGE(tc_tally)
-    add x0, x0, LO12(tc_tally)
+    LEA x0, tc_tally
     mov x1, #TC_TALLY_SIZE
     bl tc_memzero_own
-    adrp x0, PAGE(tc_tally)
-    add x0, x0, LO12(tc_tally)
-    adrp x1, PAGE(tc_users)
-    add x1, x1, LO12(tc_users)
+    LEA x0, tc_tally
+    LEA x1, tc_users
     str x1, [x0, #TC_T_USERS_PTR]
     str xzr, [x1, #TC_US_COUNT]
     ldp x29, x30, [sp], #16
@@ -1531,10 +1435,8 @@ tc_finish_tally:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
-    adrp x20, PAGE(tc_core_g_live)
-    add x20, x20, LO12(tc_core_g_live)
+    LEA x19, tc_tally
+    LEA x20, tc_core_g_live
     ldr x21, [x20]
     ldr x22, [x20, #8]
     ldr x23, [x20, #16]
@@ -1545,8 +1447,7 @@ tc_finish_tally:
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 8]
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 16]
     str xzr, [x19, #TC_T_MESSAGES]
-    adrp x24, PAGE(tc_users)
-    add x24, x24, LO12(tc_users)
+    LEA x24, tc_users
     ldr x25, [x24, #TC_US_COUNT]
     ldr x26, [x24, #TC_US_ENTRIES]
     mov x27, #0                         // i
@@ -1626,8 +1527,7 @@ tc_capture_errno:
     stp x29, x30, [sp, #-16]!
     bl __errno_location
     ldr w0, [x0]
-    adrp x9, PAGE(tc_last_errno)
-    add x9, x9, LO12(tc_last_errno)
+    LEA x9, tc_last_errno
     str x0, [x9]
     ldp x29, x30, [sp], #16
     ret
@@ -1639,16 +1539,14 @@ tc_errno_reason:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0
-    adrp x9, PAGE(tc_last_errno)
-    add x9, x9, LO12(tc_last_errno)
+    LEA x9, tc_last_errno
     ldr x20, [x9]
     mov x0, x20
     bl errno_exc_name
     mov x1, x0
     mov x0, x19
     bl tc_cat_cstr
-    adrp x1, PAGE(s_exc_sep)
-    add x1, x1, LO12(s_exc_sep)
+    LEA x1, s_exc_sep
     bl tc_cat_cstr
     str x0, [sp, #-16]!                // the cursor, across strerror()
     mov x0, x20
@@ -1670,23 +1568,20 @@ tc_oserror_text:
     stp x21, x22, [sp, #-16]!
     mov x19, x0                        // dst (kept for the return)
     mov x21, x1                        // path
-    adrp x9, PAGE(tc_last_errno)
-    add x9, x9, LO12(tc_last_errno)
+    LEA x9, tc_last_errno
     ldr x20, [x9]
     mov x0, x20
     bl errno_exc_name
     mov x1, x0
     mov x0, x19
     bl tc_cat_cstr
-    adrp x1, PAGE(s_exc_errno_pre)     // ": [Errno "
-    add x1, x1, LO12(s_exc_errno_pre)
+    LEA x1, s_exc_errno_pre  // ": [Errno "
     bl tc_cat_cstr
     mov x22, x0
     // the errno number
     mov x1, x20
     bl core_fmt_u64
-    adrp x1, PAGE(s_exc_errno_post)    // "] "
-    add x1, x1, LO12(s_exc_errno_post)
+    LEA x1, s_exc_errno_post  // "] "
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x20
@@ -1694,8 +1589,7 @@ tc_oserror_text:
     mov x1, x0
     mov x0, x22
     bl tc_cat_cstr
-    adrp x1, PAGE(s_exc_path_pre)      // ": '"
-    add x1, x1, LO12(s_exc_path_pre)
+    LEA x1, s_exc_path_pre  // ": '"
     bl tc_cat_cstr
     mov x1, x21
     bl tc_cat_cstr
@@ -1728,36 +1622,28 @@ errno_exc_name:
     b.eq .Leen_intr
     cmp x0, #32                         // EPIPE
     b.eq .Leen_pipe
-    adrp x0, PAGE(s_exc_oserror)
-    add x0, x0, LO12(s_exc_oserror)
+    LEA x0, s_exc_oserror
     ret
 .Leen_perm:
-    adrp x0, PAGE(s_exc_perm)
-    add x0, x0, LO12(s_exc_perm)
+    LEA x0, s_exc_perm
     ret
 .Leen_notfound:
-    adrp x0, PAGE(s_exc_notfound)
-    add x0, x0, LO12(s_exc_notfound)
+    LEA x0, s_exc_notfound
     ret
 .Leen_isdir:
-    adrp x0, PAGE(s_exc_isdir)
-    add x0, x0, LO12(s_exc_isdir)
+    LEA x0, s_exc_isdir
     ret
 .Leen_notdir:
-    adrp x0, PAGE(s_exc_notdir)
-    add x0, x0, LO12(s_exc_notdir)
+    LEA x0, s_exc_notdir
     ret
 .Leen_exists:
-    adrp x0, PAGE(s_exc_exists)
-    add x0, x0, LO12(s_exc_exists)
+    LEA x0, s_exc_exists
     ret
 .Leen_intr:
-    adrp x0, PAGE(s_exc_intr)
-    add x0, x0, LO12(s_exc_intr)
+    LEA x0, s_exc_intr
     ret
 .Leen_pipe:
-    adrp x0, PAGE(s_exc_pipe)
-    add x0, x0, LO12(s_exc_pipe)
+    LEA x0, s_exc_pipe
     ret
 
 // core_fmt_u64(x0=cursor, x1=value) -> x0 = cursor after the decimal digits
@@ -1805,8 +1691,7 @@ s_exc_pipe:         .asciz "BrokenPipeError"
 
     .p2align 2
 record_unreadable:
-    adrp x2, PAGE(tc_tally)
-    add x2, x2, LO12(tc_tally)
+    LEA x2, tc_tally
     ldr x3, [x2, #TC_T_UNR_COUNT]
     ldr x4, =TC_T_UNR_MAX
     cmp x3, x4
@@ -1859,12 +1744,10 @@ tc_seed_state:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
-    adrp x22, PAGE(tc_window)
-    add x22, x22, LO12(tc_window)
+    LEA x22, tc_window
     ldr x23, [x22, #TC_W_BEGIN_YMD]
     mov x24, #0                         // idx
 .Lss_find:
@@ -1885,8 +1768,7 @@ tc_seed_state:
     sub x24, x24, #1                     // newest file before begin.date()
     cmp x24, #0
     b.lt .Lss_none2
-    adrp x25, PAGE(tc_opts)
-    add x25, x25, LO12(tc_opts)
+    LEA x25, tc_opts
     ldr x26, [x25, #TC_O_SEED_LOOKBACK]
     sub x27, x24, x26
     add x27, x27, #1                     // limit = start - (lookback - 1)
@@ -1902,10 +1784,8 @@ tc_seed_state:
     mul x9, x24, x9
     add x9, x21, x9                      // entry
     // build the file path
-    adrp x0, PAGE(tc_core_fpath)
-    add x0, x0, LO12(tc_core_fpath)
-    adrp x1, PAGE(tc_core_dirpath)
-    add x1, x1, LO12(tc_core_dirpath)
+    LEA x0, tc_core_fpath
+    LEA x1, tc_core_dirpath
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1913,8 +1793,7 @@ tc_seed_state:
     add x1, x9, #TC_L_NAME
     mov x0, x10
     bl tc_cat_cstr
-    adrp x0, PAGE(tc_core_fpath)
-    add x0, x0, LO12(tc_core_fpath)
+    LEA x0, tc_core_fpath
     bl tc_read_file                      // x0=status, x1=buf, x2=len
     cbnz x0, .Lss_next
     // keep buf/len on the stack: scan_markers may clobber x9-x17
@@ -2009,8 +1888,7 @@ tc_read_file:
     // clobbers only x0-x17 like any libc call.
     bl __errno_location                // x0 = &errno
     ldr w0, [x0]
-    adrp x9, PAGE(tc_last_errno)       // read() failed (e.g. EISDIR): keep
-    add x9, x9, LO12(tc_last_errno)    // the reason before close()/free()
+    LEA x9, tc_last_errno  // read() failed (e.g. EISDIR): keep / the reason before close()/free()
     str x0, [x9]                       // can clobber errno
     cmp w0, #EINTR
     b.eq .Lrf_read
@@ -2210,15 +2088,13 @@ line_is_marker:
     b.ne .Llim_no
     mov x0, x19
     mov x1, x20
-    adrp x2, PAGE(lit_is_live)
-    add x2, x2, LO12(lit_is_live)
+    LEA x2, lit_is_live
     mov x3, #8
     bl marker_match
     cbnz x0, .Llim_live
     mov x0, x19
     mov x1, x20
-    adrp x2, PAGE(lit_is_offline)
-    add x2, x2, LO12(lit_is_offline)
+    LEA x2, lit_is_offline
     mov x3, #15
     bl marker_match
     cbnz x0, .Llim_off
@@ -2304,8 +2180,7 @@ process_lines:
     add x20, x19, x1                    // end
     mov x21, x2                         // lo
     mov x22, x3                         // hi
-    adrp x23, PAGE(tc_core_cur_state)
-    add x23, x23, LO12(tc_core_cur_state)
+    LEA x23, tc_core_cur_state
     ldr x23, [x23]                      // cur_state (0/1/2)
     // one past the last '\n'
     mov x24, x19
@@ -2358,8 +2233,7 @@ process_lines:
     add x24, x26, #1
     b .Lpl_loop
 .Lpl_done:
-    adrp x9, PAGE(tc_core_cur_state)
-    add x9, x9, LO12(tc_core_cur_state)
+    LEA x9, tc_core_cur_state
     str x23, [x9]
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -2504,20 +2378,17 @@ process_message:
 .Lpm_state_set:
     mov x0, x24
     mov x1, x25
-    adrp x2, PAGE(tc_users)
-    add x2, x2, LO12(tc_users)
+    LEA x2, tc_users
     bl find_user                        // x0 = index or -1
     cmp x0, #0
     b.ge .Lpm_have_user
     mov x0, x24
     mov x1, x25
-    adrp x2, PAGE(tc_users)
-    add x2, x2, LO12(tc_users)
+    LEA x2, tc_users
     bl add_user                         // x0 = index
 .Lpm_have_user:
     // entry = users.entries + index*50
-    adrp x9, PAGE(tc_users)
-    add x9, x9, LO12(tc_users)
+    LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
@@ -2531,8 +2402,7 @@ process_message:
     ldr x11, [x10, #TC_US_LIVE]
     add x11, x11, #1
     str x11, [x10, #TC_US_LIVE]
-    adrp x12, PAGE(tc_core_g_live)
-    add x12, x12, LO12(tc_core_g_live)
+    LEA x12, tc_core_g_live
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2541,8 +2411,7 @@ process_message:
     ldr x11, [x10, #TC_US_OFFLINE]
     add x11, x11, #1
     str x11, [x10, #TC_US_OFFLINE]
-    adrp x12, PAGE(tc_core_g_off)
-    add x12, x12, LO12(tc_core_g_off)
+    LEA x12, tc_core_g_off
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2551,8 +2420,7 @@ process_message:
     ldr x11, [x10, #TC_US_UNKNOWN]
     add x11, x11, #1
     str x11, [x10, #TC_US_UNKNOWN]
-    adrp x12, PAGE(tc_core_g_unk)
-    add x12, x12, LO12(tc_core_g_unk)
+    LEA x12, tc_core_g_unk
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2593,8 +2461,7 @@ speaker_login:
     b .Lsl_login
 .Lsl_login_ok:
     // lowercase into login_buf
-    adrp x4, PAGE(tc_core_login)
-    add x4, x4, LO12(tc_core_login)
+    LEA x4, tc_core_login
     mov x2, #0
 .Lsl_lower:
     cmp x2, x1
@@ -2674,8 +2541,7 @@ speaker_login:
 .Lsl_left_ok:
     cbz x7, .Lsl_fail
     // login = right (already lowercase); copy into login_buf
-    adrp x8, PAGE(tc_core_login)
-    add x8, x8, LO12(tc_core_login)
+    LEA x8, tc_core_login
     mov x2, #0
 .Lsl_copy:
     cmp x2, x4
@@ -2848,8 +2714,7 @@ add_user:
     ldp x29, x30, [sp], #16
     ret
 .Lau_oom:
-    adrp x0, PAGE(s_oom)
-    add x0, x0, LO12(s_oom)
+    LEA x0, s_oom
     bl tc_fail
 
 // ============================================================================
@@ -2870,8 +2735,7 @@ tc_reuse_apply:
     mov x20, x1                         // len
     mov x21, x2                         // state
     mov x22, x3                         // n
-    adrp x2, PAGE(tc_users)
-    add x2, x2, LO12(tc_users)
+    LEA x2, tc_users
     mov x0, x19
     mov x1, x20
     bl find_user                        // x0 = index or -1
@@ -2879,13 +2743,11 @@ tc_reuse_apply:
     b.ge .Lrua_have
     mov x0, x19
     mov x1, x20
-    adrp x2, PAGE(tc_users)
-    add x2, x2, LO12(tc_users)
+    LEA x2, tc_users
     bl add_user                         // x0 = index
 .Lrua_have:
     // entry = users.entries + index*50
-    adrp x9, PAGE(tc_users)
-    add x9, x9, LO12(tc_users)
+    LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
@@ -2899,8 +2761,7 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_LIVE]
     add x11, x11, x22
     str x11, [x10, #TC_US_LIVE]
-    adrp x12, PAGE(tc_core_g_live)
-    add x12, x12, LO12(tc_core_g_live)
+    LEA x12, tc_core_g_live
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2909,8 +2770,7 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_OFFLINE]
     add x11, x11, x22
     str x11, [x10, #TC_US_OFFLINE]
-    adrp x12, PAGE(tc_core_g_off)
-    add x12, x12, LO12(tc_core_g_off)
+    LEA x12, tc_core_g_off
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2919,8 +2779,7 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_UNKNOWN]
     add x11, x11, x22
     str x11, [x10, #TC_US_UNKNOWN]
-    adrp x12, PAGE(tc_core_g_unk)
-    add x12, x12, LO12(tc_core_g_unk)
+    LEA x12, tc_core_g_unk
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2940,10 +2799,8 @@ sort_dnames:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, PAGE(tc_core_dnames)
-    add x19, x19, LO12(tc_core_dnames)
-    adrp x20, PAGE(tc_core_dname_count)
-    add x20, x20, LO12(tc_core_dname_count)
+    LEA x19, tc_core_dnames
+    LEA x20, tc_core_dname_count
     ldr x20, [x20]
     mov x21, #1
 .Lsd_outer:
@@ -2985,8 +2842,7 @@ sort_listing:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #1
@@ -2997,8 +2853,7 @@ sort_listing:
     mov x23, #TC_L_ENTRY_SZ
     mul x23, x22, x23
     add x23, x21, x23
-    adrp x24, PAGE(tc_core_list_key)
-    add x24, x24, LO12(tc_core_list_key)
+    LEA x24, tc_core_list_key
     mov x9, #0
 .Lsl_save:
     cmp x9, #TC_L_ENTRY_SZ

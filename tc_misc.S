@@ -158,8 +158,7 @@ tc_misc_errbuf:     .skip MISC_ERRBUF_SZ    // toml_parse_file error buffer
     FUNC_TYPE(tc_misc_manual)
 tc_misc_manual:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_manual_text)
-    add x0, x0, LO12(tc_manual_text)
+    LEA x0, tc_manual_text
     bl tc_puts
     mov x0, #0
     ldp x29, x30, [sp], #16
@@ -176,19 +175,15 @@ tc_misc_fish:
     // The blob is split where fish_completions() embeds
     // shorten_path(DEFAULT_CONFIG_PATH) (twitch-counts.py:3954), which the
     // Python computes at runtime for the machine it runs on.
-    adrp x0, PAGE(tc_fish_text_a)
-    add x0, x0, LO12(tc_fish_text_a)
+    LEA x0, tc_fish_text_a
     bl tc_puts
-    adrp x0, PAGE(tc_misc_expanded)
-    add x0, x0, LO12(tc_misc_expanded)
+    LEA x0, tc_misc_expanded
     mov x1, #MISC_PATH_SZ
     bl tc_default_config_path
-    adrp x0, PAGE(tc_misc_expanded)
-    add x0, x0, LO12(tc_misc_expanded)
+    LEA x0, tc_misc_expanded
     bl tc_shorten_path
     bl tc_puts
-    adrp x0, PAGE(tc_fish_text_b)
-    add x0, x0, LO12(tc_fish_text_b)
+    LEA x0, tc_fish_text_b
     bl tc_puts
     mov x0, #0
     ldp x29, x30, [sp], #16
@@ -207,11 +202,9 @@ tc_misc_now_utc:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x0, #CLOCK_REALTIME
-    adrp x1, PAGE(tc_misc_ts)
-    add x1, x1, LO12(tc_misc_ts)
+    LEA x1, tc_misc_ts
     bl clock_gettime
-    adrp x19, PAGE(tc_misc_ts)
-    add x19, x19, LO12(tc_misc_ts)
+    LEA x19, tc_misc_ts
     ldr x20, [x19]                      // seconds
     ldr x21, =SECS_PER_DAY
     sdiv x22, x20, x21                  // days
@@ -313,8 +306,7 @@ complete_channels:
     bl misc_names_reset
     cbz x19, .Lcc_dirs
     mov x0, x19
-    adrp x1, PAGE(s_key_aliases)
-    add x1, x1, LO12(s_key_aliases)
+    LEA x1, s_key_aliases
     bl toml_table_in
     cbz x0, .Lcc_dirs
     mov x20, x0                         // aliases table
@@ -330,8 +322,7 @@ complete_channels:
 .Lcc_dirs:
     // logs-root subdirectories (Python: if os.path.isdir(logs_root))
     bl misc_expand_root
-    adrp x0, PAGE(tc_misc_root)
-    add x0, x0, LO12(tc_misc_root)
+    LEA x0, tc_misc_root
     bl misc_list_dirs                   // adds + sorts when the dir exists
     bl misc_names_sort
     bl misc_names_print
@@ -354,11 +345,9 @@ complete_groups:
     cmp x0, #0
     b.ne .Lcg_done                      // error printed
     bl misc_names_reset
-    adrp x20, PAGE(tc_misc_group_n)
-    add x20, x20, LO12(tc_misc_group_n)
+    LEA x20, tc_misc_group_n
     ldr x21, [x20]                      // group count
-    adrp x22, PAGE(tc_misc_groups)
-    add x22, x22, LO12(tc_misc_groups)
+    LEA x22, tc_misc_groups
     mov x23, #0                         // i
 .Lcg_loop:
     cmp x23, x21
@@ -389,8 +378,7 @@ complete_dates:
     stp x23, x24, [sp, #-16]!
     bl misc_set_all_window
     bl tc_count_run                     // fills tc_listing
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #0
@@ -402,11 +390,9 @@ complete_dates:
     add x23, x21, x23
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
-    adrp x1, PAGE(tc_misc_buf)
-    add x1, x1, LO12(tc_misc_buf)
+    LEA x1, tc_misc_buf
     bl misc_fmt_ymd
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     bl misc_print_line
     add x22, x22, #1
     b .Lcd_loop
@@ -429,8 +415,7 @@ complete_weeks:
     bl misc_set_all_window
     bl tc_count_run
     bl misc_names_reset
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #0
@@ -443,12 +428,10 @@ complete_weeks:
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
     bl misc_iso_week                    // x0=iso_year, x1=iso_week
-    adrp x24, PAGE(tc_misc_buf)
-    add x24, x24, LO12(tc_misc_buf)
+    LEA x24, tc_misc_buf
     mov x2, x24
     bl misc_fmt_week                    // x0 = dst end (unused)
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     bl misc_names_add
     add x22, x22, #1
     b .Lcw_loop
@@ -473,8 +456,7 @@ complete_periods:
     bl misc_set_all_window
     bl tc_count_run
     bl misc_names_reset
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #0
@@ -487,20 +469,17 @@ complete_periods:
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
     bl misc_iso_week
-    adrp x24, PAGE(tc_misc_buf)
-    add x24, x24, LO12(tc_misc_buf)
+    LEA x24, tc_misc_buf
     mov x2, x24
     bl misc_fmt_week
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     bl misc_names_add
     add x22, x22, #1
     b .Lcp_weeks_loop
 .Lcp_weeks_done:
     bl misc_names_print
     // dates, ascending
-    adrp x19, PAGE(tc_listing)
-    add x19, x19, LO12(tc_listing)
+    LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #0
@@ -512,11 +491,9 @@ complete_periods:
     add x23, x21, x23
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
-    adrp x1, PAGE(tc_misc_buf)
-    add x1, x1, LO12(tc_misc_buf)
+    LEA x1, tc_misc_buf
     bl misc_fmt_ymd
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     bl misc_print_line
     add x22, x22, #1
     b .Lcp_dates_loop
@@ -549,8 +526,7 @@ complete_users:
     // ---- count ------------------------------------------------------------
     bl tc_count_run
     // ---- most_common() order: stable sort of (index, total) by total desc --
-    adrp x19, PAGE(tc_users)
-    add x19, x19, LO12(tc_users)
+    LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]
     ldr x21, [x19, #TC_US_ENTRIES]
     cmp x20, #MISC_MAX_USERS
@@ -561,8 +537,7 @@ complete_users:
 .Lcu_fill_loop:
     cmp x22, x20
     b.ge .Lcu_fill_done
-    adrp x23, PAGE(tc_misc_uidx)
-    add x23, x23, LO12(tc_misc_uidx)
+    LEA x23, tc_misc_uidx
     str x22, [x23, x22, lsl #3]
     mov x23, #TC_US_ENTRY_SZ
     mul x23, x22, x23
@@ -572,16 +547,13 @@ complete_users:
     add x24, x24, x25
     ldr x25, [x23, #TC_US_UNKNOWN]
     add x24, x24, x25
-    adrp x23, PAGE(tc_misc_uval)
-    add x23, x23, LO12(tc_misc_uval)
+    LEA x23, tc_misc_uval
     str x24, [x23, x22, lsl #3]
     add x22, x22, #1
     b .Lcu_fill_loop
 .Lcu_fill_done:
-    adrp x0, PAGE(tc_misc_uidx)
-    add x0, x0, LO12(tc_misc_uidx)
-    adrp x1, PAGE(tc_misc_uval)
-    add x1, x1, LO12(tc_misc_uval)
+    LEA x0, tc_misc_uidx
+    LEA x1, tc_misc_uval
     mov x2, x20
     bl misc_sort_users
     // print the counted logins in that order
@@ -589,8 +561,7 @@ complete_users:
 .Lcu_print_loop:
     cmp x22, x20
     b.ge .Lcu_print_done
-    adrp x23, PAGE(tc_misc_uidx)
-    add x23, x23, LO12(tc_misc_uidx)
+    LEA x23, tc_misc_uidx
     ldr x23, [x23, x22, lsl #3]
     mov x24, #TC_US_ENTRY_SZ
     mul x24, x23, x24
@@ -603,11 +574,9 @@ complete_users:
     // ---- sorted(known - set(counts)) --------------------------------------
     bl misc_names_reset
     // flat exclusions
-    adrp x22, PAGE(tc_misc_flat_n)
-    add x22, x22, LO12(tc_misc_flat_n)
+    LEA x22, tc_misc_flat_n
     ldr x23, [x22]
-    adrp x24, PAGE(tc_misc_flat)
-    add x24, x24, LO12(tc_misc_flat)
+    LEA x24, tc_misc_flat
     mov x25, #0
 .Lcu_flat_loop:
     cmp x25, x23
@@ -618,11 +587,9 @@ complete_users:
     b .Lcu_flat_loop
 .Lcu_flat_done:
     // every group's members
-    adrp x22, PAGE(tc_misc_group_n)
-    add x22, x22, LO12(tc_misc_group_n)
+    LEA x22, tc_misc_group_n
     ldr x23, [x22]
-    adrp x24, PAGE(tc_misc_groups)
-    add x24, x24, LO12(tc_misc_groups)
+    LEA x24, tc_misc_groups
     mov x25, #0
 .Lcu_grp_loop:
     cmp x25, x23
@@ -646,11 +613,9 @@ complete_users:
 .Lcu_grp_done:
     bl misc_names_sort
     // print known logins that are NOT in the counted set
-    adrp x22, PAGE(tc_misc_n)
-    add x22, x22, LO12(tc_misc_n)
+    LEA x22, tc_misc_n
     ldr x23, [x22]
-    adrp x24, PAGE(tc_misc_names)
-    add x24, x24, LO12(tc_misc_names)
+    LEA x24, tc_misc_names
     mov x25, #0
 .Lcu_known_loop:
     cmp x25, x23
@@ -685,13 +650,11 @@ complete_includes:
     stp x27, x28, [sp, #-16]!
     mov x19, x0                         // tab
     // ---- --no-exclude: conflict check, then empty (Python build_exclusions)
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_EXCLUDE
     b.eq .Lci_normal
-    adrp x20, PAGE(tc_misc_buf)
-    add x20, x20, LO12(tc_misc_buf)
+    LEA x20, tc_misc_buf
     mov x21, x20                        // cursor
     mov x22, #0                         // wrote_any
     tst x1, #TC_F_EXCL_GIVEN
@@ -700,15 +663,13 @@ complete_includes:
     mov x1, x22
     bl misc_cat_comma_if
     mov x21, x0
-    adrp x1, PAGE(s_flag_exclude)
-    add x1, x1, LO12(s_flag_exclude)
+    LEA x1, s_flag_exclude
     mov x0, x21
     bl misc_cat
     mov x21, x0
     mov x22, #1
 .Lci_nx_group:
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_EXCL_GROUP_GIVEN
     b.eq .Lci_nx_bcast
@@ -716,15 +677,13 @@ complete_includes:
     mov x1, x22
     bl misc_cat_comma_if
     mov x21, x0
-    adrp x1, PAGE(s_flag_exclude_group)
-    add x1, x1, LO12(s_flag_exclude_group)
+    LEA x1, s_flag_exclude_group
     mov x0, x21
     bl misc_cat
     mov x21, x0
     mov x22, #1
 .Lci_nx_bcast:
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_EXCLUDE_BCAST
     b.eq .Lci_nx_include
@@ -732,15 +691,13 @@ complete_includes:
     mov x1, x22
     bl misc_cat_comma_if
     mov x21, x0
-    adrp x1, PAGE(s_flag_exclude_bcast)
-    add x1, x1, LO12(s_flag_exclude_bcast)
+    LEA x1, s_flag_exclude_bcast
     mov x0, x21
     bl misc_cat
     mov x21, x0
     mov x22, #1
 .Lci_nx_include:
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_INCL_GIVEN
     b.eq .Lci_nx_done
@@ -748,8 +705,7 @@ complete_includes:
     mov x1, x22
     bl misc_cat_comma_if
     mov x21, x0
-    adrp x1, PAGE(s_flag_include)
-    add x1, x1, LO12(s_flag_include)
+    LEA x1, s_flag_include
     mov x0, x21
     bl misc_cat
     mov x21, x0
@@ -757,18 +713,14 @@ complete_includes:
 .Lci_nx_done:
     cbz x22, .Lci_done                  // --no-exclude with nothing -> empty
     // "--no-exclude cannot be combined with " + list
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_noexcl_prefix)
-    add x1, x1, LO12(s_noexcl_prefix)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_noexcl_prefix
     bl misc_cat
-    adrp x1, PAGE(tc_misc_buf)
-    add x1, x1, LO12(tc_misc_buf)
+    LEA x1, tc_misc_buf
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     b .Lci_done
 .Lci_normal:
@@ -779,11 +731,9 @@ complete_includes:
     b.ne .Lci_done
     bl misc_names_reset
     // layer 1: config flat
-    adrp x20, PAGE(tc_misc_flat_n)
-    add x20, x20, LO12(tc_misc_flat_n)
+    LEA x20, tc_misc_flat_n
     ldr x21, [x20]
-    adrp x22, PAGE(tc_misc_flat)
-    add x22, x22, LO12(tc_misc_flat)
+    LEA x22, tc_misc_flat
     mov x23, #0
 .Lci_flat_loop:
     cmp x23, x21
@@ -794,11 +744,9 @@ complete_includes:
     b .Lci_flat_loop
 .Lci_flat_done:
     // layer 2: config always:<name> groups
-    adrp x20, PAGE(tc_misc_always_n)
-    add x20, x20, LO12(tc_misc_always_n)
+    LEA x20, tc_misc_always_n
     ldr x21, [x20]
-    adrp x22, PAGE(tc_misc_always)
-    add x22, x22, LO12(tc_misc_always)
+    LEA x22, tc_misc_always
     mov x23, #0
 .Lci_always_loop:
     cmp x23, x21
@@ -810,8 +758,7 @@ complete_includes:
     b.eq .Lci_always_next
     mov x25, #GR_SZ
     mul x25, x0, x25
-    adrp x26, PAGE(tc_misc_groups)
-    add x26, x26, LO12(tc_misc_groups)
+    LEA x26, tc_misc_groups
     add x26, x26, x25
     ldr x27, [x26, #GR_MEMBERS]
     ldr x28, [x26, #GR_MEMBER_N]
@@ -828,8 +775,7 @@ complete_includes:
     b .Lci_always_loop
 .Lci_always_done:
     // layer 3: --exclude-group NAME (validated like the Python)
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_EXCL_GROUP_COUNT
     add x1, x0, x1
     ldr x21, [x1]
@@ -852,8 +798,7 @@ complete_includes:
 .Lci_cli_grp_ok:
     mov x25, #GR_SZ
     mul x25, x0, x25
-    adrp x26, PAGE(tc_misc_groups)
-    add x26, x26, LO12(tc_misc_groups)
+    LEA x26, tc_misc_groups
     add x26, x26, x25
     ldr x27, [x26, #GR_MEMBERS]
     ldr x28, [x26, #GR_MEMBER_N]
@@ -870,16 +815,14 @@ complete_includes:
     b .Lci_cli_grp_loop
 .Lci_cli_grp_done:
     // layer 4: env TWITCH_EXCLUDE
-    adrp x0, PAGE(s_env_exclude)
-    add x0, x0, LO12(s_env_exclude)
+    LEA x0, s_env_exclude
     bl misc_env_get                     // x0 = found, x1 = value
     cbz x0, .Lci_env_done
     mov x0, x1
     bl misc_split_add                   // split_names, add each
 .Lci_env_done:
     // layer 5: --exclude LOGIN[,LOGIN...]
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_EXCL_COUNT
     add x1, x0, x1
     ldr x21, [x1]
@@ -897,18 +840,14 @@ complete_includes:
     b .Lci_excl_loop
 .Lci_excl_done:
     // layer 6: --exclude-broadcaster (login = lowercased channel)
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_EXCL_BCAST_VAL]
     cbz x1, .Lci_bcast_done
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_CHANNEL
+    LEA_OFF x0, tc_opts, TC_O_CHANNEL
     bl misc_lower_add
 .Lci_bcast_done:
     // --include subtraction
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_INCL_COUNT
     add x1, x0, x1
     ldr x21, [x1]
@@ -945,49 +884,39 @@ misc_require_channel:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     // channel resolved?  (Python: if not channel: return [])
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldrb w1, [x0, #TC_O_CHANNEL]
     cbz w1, .Lrc_empty
     // expand the logs root
     bl misc_expand_root
     // list the root's subdirectories (sorted)
     bl misc_names_reset
-    adrp x0, PAGE(tc_misc_root)
-    add x0, x0, LO12(tc_misc_root)
+    LEA x0, tc_misc_root
     bl misc_list_dirs
     cbnz x0, .Lrc_root_ok
     // "logs directory not found: <root>"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_dir_not_found)
-    add x1, x1, LO12(s_dir_not_found)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_dir_not_found
     bl misc_cat
-    adrp x1, PAGE(tc_misc_root)
-    add x1, x1, LO12(tc_misc_root)
+    LEA x1, tc_misc_root
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lrc_out
 .Lrc_root_ok:
     // find the channel case-insensitively
-    adrp x19, PAGE(tc_misc_n)
-    add x19, x19, LO12(tc_misc_n)
+    LEA x19, tc_misc_n
     ldr x20, [x19]
-    adrp x21, PAGE(tc_misc_names)
-    add x21, x21, LO12(tc_misc_names)
+    LEA x21, tc_misc_names
     mov x22, #0
 .Lrc_find:
     cmp x22, x20
     b.ge .Lrc_no_channel
     ldr x23, [x21, x22, lsl #3]
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_CHANNEL
+    LEA_OFF x0, tc_opts, TC_O_CHANNEL
     mov x1, x23
     bl misc_casecmp
     cbz x0, .Lrc_found
@@ -995,10 +924,8 @@ misc_require_channel:
     b .Lrc_find
 .Lrc_found:
     // tc_misc_cdir = <root>/<real name>
-    adrp x0, PAGE(tc_misc_cdir)
-    add x0, x0, LO12(tc_misc_cdir)
-    adrp x1, PAGE(tc_misc_root)
-    add x1, x1, LO12(tc_misc_root)
+    LEA x0, tc_misc_cdir
+    LEA x1, tc_misc_root
     bl misc_cat
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1010,32 +937,23 @@ misc_require_channel:
     b .Lrc_out
 .Lrc_no_channel:
     // "no logs for channel '<ch>' in <root>\navailable: <join|(none)>"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_no_logs_pre)
-    add x1, x1, LO12(s_no_logs_pre)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_no_logs_pre
     bl misc_cat
-    adrp x1, PAGE(tc_opts)
-    add x1, x1, LO12(tc_opts)
-    add x1, x1, #TC_O_CHANNEL
+    LEA_OFF x1, tc_opts, TC_O_CHANNEL
     bl misc_cat
-    adrp x1, PAGE(s_no_logs_mid)
-    add x1, x1, LO12(s_no_logs_mid)
+    LEA x1, s_no_logs_mid
     bl misc_cat
-    adrp x1, PAGE(tc_misc_root)
-    add x1, x1, LO12(tc_misc_root)
+    LEA x1, tc_misc_root
     bl misc_cat
     mov w2, #'\n'
     strb w2, [x0], #1
-    adrp x1, PAGE(s_avail)
-    add x1, x1, LO12(s_avail)
+    LEA x1, s_avail
     bl misc_cat
     mov x19, x0                         // cursor
-    adrp x20, PAGE(tc_misc_n)
-    add x20, x20, LO12(tc_misc_n)
+    LEA x20, tc_misc_n
     ldr x21, [x20]
-    adrp x22, PAGE(tc_misc_names)
-    add x22, x22, LO12(tc_misc_names)
+    LEA x22, tc_misc_names
     cbz x21, .Lrc_avail_none
     mov x23, #0
 .Lrc_avail_loop:
@@ -1053,16 +971,14 @@ misc_require_channel:
     strb w2, [x19], #1
     b .Lrc_avail_loop
 .Lrc_avail_none:
-    adrp x1, PAGE(s_none_paren)
-    add x1, x1, LO12(s_none_paren)
+    LEA x1, s_none_paren
     mov x0, x19
     bl misc_cat
     mov x19, x0
 .Lrc_avail_done:
     mov w1, #0
     strb w1, [x19]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lrc_out
@@ -1090,51 +1006,40 @@ misc_cfg_exclusions:
     stp x27, x28, [sp, #-16]!
     mov x19, x0                         // tab
     // reset outputs
-    adrp x0, PAGE(tc_misc_group_n)
-    add x0, x0, LO12(tc_misc_group_n)
+    LEA x0, tc_misc_group_n
     str xzr, [x0]
-    adrp x0, PAGE(tc_misc_flat_n)
-    add x0, x0, LO12(tc_misc_flat_n)
+    LEA x0, tc_misc_flat_n
     str xzr, [x0]
-    adrp x0, PAGE(tc_misc_always_n)
-    add x0, x0, LO12(tc_misc_always_n)
+    LEA x0, tc_misc_always_n
     str xzr, [x0]
     cbz x19, .Lce_ok_empty
     // absent "exclude" is empty exclusions (Python: raw = config.get("exclude");
     // if raw is None: return empty)
     .globl toml_key_exists
     mov x0, x19
-    adrp x1, PAGE(s_key_exclude)
-    add x1, x1, LO12(s_key_exclude)
+    LEA x1, s_key_exclude
     bl toml_key_exists
     cbz w0, .Lce_ok_empty
     // exclude key present as a table?
     mov x0, x19
-    adrp x1, PAGE(s_key_exclude)
-    add x1, x1, LO12(s_key_exclude)
+    LEA x1, s_key_exclude
     bl toml_table_in
     cbnz x0, .Lce_table
     mov x0, x19
-    adrp x1, PAGE(s_key_exclude)
-    add x1, x1, LO12(s_key_exclude)
+    LEA x1, s_key_exclude
     bl toml_array_in
     cbnz x0, .Lce_flat
     // neither: "`exclude` in <where> must be a list of logins or a table of groups"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_excl_shape_pre)
-    add x1, x1, LO12(s_excl_shape_pre)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_excl_shape_pre
     bl misc_cat
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x1, tc_misc_where
     bl misc_cat
-    adrp x1, PAGE(s_excl_shape_suf)
-    add x1, x1, LO12(s_excl_shape_suf)
+    LEA x1, s_excl_shape_suf
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
@@ -1143,10 +1048,8 @@ misc_cfg_exclusions:
     mov x20, x0                         // array
     bl toml_array_nelem
     mov x21, x0                         // nelem
-    adrp x22, PAGE(tc_misc_flat_n)
-    add x22, x22, LO12(tc_misc_flat_n)
-    adrp x23, PAGE(tc_misc_flat)
-    add x23, x23, LO12(tc_misc_flat)
+    LEA x22, tc_misc_flat_n
+    LEA x23, tc_misc_flat
     mov x24, #0
 .Lce_flat_loop:
     cmp x24, x21
@@ -1181,8 +1084,7 @@ misc_cfg_exclusions:
     bl toml_key_in
     cbz x0, .Lce_always_validate
     mov x22, x0                         // key
-    adrp x1, PAGE(s_key_always)
-    add x1, x1, LO12(s_key_always)
+    LEA x1, s_key_always
     bl misc_streq
     cbnz x0, .Lce_always_key
     // a normal group: value must be an array
@@ -1192,15 +1094,13 @@ misc_cfg_exclusions:
     cbz x0, .Lce_bad_group
     // record the group
     mov x23, x0                         // members array
-    adrp x24, PAGE(tc_misc_group_n)
-    add x24, x24, LO12(tc_misc_group_n)
+    LEA x24, tc_misc_group_n
     ldr x25, [x24]                      // group index
     cmp x25, #MISC_GROUPS_MAX
     b.ge .Lce_ok_empty                  // (unreachable with sane configs)
     mov x26, #GR_SZ
     mul x26, x25, x26
-    adrp x27, PAGE(tc_misc_groups)
-    add x27, x27, LO12(tc_misc_groups)
+    LEA x27, tc_misc_groups
     add x27, x27, x26                  // record ptr
     mov x0, x22
     bl misc_arena_str                   // x0 = arena copy of the key
@@ -1247,17 +1147,14 @@ misc_cfg_exclusions:
 .Lce_always_key:
     // the "always" value must be an array of group names
     mov x0, x20
-    adrp x1, PAGE(s_key_always)
-    add x1, x1, LO12(s_key_always)
+    LEA x1, s_key_always
     bl toml_array_in
     cbz x0, .Lce_bad_always_list
     mov x23, x0
     bl toml_array_nelem
     mov x24, x0
-    adrp x25, PAGE(tc_misc_always_n)
-    add x25, x25, LO12(tc_misc_always_n)
-    adrp x26, PAGE(tc_misc_always)
-    add x26, x26, LO12(tc_misc_always)
+    LEA x25, tc_misc_always_n
+    LEA x26, tc_misc_always
     mov x27, #0
 .Lce_always_loop:
     cmp x27, x24
@@ -1285,56 +1182,43 @@ misc_cfg_exclusions:
     b .Lce_key_loop
 .Lce_bad_group:
     // "[exclude].<key> in <where> must be a list of logins"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_excl_group_pre)
-    add x1, x1, LO12(s_excl_group_pre)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_excl_group_pre
     bl misc_cat
     mov x1, x22
     bl misc_cat
-    adrp x1, PAGE(s_excl_in_where)
-    add x1, x1, LO12(s_excl_in_where)
+    LEA x1, s_excl_in_where
     bl misc_cat
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x1, tc_misc_where
     bl misc_cat
-    adrp x1, PAGE(s_list_logins)
-    add x1, x1, LO12(s_list_logins)
+    LEA x1, s_list_logins
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
 .Lce_bad_always_list:
     // "[exclude].always in <where> must be a list of group names"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_excl_always_pre)
-    add x1, x1, LO12(s_excl_always_pre)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_excl_always_pre
     bl misc_cat
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x1, tc_misc_where
     bl misc_cat
-    adrp x1, PAGE(s_list_group_names)
-    add x1, x1, LO12(s_list_group_names)
+    LEA x1, s_list_group_names
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
 .Lce_always_validate:
     // validate every always name against the group names
-    adrp x19, PAGE(tc_misc_always_n)
-    add x19, x19, LO12(tc_misc_always_n)
+    LEA x19, tc_misc_always_n
     ldr x20, [x19]
-    adrp x21, PAGE(tc_misc_always)
-    add x21, x21, LO12(tc_misc_always)
+    LEA x21, tc_misc_always
     mov x22, #0
 .Lce_av_loop:
     cmp x22, x20
@@ -1372,10 +1256,8 @@ misc_unknown_group_failed:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0                         // group name
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_unknown_group_pre)
-    add x1, x1, LO12(s_unknown_group_pre)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_unknown_group_pre
     bl misc_cat
     mov x0, x19                         // restore the name for .Lugf_append
     ldp x19, x20, [sp], #16
@@ -1390,29 +1272,23 @@ misc_unknown_group_failed:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x19, x0                         // group name
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl tc_strlen
-    adrp x20, PAGE(tc_misc_buf2)
-    add x20, x20, LO12(tc_misc_buf2)
+    LEA x20, tc_misc_buf2
     add x20, x20, x0                    // cursor = end of buf2
     mov x0, x20
     mov x1, x19
     bl misc_cat
     mov x20, x0
-    adrp x1, PAGE(s_defined_groups)
-    add x1, x1, LO12(s_defined_groups)
+    LEA x1, s_defined_groups
     mov x0, x20
     bl misc_cat
     mov x19, x0                         // cursor
     // collect + sort the group names
-    adrp x20, PAGE(tc_misc_group_n)
-    add x20, x20, LO12(tc_misc_group_n)
+    LEA x20, tc_misc_group_n
     ldr x21, [x20]
-    adrp x22, PAGE(tc_misc_names)
-    add x22, x22, LO12(tc_misc_names)
-    adrp x0, PAGE(tc_misc_n)
-    add x0, x0, LO12(tc_misc_n)
+    LEA x22, tc_misc_names
+    LEA x0, tc_misc_n
     str xzr, [x0]
     mov x0, #0
 .Lugf_collect:
@@ -1420,12 +1296,10 @@ misc_unknown_group_failed:
     b.ge .Lugf_sort
     mov x1, #GR_SZ
     mul x1, x0, x1
-    adrp x2, PAGE(tc_misc_groups)
-    add x2, x2, LO12(tc_misc_groups)
+    LEA x2, tc_misc_groups
     add x1, x2, x1
     ldr x1, [x1, #GR_NAME]
-    adrp x2, PAGE(tc_misc_n)
-    add x2, x2, LO12(tc_misc_n)
+    LEA x2, tc_misc_n
     ldr x3, [x2]
     str x1, [x22, x3, lsl #3]
     add x3, x3, #1
@@ -1433,13 +1307,11 @@ misc_unknown_group_failed:
     add x0, x0, #1
     b .Lugf_collect
 .Lugf_sort:
-    adrp x0, PAGE(tc_misc_n)
-    add x0, x0, LO12(tc_misc_n)
+    LEA x0, tc_misc_n
     ldr x1, [x0]
     mov x0, x22
     bl misc_sort_names
-    adrp x0, PAGE(tc_misc_n)
-    add x0, x0, LO12(tc_misc_n)
+    LEA x0, tc_misc_n
     ldr x20, [x0]
     cbz x20, .Lugf_none
     mov x21, #0
@@ -1459,16 +1331,14 @@ misc_unknown_group_failed:
     strb w2, [x19], #1
     b .Lugf_join
 .Lugf_none:
-    adrp x1, PAGE(s_none_defined)
-    add x1, x1, LO12(s_none_defined)
+    LEA x1, s_none_defined
     mov x0, x19
     bl misc_cat
     mov x19, x0
 .Lugf_done:
     mov w1, #0
     strb w1, [x19]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -1487,16 +1357,14 @@ misc_config_open:
     stp x21, x22, [sp, #-16]!
     mov x19, #0                         // explicit flag
     // --no-config -> {}
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
     b.ne .Lco_empty
     // explicit = --config or TWITCH_COUNTS_CONFIG
     tst x1, #TC_F_CONFIG_GIVEN
     b.ne .Lco_explicit
-    adrp x0, PAGE(s_env_counts_config)
-    add x0, x0, LO12(s_env_counts_config)
+    LEA x0, s_env_counts_config
     bl misc_env_get
     cbnz x0, .Lco_explicit
     b .Lco_path
@@ -1504,36 +1372,27 @@ misc_config_open:
     mov x19, #1
     b .Lco_path
 .Lco_path:
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_CONFIG_PATH
+    LEA_OFF x0, tc_opts, TC_O_CONFIG_PATH
     ldrb w1, [x0]
     cbnz w1, .Lco_have_path
     b .Lco_empty
 .Lco_have_path:
-    adrp x1, PAGE(tc_misc_expanded)
-    add x1, x1, LO12(tc_misc_expanded)
+    LEA x1, tc_misc_expanded
     bl misc_expanduser
     // shorten_path for error messages
-    adrp x0, PAGE(tc_misc_expanded)
-    add x0, x0, LO12(tc_misc_expanded)
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x0, tc_misc_expanded
+    LEA x1, tc_misc_where
     bl misc_shorten_path
-    adrp x0, PAGE(tc_misc_expanded)
-    add x0, x0, LO12(tc_misc_expanded)
-    adrp x1, PAGE(s_mode_r)
-    add x1, x1, LO12(s_mode_r)
+    LEA x0, tc_misc_expanded
+    LEA x1, s_mode_r
     bl fopen
     cbz x0, .Lco_missing
     mov x20, x0                         // FILE*
-    adrp x0, PAGE(tc_misc_errbuf)
-    add x0, x0, LO12(tc_misc_errbuf)
+    LEA x0, tc_misc_errbuf
     mov w1, #0
     strb w1, [x0]                       // clear errbuf
     mov x0, x20
-    adrp x1, PAGE(tc_misc_errbuf)
-    add x1, x1, LO12(tc_misc_errbuf)
+    LEA x1, tc_misc_errbuf
     mov x2, #MISC_ERRBUF_SZ
     bl toml_parse_file
     mov x21, x0                         // tab (0 on parse error)
@@ -1541,24 +1400,18 @@ misc_config_open:
     bl fclose
     cbnz x21, .Lco_ok
     // "could not read config <path>: <errbuf>"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_could_not_read)
-    add x1, x1, LO12(s_could_not_read)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_could_not_read
     bl misc_cat
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x1, tc_misc_where
     bl misc_cat
-    adrp x1, PAGE(s_colon_space)
-    add x1, x1, LO12(s_colon_space)
+    LEA x1, s_colon_space
     bl misc_cat
-    adrp x1, PAGE(tc_misc_errbuf)
-    add x1, x1, LO12(tc_misc_errbuf)
+    LEA x1, tc_misc_errbuf
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #0
     mov x1, #2
@@ -1566,18 +1419,14 @@ misc_config_open:
 .Lco_missing:
     cbz x19, .Lco_empty                 // missing default path -> {}
     // "config file not found: <path>"
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_cfg_not_found)
-    add x1, x1, LO12(s_cfg_not_found)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_cfg_not_found
     bl misc_cat
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x1, tc_misc_where
     bl misc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
+    LEA x0, tc_misc_buf2
     bl misc_failed
     mov x0, #0
     mov x1, #2
@@ -1608,8 +1457,7 @@ misc_failed:
     // the escaped copy must NOT overwrite its source, so stage the raw text
     // in tc_misc_buf first, then escape into tc_misc_buf2.
     mov x19, x0                         // raw message
-    adrp x20, PAGE(tc_misc_buf)
-    add x20, x20, LO12(tc_misc_buf)
+    LEA x20, tc_misc_buf
     mov x21, x20                        // cursor
 .Lmf_copy:
     ldrb w22, [x19], #1
@@ -1617,8 +1465,7 @@ misc_failed:
     cbnz w22, .Lmf_copy
     // Python repr quote selection: single quotes preferred; a message that
     // contains a single quote but no double quote is wrapped in double quotes.
-    adrp x23, PAGE(tc_misc_buf)
-    add x23, x23, LO12(tc_misc_buf)
+    LEA x23, tc_misc_buf
     mov x24, #0                         // 1 = double-quote mode
     mov x19, x23
 .Lmf_scan:
@@ -1634,22 +1481,18 @@ misc_failed:
     mov x24, #0
 .Lmf_scan_done:
     // escape into tc_misc_buf2
-    adrp x20, PAGE(tc_misc_buf2)
-    add x20, x20, LO12(tc_misc_buf2)
+    LEA x20, tc_misc_buf2
     mov x21, x20                        // cursor
     cbz x24, .Lmf_pre_single
-    adrp x1, PAGE(s_failed_prefix_dq)
-    add x1, x1, LO12(s_failed_prefix_dq)
+    LEA x1, s_failed_prefix_dq
     b .Lmf_pre
 .Lmf_pre_single:
-    adrp x1, PAGE(s_failed_prefix)
-    add x1, x1, LO12(s_failed_prefix)
+    LEA x1, s_failed_prefix
 .Lmf_pre:
     mov x0, x21
     bl misc_cat
     mov x21, x0
-    adrp x23, PAGE(tc_misc_buf)
-    add x23, x23, LO12(tc_misc_buf)
+    LEA x23, tc_misc_buf
     mov x19, x23                        // read pointer
 .Lmf_loop:
     ldrb w22, [x19], #1
@@ -1710,12 +1553,10 @@ misc_failed:
     b .Lmf_loop
 .Lmf_done:
     cbz x24, .Lmf_suf_single
-    adrp x1, PAGE(s_failed_suffix_dq)
-    add x1, x1, LO12(s_failed_suffix_dq)
+    LEA x1, s_failed_suffix_dq
     b .Lmf_suf
 .Lmf_suf_single:
-    adrp x1, PAGE(s_failed_suffix)
-    add x1, x1, LO12(s_failed_suffix)
+    LEA x1, s_failed_suffix
 .Lmf_suf:
     mov x0, x21
     bl misc_cat
@@ -1731,8 +1572,7 @@ misc_failed:
 // Arena helpers — a small bump allocator for completion scratch strings.
 // ============================================================================
 misc_arena_reset:
-    adrp x0, PAGE(tc_misc_cur)
-    add x0, x0, LO12(tc_misc_cur)
+    LEA x0, tc_misc_cur
     str xzr, [x0]
     ret
 
@@ -1742,27 +1582,21 @@ misc_alloc:
     add x0, x0, #7
     and x0, x0, #~7
     mov x1, x0                          // rounded size
-    adrp x2, PAGE(tc_misc_cur)
-    add x2, x2, LO12(tc_misc_cur)
+    LEA x2, tc_misc_cur
     ldr x3, [x2]
     cbnz x3, .Lal_have_base
-    adrp x3, PAGE(tc_misc_arena)
-    add x3, x3, LO12(tc_misc_arena)
+    LEA x3, tc_misc_arena
     str x3, [x2]
 .Lal_have_base:
     mov x0, x3                          // result
     add x3, x3, x1
-    adrp x2, PAGE(tc_misc_arena)
-    add x2, x2, LO12(tc_misc_arena)
-    add x2, x2, #MISC_ARENA_SZ
+    LEA_OFF x2, tc_misc_arena, MISC_ARENA_SZ
     cmp x3, x2
     b.ls .Lal_ok
-    adrp x0, PAGE(s_arena_exhausted)
-    add x0, x0, LO12(s_arena_exhausted)
+    LEA x0, s_arena_exhausted
     bl tc_fail
 .Lal_ok:
-    adrp x2, PAGE(tc_misc_cur)
-    add x2, x2, LO12(tc_misc_cur)
+    LEA x2, tc_misc_cur
     str x3, [x2]
     ldp x29, x30, [sp], #16
     ret
@@ -1858,8 +1692,7 @@ misc_arena_str_lower_strip:
 // misc_names helpers — a deduped, sortable list of NUL-terminated names.
 // ============================================================================
 misc_names_reset:
-    adrp x0, PAGE(tc_misc_n)
-    add x0, x0, LO12(tc_misc_n)
+    LEA x0, tc_misc_n
     str xzr, [x0]
     ret
 
@@ -1869,10 +1702,8 @@ misc_names_add:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x19, x0                         // name
-    adrp x20, PAGE(tc_misc_n)
-    add x20, x20, LO12(tc_misc_n)
-    adrp x21, PAGE(tc_misc_names)
-    add x21, x21, LO12(tc_misc_names)
+    LEA x20, tc_misc_n
+    LEA x21, tc_misc_names
     ldr x0, [x20]                       // count
     mov x22, #0
 .Lna_dup_loop:
@@ -1912,11 +1743,9 @@ misc_names_remove:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                         // name
-    adrp x20, PAGE(tc_misc_n)
-    add x20, x20, LO12(tc_misc_n)
+    LEA x20, tc_misc_n
     ldr x21, [x20]                      // count
-    adrp x22, PAGE(tc_misc_names)
-    add x22, x22, LO12(tc_misc_names)
+    LEA x22, tc_misc_names
     mov x23, #0                         // i
 .Lnr_loop:
     cmp x23, x21
@@ -1996,10 +1825,8 @@ misc_sort_names:
 
 misc_names_sort:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_misc_names)
-    add x0, x0, LO12(tc_misc_names)
-    adrp x1, PAGE(tc_misc_n)
-    add x1, x1, LO12(tc_misc_n)
+    LEA x0, tc_misc_names
+    LEA x1, tc_misc_n
     ldr x1, [x1]
     bl misc_sort_names
     ldp x29, x30, [sp], #16
@@ -2011,11 +1838,9 @@ misc_names_print:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x19, PAGE(tc_misc_n)
-    add x19, x19, LO12(tc_misc_n)
+    LEA x19, tc_misc_n
     ldr x20, [x19]                      // n
-    adrp x21, PAGE(tc_misc_names)
-    add x21, x21, LO12(tc_misc_names)
+    LEA x21, tc_misc_names
     mov x22, #0
 .Lnp_loop:
     cmp x22, x20
@@ -2086,11 +1911,9 @@ misc_group_index:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                         // name
-    adrp x20, PAGE(tc_misc_group_n)
-    add x20, x20, LO12(tc_misc_group_n)
+    LEA x20, tc_misc_group_n
     ldr x21, [x20]                      // count
-    adrp x22, PAGE(tc_misc_groups)
-    add x22, x22, LO12(tc_misc_groups)
+    LEA x22, tc_misc_groups
     mov x23, #0                         // i
 .Lgi_loop:
     cmp x23, x21
@@ -2123,8 +1946,7 @@ misc_in_users:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                         // login
-    adrp x20, PAGE(tc_users)
-    add x20, x20, LO12(tc_users)
+    LEA x20, tc_users
     ldr x21, [x20, #TC_US_COUNT]
     ldr x22, [x20, #TC_US_ENTRIES]
     mov x23, #0
@@ -2198,8 +2020,7 @@ misc_split_add:
     b .Lsa_scan
 .Lsa_emit:
     // NUL-terminate the token [x20, x19) in tc_misc_buf
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     mov x21, x0                         // cursor
     mov x2, x20                         // src
     mov x3, x19                         // end
@@ -2212,8 +2033,7 @@ misc_split_add:
 .Lsa_emit_nul:
     mov w4, #0
     strb w4, [x21]
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
     cbz x0, .Lsa_continue
     bl misc_names_add
@@ -2266,8 +2086,7 @@ misc_split_remove:
     add x19, x19, #1
     b .Lsr_scan
 .Lsr_emit:
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     mov x21, x0
     mov x2, x20
     mov x3, x19
@@ -2280,8 +2099,7 @@ misc_split_remove:
 .Lsr_emit_nul:
     mov w4, #0
     strb w4, [x21]
-    adrp x0, PAGE(tc_misc_buf)
-    add x0, x0, LO12(tc_misc_buf)
+    LEA x0, tc_misc_buf
     bl misc_arena_str_lower_strip
     cbz x0, .Lsr_continue
     bl misc_names_remove
@@ -2340,18 +2158,14 @@ misc_expanduser:
 // misc_expand_root() — expand TC_O_LOGS_DIR into tc_misc_root.
 misc_expand_root:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_LOGS_DIR
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
     ldrb w1, [x0]
     cbnz w1, .Lxr_expand
     // nothing set it and the platform has no default (the Linux class):
     // the Python expands str(DEFAULT_LOGS_DIR), i.e. the literal "None"
-    adrp x0, PAGE(s_none_path)
-    add x0, x0, LO12(s_none_path)
+    LEA x0, s_none_path
 .Lxr_expand:
-    adrp x1, PAGE(tc_misc_root)
-    add x1, x1, LO12(tc_misc_root)
+    LEA x1, tc_misc_root
     bl misc_expanduser
     ldp x29, x30, [sp], #16
     ret
@@ -2589,8 +2403,7 @@ misc_print_line:
     mov x19, x0
     bl tc_puts
     mov x0, #STDOUT
-    adrp x1, PAGE(s_newline)
-    add x1, x1, LO12(s_newline)
+    LEA x1, s_newline
     mov x2, #1
     bl write
     ldp x19, x20, [sp], #16
@@ -2762,8 +2575,7 @@ misc_iso_week:
 //   never fails on an empty listing (dates/weeks/periods only read tc_listing).
 misc_set_all_window:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_window)
-    add x0, x0, LO12(tc_window)
+    LEA x0, tc_window
     mov x1, #10101                      // 0001-01-01
     str x1, [x0, #TC_W_BEGIN_YMD]
     str xzr, [x0, #TC_W_BEGIN_SOD]
@@ -2790,8 +2602,7 @@ misc_set_users_window:
     mov x0, x21
     bl misc_days_to_ymd                 // x0 = begin ymd
     mov x22, x0
-    adrp x0, PAGE(tc_window)
-    add x0, x0, LO12(tc_window)
+    LEA x0, tc_window
     str x22, [x0, #TC_W_BEGIN_YMD]
     str x20, [x0, #TC_W_BEGIN_SOD]
     str x19, [x0, #TC_W_END_YMD]
@@ -2813,16 +2624,12 @@ misc_always_unknown_failed:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0                         // name
-    adrp x0, PAGE(tc_misc_buf2)
-    add x0, x0, LO12(tc_misc_buf2)
-    adrp x1, PAGE(s_always_unknown_pre)
-    add x1, x1, LO12(s_always_unknown_pre)
+    LEA x0, tc_misc_buf2
+    LEA x1, s_always_unknown_pre
     bl misc_cat
-    adrp x1, PAGE(tc_misc_where)
-    add x1, x1, LO12(tc_misc_where)
+    LEA x1, tc_misc_where
     bl misc_cat
-    adrp x1, PAGE(s_names_unknown_group)
-    add x1, x1, LO12(s_names_unknown_group)
+    LEA x1, s_names_unknown_group
     bl misc_cat
     mov x0, x19
     ldp x19, x20, [sp], #16

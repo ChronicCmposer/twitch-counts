@@ -199,13 +199,11 @@ tc_config_get:
     mov x19, x0                     // key
     mov x20, x1                     // section id
     bl ensure_config_loaded
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Lcg_missing
-    adrp x0, PAGE(tc_cfg_root)
-    add x0, x0, LO12(tc_cfg_root)
+    LEA x0, tc_cfg_root
     ldr x21, [x0]                   // root table
     mov x22, #TC_SRC_CONFIG
     cmp x20, #TC_SEC_NONE
@@ -213,13 +211,11 @@ tc_config_get:
     cmp x20, #TC_SEC_WATCH
     b.eq .Lcg_watch
     mov x22, #TC_SRC_CONFIG_TAIL
-    adrp x1, PAGE(s_key_tail)
-    add x1, x1, LO12(s_key_tail)
+    LEA x1, s_key_tail
     b .Lcg_sect
 .Lcg_watch:
     mov x22, #TC_SRC_CONFIG_WATCH
-    adrp x1, PAGE(s_key_watch)
-    add x1, x1, LO12(s_key_watch)
+    LEA x1, s_key_watch
 .Lcg_sect:
     mov x0, x21
     bl toml_table_in
@@ -278,42 +274,33 @@ tc_aliases_apply:
     bl ensure_config_loaded
     // "no channel given" guard — fires when the channel was never resolved
     // (source id still TC_SRC_DEFAULT), NOT when it resolved to "".
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x2, #TC_O_SRC
     add x2, x0, x2
     ldr x1, [x2, #TC_SET_CHANNEL*8]
     cmp x1, #TC_SRC_DEFAULT
     b.ne .Laa_have_channel
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_no_channel_pre)
-    add x1, x1, LO12(s_no_channel_pre)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_no_channel_pre
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Laa_have_channel:
     // no config -> nothing to rewrite
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Laa_ok
-    adrp x0, PAGE(tc_cfg_root)
-    add x0, x0, LO12(tc_cfg_root)
+    LEA x0, tc_cfg_root
     ldr x19, [x0]                   // root
     mov x0, x19
-    adrp x1, PAGE(s_key_aliases)
-    add x1, x1, LO12(s_key_aliases)
+    LEA x1, s_key_aliases
     bl toml_table_in
     cbz x0, .Laa_ok
     mov x20, x0                     // aliases table
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     add x21, x0, #TC_O_CHANNEL      // resolved channel (the alias key)
     mov x22, #0
     mov x0, x20
@@ -340,39 +327,32 @@ tc_aliases_apply:
     mov x0, x25
     bl toml_value_to_string         // x0 = stringified alias value
     mov x26, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_CHANNEL
+    LEA_OFF x0, tc_opts, TC_O_CHANNEL
     mov x1, x26
     mov x2, #TC_O_CHANNEL_SZ
     bl tc_copy_str_cap
     // compose TC_O_CHAN_SRC = "<orig src> -> alias '<key>'"
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x2, #TC_O_SRC
     add x2, x0, x2
     ldr x0, [x2, #TC_SET_CHANNEL*8]
     bl tc_source_str
     mov x26, x0
     mov x25, x1                     // len
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_CHAN_SRC
     add x0, x0, x1
     mov x1, x26
     mov x2, x25
     bl cat_n
-    adrp x1, PAGE(s_alias_arrow)
-    add x1, x1, LO12(s_alias_arrow)
+    LEA x1, s_alias_arrow
     bl cat_cstr
     mov x1, x24
     bl cat_cstr
-    adrp x1, PAGE(s_squote)
-    add x1, x1, LO12(s_squote)
+    LEA x1, s_squote
     bl cat_cstr
     // provenance: the channel source becomes the dynamic alias string
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x2, #TC_O_SRC
     add x2, x0, x2
     mov x1, #TC_SRC_DYN_ALIAS
@@ -404,8 +384,7 @@ tc_excl_contains:
     stp x23, x24, [sp, #-16]!
     mov x19, x0                     // login ptr
     mov x20, x1                     // login len
-    adrp x21, PAGE(tc_excl_set)
-    add x21, x21, LO12(tc_excl_set)
+    LEA x21, tc_excl_set
     ldr x22, [x21]                  // count
     add x23, x21, #8                // entries base
     mov x24, #0
@@ -456,36 +435,27 @@ tc_build_exclusions:
     stp x27, x28, [sp, #-16]!
     bl ensure_config_loaded
     // ---- reset the merged set + sources --------------------------------
-    adrp x0, PAGE(tc_excl_set)
-    add x0, x0, LO12(tc_excl_set)
+    LEA x0, tc_excl_set
     str xzr, [x0]                   // TC_EX_COUNT = 0
-    adrp x0, PAGE(tc_excl_src_count)
-    add x0, x0, LO12(tc_excl_src_count)
+    LEA x0, tc_excl_src_count
     str xzr, [x0]
-    adrp x0, PAGE(tc_excl_group_n)
-    add x0, x0, LO12(tc_excl_group_n)
+    LEA x0, tc_excl_group_n
     str xzr, [x0]
-    adrp x0, PAGE(tc_excl_always_n)
-    add x0, x0, LO12(tc_excl_always_n)
+    LEA x0, tc_excl_always_n
     str xzr, [x0]
-    adrp x0, PAGE(tc_excl_flat_n)
-    add x0, x0, LO12(tc_excl_flat_n)
+    LEA x0, tc_excl_flat_n
     str xzr, [x0]
-    adrp x0, PAGE(tc_excl_tmp_cur)
-    add x0, x0, LO12(tc_excl_tmp_cur)
+    LEA x0, tc_excl_tmp_cur
     str xzr, [x0]
 
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x19, [x0, #TC_O_FLAGS]
     // ---- --no-exclude: conflict check, then clear ----------------------
     tst x19, #TC_F_NO_EXCLUDE
     b.eq .Lbe_normal
-    adrp x20, PAGE(tc_cfg_scratch)
-    add x20, x20, LO12(tc_cfg_scratch)
+    LEA x20, tc_cfg_scratch
     mov x0, x20
-    adrp x1, PAGE(s_noexcl_prefix)
-    add x1, x1, LO12(s_noexcl_prefix)
+    LEA x1, s_noexcl_prefix
     bl cat_cstr
     mov x21, x0                     // end ptr
     mov x22, #0                     // wrote_any
@@ -496,8 +466,7 @@ tc_build_exclusions:
     bl cat_comma_if
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_flag_exclude)
-    add x1, x1, LO12(s_flag_exclude)
+    LEA x1, s_flag_exclude
     bl cat_cstr
     mov x21, x0
     mov x22, #1
@@ -509,8 +478,7 @@ tc_build_exclusions:
     bl cat_comma_if
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_flag_exclude_group)
-    add x1, x1, LO12(s_flag_exclude_group)
+    LEA x1, s_flag_exclude_group
     bl cat_cstr
     mov x21, x0
     mov x22, #1
@@ -522,8 +490,7 @@ tc_build_exclusions:
     bl cat_comma_if
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_flag_exclude_bcast)
-    add x1, x1, LO12(s_flag_exclude_bcast)
+    LEA x1, s_flag_exclude_bcast
     bl cat_cstr
     mov x21, x0
     mov x22, #1
@@ -535,14 +502,12 @@ tc_build_exclusions:
     bl cat_comma_if
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_flag_include)
-    add x1, x1, LO12(s_flag_include)
+    LEA x1, s_flag_include
     bl cat_cstr
     mov x22, #1
 .Lbe_nx_done:
     cbz x22, .Lbe_ok
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbe_ok:
     mov x0, #0
@@ -553,8 +518,7 @@ tc_build_exclusions:
     bl build_groups
 
     // ---- validate --exclude-group names (Python exclusion_layers) -------
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_EXCL_GROUP_COUNT
     add x1, x0, x1
     ldr x20, [x1]
@@ -571,11 +535,9 @@ tc_build_exclusions:
     cmn x0, #1
     b.ne .Lbe_grp_next
     // unknown group error: "unknown exclude group '<name>'; defined groups: <sorted>"
-    adrp x24, PAGE(tc_cfg_scratch)
-    add x24, x24, LO12(tc_cfg_scratch)
+    LEA x24, tc_cfg_scratch
     mov x0, x24
-    adrp x1, PAGE(s_unknown_group_pre)
-    add x1, x1, LO12(s_unknown_group_pre)
+    LEA x1, s_unknown_group_pre
     bl cat_cstr
     mov x24, x0
     mov x0, x24
@@ -585,16 +547,13 @@ tc_build_exclusions:
     bl cat_cstr
     mov x24, x0
     mov x0, x24
-    adrp x1, PAGE(s_defined_groups)
-    add x1, x1, LO12(s_defined_groups)
+    LEA x1, s_defined_groups
     bl cat_cstr
     mov x24, x0
     mov x0, x24
-    adrp x1, PAGE(tc_cfg_scratch2)
-    add x1, x1, LO12(tc_cfg_scratch2)
+    LEA x1, tc_cfg_scratch2
     bl sort_groups_join
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbe_grp_next:
     add x22, x22, #1
@@ -602,22 +561,18 @@ tc_build_exclusions:
 .Lbe_grp_done:
 
     // ---- layer 1: config flat exclude ----------------------------------
-    adrp x0, PAGE(tc_excl_flat_n)
-    add x0, x0, LO12(tc_excl_flat_n)
+    LEA x0, tc_excl_flat_n
     ldr x0, [x0]
     cbz x0, .Lbe_layer_always
-    adrp x0, PAGE(s_src_excl_config_label)
-    add x0, x0, LO12(s_src_excl_config_label)
+    LEA x0, s_src_excl_config_label
     bl source_add_cstr
     mov x20, x0                     // source idx
     bl apply_flat_tokens
 .Lbe_layer_always:
     // ---- layer 2: config always:<name> --------------------------------
-    adrp x0, PAGE(tc_excl_always_n)
-    add x0, x0, LO12(tc_excl_always_n)
+    LEA x0, tc_excl_always_n
     ldr x22, [x0]
-    adrp x23, PAGE(tc_excl_always)
-    add x23, x23, LO12(tc_excl_always)
+    LEA x23, tc_excl_always
     mov x24, #0
 .Lbe_always_loop:
     cmp x24, x22
@@ -635,8 +590,7 @@ tc_build_exclusions:
     bl excl_src_buf_slot
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_src_excl_always)
-    add x1, x1, LO12(s_src_excl_always)
+    LEA x1, s_src_excl_always
     bl cat_cstr
     mov x21, x0
     mov x2, #16
@@ -661,8 +615,7 @@ tc_build_exclusions:
 
 .Lbe_layer_group:
     // ---- layer 3: --exclude-group <name> ------------------------------
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_EXCL_GROUP_COUNT
     add x1, x0, x1
     ldr x22, [x1]
@@ -693,8 +646,7 @@ tc_build_exclusions:
     bl excl_src_buf_slot
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_src_excl_group)
-    add x1, x1, LO12(s_src_excl_group)
+    LEA x1, s_src_excl_group
     bl cat_cstr
     mov x21, x0
     mov x0, x21
@@ -722,24 +674,21 @@ tc_build_exclusions:
 
 .Lbe_layer_env:
     // ---- layer 4: env TWITCH_EXCLUDE ----------------------------------
-    adrp x0, PAGE(s_env_exclude)
-    add x0, x0, LO12(s_env_exclude)
+    LEA x0, s_env_exclude
     bl getenv
     cbz x0, .Lbe_layer_cli
     ldrb w1, [x0]
     cbz w1, .Lbe_layer_cli
     bl split_names
     cbz x0, .Lbe_layer_cli
-    adrp x0, PAGE(s_src_excl_env_label)
-    add x0, x0, LO12(s_src_excl_env_label)
+    LEA x0, s_src_excl_env_label
     bl source_add_cstr
     mov x20, x0
     bl apply_split_tokens
 
 .Lbe_layer_cli:
     // ---- layer 5: --exclude (repeatable, one flattened layer) ----------
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_EXCL_COUNT
     add x1, x0, x1
     ldr x22, [x1]
@@ -761,8 +710,7 @@ tc_build_exclusions:
     mov x25, #1
 .Lbe_cli_scan_done:
     cbz x25, .Lbe_cli_done
-    adrp x0, PAGE(s_flag_exclude)
-    add x0, x0, LO12(s_flag_exclude)
+    LEA x0, s_flag_exclude
     bl source_add_cstr
     mov x20, x0
     mov x24, #0
@@ -784,8 +732,7 @@ tc_build_exclusions:
 .Lbe_cli_done:
 
     // ---- layer 6: --exclude-broadcaster --------------------------------
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_EXCL_BCAST_VAL]
     cbz x1, .Lbe_include
     mov x2, #TC_O_SRC
@@ -795,12 +742,9 @@ tc_build_exclusions:
     bl source_add
     mov x20, x0                     // source idx
     // login = lowercased resolved channel
-    adrp x0, PAGE(tc_cfg_scratch2)
-    add x0, x0, LO12(tc_cfg_scratch2)
+    LEA x0, tc_cfg_scratch2
     mov x21, x0                     // dst
-    adrp x1, PAGE(tc_opts)
-    add x1, x1, LO12(tc_opts)
-    add x1, x1, #TC_O_CHANNEL       // src
+    LEA_OFF x1, tc_opts, TC_O_CHANNEL  // src
     bl lowercase_copy
     mov x0, x21
     bl tc_strlen
@@ -811,8 +755,7 @@ tc_build_exclusions:
 
 .Lbe_include:
     // ---- --include subtraction ------------------------------------------
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #TC_O_INCL_COUNT
     add x1, x0, x1
     ldr x22, [x1]
@@ -832,8 +775,7 @@ tc_build_exclusions:
 .Lbe_incl_tok:
     cmp x27, x26
     b.ge .Lbe_incl_next
-    adrp x0, PAGE(tc_split_tab)
-    add x0, x0, LO12(tc_split_tab)
+    LEA x0, tc_split_tab
     mov x1, #16
     mul x1, x27, x1
     add x0, x0, x1
@@ -854,15 +796,13 @@ tc_build_exclusions:
     bl excl_src_buf_slot
     mov x21, x0
     mov x0, x21
-    adrp x1, PAGE(s_minus_include)
-    add x1, x1, LO12(s_minus_include)
+    LEA x1, s_minus_include
     bl cat_cstr
     mov x21, x0
     mov x0, x21
     mov x1, x25
     bl cat_u64
-    adrp x1, PAGE(s_rparen)
-    add x1, x1, LO12(s_rparen)
+    LEA x1, s_rparen
     bl cat_cstr
     mov x0, #200
     bl excl_src_buf_slot
@@ -875,16 +815,13 @@ tc_build_exclusions:
 .Lbe_done_ok:
     mov x0, #0
 .Lbe_done:
-    adrp x0, PAGE(tc_excl_src_count)
-    add x0, x0, LO12(tc_excl_src_count)
+    LEA x0, tc_excl_src_count
     ldr x1, [x0]
-    adrp x0, PAGE(tc_cfg_scratch2)
-    add x0, x0, LO12(tc_cfg_scratch2)
+    LEA x0, tc_cfg_scratch2
     mov x2, x0
     mov x0, x2
     mov x1, x1
-    adrp x0, PAGE(tc_cfg_scratch2)
-    add x0, x0, LO12(tc_cfg_scratch2)
+    LEA x0, tc_cfg_scratch2
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
@@ -905,22 +842,19 @@ tc_build_exclusions:
 tc_config_identity:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
     b.ne .Lci_none
     bl config_resolve_path
-    adrp x0, PAGE(tc_cfg_path)
-    add x0, x0, LO12(tc_cfg_path)
+    LEA x0, tc_cfg_path
     mov x19, x0
     adrp x0, PAGE(tc_cfg_statbuf)
     add x1, x0, LO12(tc_cfg_statbuf)
     mov x0, x19
     bl stat
     cbnz x0, .Lci_missing
-    adrp x0, PAGE(tc_cfg_statbuf)
-    add x0, x0, LO12(tc_cfg_statbuf)
+    LEA x0, tc_cfg_statbuf
     LOAD_ST_MODE 1, x0
     and x1, x1, #S_IFMT
     cmp x1, #S_IFREG
@@ -959,36 +893,30 @@ tc_config_identity:
 tc_config_changed:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Lcc_no
-    adrp x0, PAGE(tc_cfg_path)
-    add x0, x0, LO12(tc_cfg_path)
+    LEA x0, tc_cfg_path
     mov x19, x0
     adrp x0, PAGE(tc_cfg_statbuf)
     add x1, x0, LO12(tc_cfg_statbuf)
     mov x0, x19
     bl stat
     cbnz x0, .Lcc_yes              // vanished -> changed
-    adrp x0, PAGE(tc_cfg_statbuf)
-    add x0, x0, LO12(tc_cfg_statbuf)
+    LEA x0, tc_cfg_statbuf
     ldr x1, [x0, #ST_SIZE]
-    adrp x20, PAGE(tc_cfg_size)
-    add x20, x20, LO12(tc_cfg_size)
+    LEA x20, tc_cfg_size
     ldr x2, [x20]
     cmp x1, x2
     b.ne .Lcc_yes
     ldr x1, [x0, #ST_MTIM_SEC]
-    adrp x20, PAGE(tc_cfg_mtime)
-    add x20, x20, LO12(tc_cfg_mtime)
+    LEA x20, tc_cfg_mtime
     ldr x2, [x20]
     cmp x1, x2
     b.ne .Lcc_yes
     ldr x1, [x0, #ST_MTIM_NSEC]
-    adrp x20, PAGE(tc_cfg_mtime_ns)
-    add x20, x20, LO12(tc_cfg_mtime_ns)
+    LEA x20, tc_cfg_mtime_ns
     ldr x2, [x20]
     cmp x1, x2
     b.ne .Lcc_yes
@@ -1012,24 +940,19 @@ tc_config_changed:
     FUNC_TYPE(tc_config_reload)
 tc_config_reload:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     ldr x0, [x0]
     cmp x0, #CFG_ST_LOADED
     b.ne .Lcr_noop
-    adrp x0, PAGE(tc_cfg_root)
-    add x0, x0, LO12(tc_cfg_root)
+    LEA x0, tc_cfg_root
     ldr x0, [x0]
     cbz x0, .Lcr_noop
     bl toml_free
-    adrp x0, PAGE(tc_cfg_root)
-    add x0, x0, LO12(tc_cfg_root)
+    LEA x0, tc_cfg_root
     str xzr, [x0]
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     str xzr, [x0]
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     str xzr, [x0, #TC_O_CONFIG_LOADED]
     bl ensure_config_loaded
 .Lcr_noop:
@@ -1062,35 +985,27 @@ ensure_config_loaded:
     // keep TC_O_CONFIG_PATH in step with the resolved path: tc_resolve_settings
     // clobbers it with the literal default after the first load, so restore it
     // whenever a path has been resolved.
-    adrp x0, PAGE(tc_cfg_path)
-    add x0, x0, LO12(tc_cfg_path)
+    LEA x0, tc_cfg_path
     ldrb w1, [x0]
     cbz w1, .Lel_no_path
-    adrp x1, PAGE(tc_opts)
-    add x1, x1, LO12(tc_opts)
-    add x1, x1, #TC_O_CONFIG_PATH
+    LEA_OFF x1, tc_opts, TC_O_CONFIG_PATH
     mov x2, #CFG_PATH_SZ
     mov x0, x1                     // dst = TC_O_CONFIG_PATH
-    adrp x1, PAGE(tc_cfg_path)
-    add x1, x1, LO12(tc_cfg_path)
+    LEA x1, tc_cfg_path
     bl tc_copy_str_cap
 .Lel_no_path:
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     ldr x0, [x0]
     cbnz x0, .Lel_done             // loaded, decided, or busy
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     mov x1, #CFG_ST_BUSY
     str x1, [x0]
     bl config_resolve_path
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
     b.eq .Lel_do_load
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     mov x1, #CFG_ST_NOLOAD
     str x1, [x0]
     b .Lel_done
@@ -1111,8 +1026,7 @@ config_resolve_path:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_CONFIG_GIVEN
     b.eq .Lcr_env
@@ -1121,8 +1035,7 @@ config_resolve_path:
     mov x20, #1                     // explicit
     b .Lcr_expand
 .Lcr_env:
-    adrp x0, PAGE(s_env_config)
-    add x0, x0, LO12(s_env_config)
+    LEA x0, s_env_config
     bl getenv
     cbz x0, .Lcr_default
     ldrb w1, [x0]
@@ -1132,48 +1045,37 @@ config_resolve_path:
     b .Lcr_expand
 .Lcr_default:
     // DEFAULT_CONFIG_PATH per platform class (tc_default_config_path)
-    adrp x0, PAGE(tc_cfg_scratch2)
-    add x0, x0, LO12(tc_cfg_scratch2)
+    LEA x0, tc_cfg_scratch2
     mov x1, #CFG_SCRATCH_SZ
     bl tc_default_config_path
-    adrp x19, PAGE(tc_cfg_scratch2)
-    add x19, x19, LO12(tc_cfg_scratch2)
+    LEA x19, tc_cfg_scratch2
     mov x20, #0
     b .Lcr_copy
 .Lcr_expand:
     // an explicit path: os.path.expanduser (CPython semantics, tc_expanduser)
     mov x0, x19
-    adrp x1, PAGE(tc_cfg_scratch2)
-    add x1, x1, LO12(tc_cfg_scratch2)
+    LEA x1, tc_cfg_scratch2
     mov x2, #CFG_SCRATCH_SZ
     bl tc_expanduser
-    adrp x19, PAGE(tc_cfg_scratch2)
-    add x19, x19, LO12(tc_cfg_scratch2)
+    LEA x19, tc_cfg_scratch2
 .Lcr_copy:
-    adrp x0, PAGE(tc_cfg_path)
-    add x0, x0, LO12(tc_cfg_path)
+    LEA x0, tc_cfg_path
     mov x1, x19
     mov x2, #CFG_PATH_SZ
     bl tc_copy_str_cap
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
-    add x0, x0, #TC_O_CONFIG_PATH
-    adrp x1, PAGE(tc_cfg_path)
-    add x1, x1, LO12(tc_cfg_path)
+    LEA_OFF x0, tc_opts, TC_O_CONFIG_PATH
+    LEA x1, tc_cfg_path
     mov x2, #CFG_PATH_SZ
     bl tc_copy_str_cap
     // tc_cfg_where = shorten_path(tc_cfg_path)
-    adrp x0, PAGE(tc_cfg_path)
-    add x0, x0, LO12(tc_cfg_path)
+    LEA x0, tc_cfg_path
     bl tc_shorten_path
     mov x19, x0
-    adrp x0, PAGE(tc_cfg_where)
-    add x0, x0, LO12(tc_cfg_where)
+    LEA x0, tc_cfg_where
     mov x1, x19
     mov x2, #CFG_PATH_SZ
     bl tc_copy_str_cap
-    adrp x0, PAGE(tc_cfg_explicit)
-    add x0, x0, LO12(tc_cfg_explicit)
+    LEA x0, tc_cfg_explicit
     str x20, [x0]
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
@@ -1193,10 +1095,8 @@ config_do_load:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     // ---- stat -----------------------------------------------------------
-    adrp x19, PAGE(tc_cfg_path)
-    add x19, x19, LO12(tc_cfg_path)
-    adrp x20, PAGE(tc_cfg_statbuf)
-    add x20, x20, LO12(tc_cfg_statbuf)
+    LEA x19, tc_cfg_path
+    LEA x20, tc_cfg_statbuf
     mov x0, x19
     mov x1, x20
     bl stat
@@ -1216,11 +1116,9 @@ config_do_load:
     mov x0, #4096
     bl malloc
     cbz x0, .Ldl_oom
-    adrp x1, PAGE(tc_cfg_buf)
-    add x1, x1, LO12(tc_cfg_buf)
+    LEA x1, tc_cfg_buf
     str x0, [x1]
-    adrp x1, PAGE(tc_cfg_bufsz)
-    add x1, x1, LO12(tc_cfg_bufsz)
+    LEA x1, tc_cfg_bufsz
     mov x2, #4096
     str x2, [x1]
     mov x22, x0                     // buf
@@ -1235,12 +1133,10 @@ config_do_load:
     bl realloc
     cbz x0, .Ldl_oom
     mov x22, x0
-    adrp x1, PAGE(tc_cfg_buf)
-    add x1, x1, LO12(tc_cfg_buf)
+    LEA x1, tc_cfg_buf
     str x0, [x1]
     lsl x23, x23, #1
-    adrp x1, PAGE(tc_cfg_bufsz)
-    add x1, x1, LO12(tc_cfg_bufsz)
+    LEA x1, tc_cfg_bufsz
     str x23, [x1]
 .Ldl_read:
     mov x0, x21
@@ -1258,36 +1154,29 @@ config_do_load:
     mov x0, x21
     bl close
     // ---- parse ----------------------------------------------------------
-    adrp x0, PAGE(tc_cfg_buf)
-    add x0, x0, LO12(tc_cfg_buf)
+    LEA x0, tc_cfg_buf
     ldr x0, [x0]
-    adrp x1, PAGE(tc_cfg_errbuf)
-    add x1, x1, LO12(tc_cfg_errbuf)
+    LEA x1, tc_cfg_errbuf
     mov w2, #CFG_ERRBUF_SZ
     bl toml_parse
     mov x21, x0                     // root table or 0
-    adrp x0, PAGE(tc_cfg_buf)
-    add x0, x0, LO12(tc_cfg_buf)
+    LEA x0, tc_cfg_buf
     ldr x0, [x0]
     bl free
-    adrp x0, PAGE(tc_cfg_buf)
-    add x0, x0, LO12(tc_cfg_buf)
+    LEA x0, tc_cfg_buf
     str xzr, [x0]
     cbz x21, .Ldl_parse_err
     // (tomlc99 always returns a table; the Python "must be a table of
     //  settings" guard has no tomlc99 counterpart.)
-    adrp x0, PAGE(tc_cfg_root)
-    add x0, x0, LO12(tc_cfg_root)
+    LEA x0, tc_cfg_root
     str x21, [x0]
     // ---- aliases table check (Python build_inputs, before sections) -----
     mov x0, x21
-    adrp x1, PAGE(s_key_aliases)
-    add x1, x1, LO12(s_key_aliases)
+    LEA x1, s_key_aliases
     bl toml_table_in
     cbnz x0, .Ldl_watch
     mov x0, x21
-    adrp x1, PAGE(s_key_aliases)
-    add x1, x1, LO12(s_key_aliases)
+    LEA x1, s_key_aliases
     bl toml_array_in
     cbz x0, .Ldl_aliases_scalar
     bl toml_array_nelem
@@ -1295,91 +1184,70 @@ config_do_load:
     b .Ldl_watch
 .Ldl_aliases_scalar:
     mov x0, x21
-    adrp x1, PAGE(s_key_aliases)
-    add x1, x1, LO12(s_key_aliases)
+    LEA x1, s_key_aliases
     bl toml_raw_in
     cbz x0, .Ldl_watch
     bl aliases_scalar_ok            // x0 = 0/1 (falsy value -> ok)
     cbnz x0, .Ldl_watch
 .Ldl_aliases_bad:
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_aliases_bad_pre)
-    add x1, x1, LO12(s_aliases_bad_pre)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_aliases_bad_pre
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
-    adrp x1, PAGE(s_aliases_bad_suf)
-    add x1, x1, LO12(s_aliases_bad_suf)
+    LEA x1, s_aliases_bad_suf
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Ldl_watch:
     // ---- [watch] must be a table ----------------------------------------
     mov x0, x21
-    adrp x1, PAGE(s_key_watch)
-    add x1, x1, LO12(s_key_watch)
+    LEA x1, s_key_watch
     bl toml_table_in
     cbnz x0, .Ldl_tail
-    adrp x0, PAGE(s_key_watch)
-    add x0, x0, LO12(s_key_watch)
+    LEA x0, s_key_watch
     bl section_must_be_table_check
 .Ldl_tail:
     // ---- [tail] must be a table -----------------------------------------
     mov x0, x21
-    adrp x1, PAGE(s_key_tail)
-    add x1, x1, LO12(s_key_tail)
+    LEA x1, s_key_tail
     bl toml_table_in
     cbnz x0, .Ldl_loaded
-    adrp x0, PAGE(s_key_tail)
-    add x0, x0, LO12(s_key_tail)
+    LEA x0, s_key_tail
     bl section_must_be_table_check
 .Ldl_loaded:
     // ---- record identity + mark loaded ----------------------------------
     ldr x1, [x20, #ST_SIZE]
-    adrp x0, PAGE(tc_cfg_size)
-    add x0, x0, LO12(tc_cfg_size)
+    LEA x0, tc_cfg_size
     str x1, [x0]
     ldr x1, [x20, #ST_MTIM_SEC]
-    adrp x0, PAGE(tc_cfg_mtime)
-    add x0, x0, LO12(tc_cfg_mtime)
+    LEA x0, tc_cfg_mtime
     str x1, [x0]
     ldr x1, [x20, #ST_MTIM_NSEC]
-    adrp x0, PAGE(tc_cfg_mtime_ns)
-    add x0, x0, LO12(tc_cfg_mtime_ns)
+    LEA x0, tc_cfg_mtime_ns
     str x1, [x0]
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     mov x1, #CFG_ST_LOADED
     str x1, [x0]
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     mov x1, #1
     str x1, [x0, #TC_O_CONFIG_LOADED]
     b .Ldl_done
 
 .Ldl_notfile:
     // missing (or not a regular file): default -> not loaded; explicit -> error
-    adrp x0, PAGE(tc_cfg_explicit)
-    add x0, x0, LO12(tc_cfg_explicit)
+    LEA x0, tc_cfg_explicit
     ldr x0, [x0]
     cbz x0, .Ldl_notfile_ok
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_config_not_found)
-    add x1, x1, LO12(s_config_not_found)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_config_not_found
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_path)
-    add x1, x1, LO12(tc_cfg_path)
+    LEA x1, tc_cfg_path
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Ldl_notfile_ok:
-    adrp x0, PAGE(tc_cfg_state)
-    add x0, x0, LO12(tc_cfg_state)
+    LEA x0, tc_cfg_state
     mov x1, #CFG_ST_NOLOAD
     str x1, [x0]
     b .Ldl_done
@@ -1393,26 +1261,19 @@ config_do_load:
     bl cfg_errno_message
     bl tc_fail
 .Ldl_parse_err:
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_could_not_read)
-    add x1, x1, LO12(s_could_not_read)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_could_not_read
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_path)
-    add x1, x1, LO12(tc_cfg_path)
+    LEA x1, tc_cfg_path
     bl cat_cstr
-    adrp x1, PAGE(s_colon_space)
-    add x1, x1, LO12(s_colon_space)
+    LEA x1, s_colon_space
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_errbuf)
-    add x1, x1, LO12(tc_cfg_errbuf)
+    LEA x1, tc_cfg_errbuf
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Ldl_oom:
-    adrp x0, PAGE(s_oom)
-    add x0, x0, LO12(s_oom)
+    LEA x0, s_oom
     bl tc_fail
 
 .Ldl_done:
@@ -1433,8 +1294,7 @@ section_must_be_table_check:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x19, x0                     // key
-    adrp x20, PAGE(tc_cfg_root)
-    add x20, x20, LO12(tc_cfg_root)
+    LEA x20, tc_cfg_root
     ldr x20, [x20]                  // root
     mov x0, x20
     mov x1, x19
@@ -1449,24 +1309,19 @@ section_must_be_table_check:
     bl toml_raw_in
     cbz x0, .Lsm_ok
 .Lsm_bad:
-    adrp x21, PAGE(tc_cfg_scratch)
-    add x21, x21, LO12(tc_cfg_scratch)
+    LEA x21, tc_cfg_scratch
     mov x0, x21
     mov x1, #'['
     strb w1, [x0], #1
     mov x1, x19
     bl cat_cstr
-    adrp x1, PAGE(s_sect_mid)
-    add x1, x1, LO12(s_sect_mid)
+    LEA x1, s_sect_mid
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
-    adrp x1, PAGE(s_sect_suf)
-    add x1, x1, LO12(s_sect_suf)
+    LEA x1, s_sect_suf
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lsm_ok:
     ldp x21, x22, [sp], #16
@@ -1488,18 +1343,15 @@ aliases_scalar_ok:
     b.eq .Las_quote
     cmp w1, #'\''
     b.eq .Las_quote
-    adrp x1, PAGE(s_false)
-    add x1, x1, LO12(s_false)
+    LEA x1, s_false
     mov x0, x19
     bl streq
     cbnz x0, .Las_yes
-    adrp x1, PAGE(s_zero)
-    add x1, x1, LO12(s_zero)
+    LEA x1, s_zero
     mov x0, x19
     bl streq
     cbnz x0, .Las_yes
-    adrp x1, PAGE(s_zero_float)
-    add x1, x1, LO12(s_zero_float)
+    LEA x1, s_zero_float
     mov x0, x19
     bl streq
     cbnz x0, .Las_yes
@@ -1536,11 +1388,9 @@ cfg_errno_message:
     bl strerror
     mov x21, x0                     // strerror text
     // "[Errno N] msg: '<path>'"
-    adrp x22, PAGE(tc_cfg_scratch2)
-    add x22, x22, LO12(tc_cfg_scratch2)
+    LEA x22, tc_cfg_scratch2
     mov x0, x22
-    adrp x1, PAGE(s_errno_lb)
-    add x1, x1, LO12(s_errno_lb)
+    LEA x1, s_errno_lb
     bl cat_cstr
     mov x22, x0
     mov x0, x22
@@ -1548,8 +1398,7 @@ cfg_errno_message:
     bl cat_u64
     mov x22, x0
     mov x0, x22
-    adrp x1, PAGE(s_errno_rb)
-    add x1, x1, LO12(s_errno_rb)
+    LEA x1, s_errno_rb
     bl cat_cstr
     mov x22, x0
     mov x0, x22
@@ -1557,38 +1406,29 @@ cfg_errno_message:
     bl cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, PAGE(s_colon_space)
-    add x1, x1, LO12(s_colon_space)
+    LEA x1, s_colon_space
     bl cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, PAGE(s_squote)
-    add x1, x1, LO12(s_squote)
+    LEA x1, s_squote
     bl cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, PAGE(tc_cfg_path)
-    add x1, x1, LO12(tc_cfg_path)
+    LEA x1, tc_cfg_path
     bl cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, PAGE(s_squote)
-    add x1, x1, LO12(s_squote)
+    LEA x1, s_squote
     bl cat_cstr
     // "could not read config <path>: " + the above
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_could_not_read)
-    add x1, x1, LO12(s_could_not_read)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_could_not_read
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_path)
-    add x1, x1, LO12(tc_cfg_path)
+    LEA x1, tc_cfg_path
     bl cat_cstr
-    adrp x1, PAGE(s_colon_space)
-    add x1, x1, LO12(s_colon_space)
+    LEA x1, s_colon_space
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_scratch2)
-    add x1, x1, LO12(tc_cfg_scratch2)
+    LEA x1, tc_cfg_scratch2
     bl cat_cstr
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -1661,18 +1501,15 @@ toml_unquote_into:
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_value_buf:
-    adrp x1, PAGE(tc_cfg_val_tog)
-    add x1, x1, LO12(tc_cfg_val_tog)
+    LEA x1, tc_cfg_val_tog
     ldr x2, [x1]
     eor x2, x2, #1
     str x2, [x1]
     cbz x2, .Lcvb_a
-    adrp x0, PAGE(tc_cfg_val_b)
-    add x0, x0, LO12(tc_cfg_val_b)
+    LEA x0, tc_cfg_val_b
     ret
 .Lcvb_a:
-    adrp x0, PAGE(tc_cfg_val_a)
-    add x0, x0, LO12(tc_cfg_val_a)
+    LEA x0, tc_cfg_val_a
     ret
 
 // ----------------------------------------------------------------------------
@@ -1707,23 +1544,19 @@ build_groups:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
-    adrp x0, PAGE(tc_cfg_root)
-    add x0, x0, LO12(tc_cfg_root)
+    LEA x0, tc_cfg_root
     ldr x19, [x0]                   // root (may be 0: config not loaded)
     cbz x19, .Lbg_done
     mov x0, x19
-    adrp x1, PAGE(s_key_exclude)
-    add x1, x1, LO12(s_key_exclude)
+    LEA x1, s_key_exclude
     bl toml_raw_in
     mov x20, x0                     // scalar
     mov x0, x19
-    adrp x1, PAGE(s_key_exclude)
-    add x1, x1, LO12(s_key_exclude)
+    LEA x1, s_key_exclude
     bl toml_array_in
     mov x21, x0                     // array
     mov x0, x19
-    adrp x1, PAGE(s_key_exclude)
-    add x1, x1, LO12(s_key_exclude)
+    LEA x1, s_key_exclude
     bl toml_table_in
     mov x22, x0                     // table
     cbnz x20, .Lbg_bad_shape        // scalar `exclude` -> error
@@ -1731,8 +1564,7 @@ build_groups:
     // ---- flat list ------------------------------------------------------
     mov x0, x21
     bl split_toml_array
-    adrp x1, PAGE(tc_excl_flat_n)
-    add x1, x1, LO12(tc_excl_flat_n)
+    LEA x1, tc_excl_flat_n
     str x0, [x1]
     bl copy_split_to_flat
     b .Lbg_done
@@ -1751,8 +1583,7 @@ build_groups:
     bl toml_key_in
     cbz x0, .Lbg_key_next
     mov x25, x0                     // group name ptr
-    adrp x0, PAGE(s_key_always)
-    add x0, x0, LO12(s_key_always)
+    LEA x0, s_key_always
     mov x1, x25
     bl streq
     cbnz x0, .Lbg_key_next          // "always" handled below
@@ -1765,13 +1596,11 @@ build_groups:
     mov x0, x25
     bl tc_strlen                    // x0 = name len (x26 survives)
     mov x3, x0                      // len
-    adrp x1, PAGE(tc_excl_group_n)
-    add x1, x1, LO12(tc_excl_group_n)
+    LEA x1, tc_excl_group_n
     ldr x2, [x1]                    // count (loaded AFTER the strlen)
     cmp x2, #EX_GROUP_MAX
     b.ge .Lbg_key_next              // (cap; documented)
-    adrp x4, PAGE(tc_excl_groups)
-    add x4, x4, LO12(tc_excl_groups)
+    LEA x4, tc_excl_groups
     mov x5, #24
     mul x5, x2, x5
     add x4, x4, x5
@@ -1782,11 +1611,9 @@ build_groups:
     str x2, [x1]
     b .Lbg_key_next
 .Lbg_member_bad:
-    adrp x26, PAGE(tc_cfg_scratch)
-    add x26, x26, LO12(tc_cfg_scratch)
+    LEA x26, tc_cfg_scratch
     mov x0, x26
-    adrp x1, PAGE(s_excl_member_pre)
-    add x1, x1, LO12(s_excl_member_pre)
+    LEA x1, s_excl_member_pre
     bl cat_cstr
     mov x26, x0
     mov x0, x26
@@ -1794,19 +1621,15 @@ build_groups:
     bl cat_cstr
     mov x26, x0
     mov x0, x26
-    adrp x1, PAGE(s_excl_member_mid)
-    add x1, x1, LO12(s_excl_member_mid)
+    LEA x1, s_excl_member_mid
     bl cat_cstr
     mov x26, x0
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
     mov x26, x0
-    adrp x1, PAGE(s_excl_member_suf)
-    add x1, x1, LO12(s_excl_member_suf)
+    LEA x1, s_excl_member_suf
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_key_next:
     add x24, x24, #1
@@ -1814,18 +1637,15 @@ build_groups:
 .Lbg_always:
     // ---- the "always" list ----------------------------------------------
     mov x0, x22
-    adrp x1, PAGE(s_key_always)
-    add x1, x1, LO12(s_key_always)
+    LEA x1, s_key_always
     bl toml_array_in
     cbnz x0, .Lbg_always_arr
     mov x0, x22
-    adrp x1, PAGE(s_key_always)
-    add x1, x1, LO12(s_key_always)
+    LEA x1, s_key_always
     bl toml_raw_in
     cbnz x0, .Lbg_always_bad
     mov x0, x22
-    adrp x1, PAGE(s_key_always)
-    add x1, x1, LO12(s_key_always)
+    LEA x1, s_key_always
     bl toml_table_in
     cbnz x0, .Lbg_always_bad
     b .Lbg_done
@@ -1856,84 +1676,64 @@ build_groups:
     mov x0, x25
     bl tc_strlen
     mov x26, x0                     // len
-    adrp x1, PAGE(tc_excl_always_n)
-    add x1, x1, LO12(tc_excl_always_n)
+    LEA x1, tc_excl_always_n
     ldr x2, [x1]
     cmp x2, #EX_GROUP_MAX
     b.ge .Lbg_always_next
-    adrp x3, PAGE(tc_excl_always)
-    add x3, x3, LO12(tc_excl_always)
+    LEA x3, tc_excl_always
     mov x4, #16
     mul x4, x2, x4
     add x3, x3, x4
     str x25, [x3]
     str x26, [x3, #8]
-    adrp x1, PAGE(tc_excl_always_n)
-    add x1, x1, LO12(tc_excl_always_n)
+    LEA x1, tc_excl_always_n
     add x2, x2, #1
     str x2, [x1]
     b .Lbg_always_next
 .Lbg_always_unknown:
-    adrp x26, PAGE(tc_cfg_scratch)
-    add x26, x26, LO12(tc_cfg_scratch)
+    LEA x26, tc_cfg_scratch
     mov x0, x26
-    adrp x1, PAGE(s_always_unknown_pre)
-    add x1, x1, LO12(s_always_unknown_pre)
+    LEA x1, s_always_unknown_pre
     bl cat_cstr
     mov x26, x0
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
     mov x26, x0
-    adrp x1, PAGE(s_always_unknown_mid)
-    add x1, x1, LO12(s_always_unknown_mid)
+    LEA x1, s_always_unknown_mid
     bl cat_cstr
     mov x26, x0
     mov x1, x25
     bl cat_cstr
     mov x26, x0
-    adrp x1, PAGE(s_defined_groups)
-    add x1, x1, LO12(s_defined_groups)
+    LEA x1, s_defined_groups
     bl cat_cstr
     mov x26, x0
-    adrp x1, PAGE(tc_cfg_scratch2)
-    add x1, x1, LO12(tc_cfg_scratch2)
+    LEA x1, tc_cfg_scratch2
     bl sort_groups_join
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_always_next:
     add x24, x24, #1
     b .Lbg_always_loop
 .Lbg_always_bad:
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_always_bad)
-    add x1, x1, LO12(s_always_bad)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_always_bad
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
-    adrp x1, PAGE(s_always_bad_suf)
-    add x1, x1, LO12(s_always_bad_suf)
+    LEA x1, s_always_bad_suf
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_bad_shape:
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
-    adrp x1, PAGE(s_exclude_shape)
-    add x1, x1, LO12(s_exclude_shape)
+    LEA x0, tc_cfg_scratch
+    LEA x1, s_exclude_shape
     bl cat_cstr
-    adrp x1, PAGE(tc_cfg_where)
-    add x1, x1, LO12(tc_cfg_where)
+    LEA x1, tc_cfg_where
     bl cat_cstr
-    adrp x1, PAGE(s_exclude_shape_suf)
-    add x1, x1, LO12(s_exclude_shape_suf)
+    LEA x1, s_exclude_shape_suf
     bl cat_cstr
-    adrp x0, PAGE(tc_cfg_scratch)
-    add x0, x0, LO12(tc_cfg_scratch)
+    LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_done:
     ldp x25, x26, [sp], #16
@@ -1954,11 +1754,9 @@ always_name_store:
     mov x19, x0                     // name
     bl tc_strlen
     mov x20, x0                     // len
-    adrp x0, PAGE(tc_excl_tmp_cur)
-    add x0, x0, LO12(tc_excl_tmp_cur)
+    LEA x0, tc_excl_tmp_cur
     ldr x21, [x0]                   // cursor
-    adrp x0, PAGE(tc_excl_tmp)
-    add x0, x0, LO12(tc_excl_tmp)
+    LEA x0, tc_excl_tmp
     add x21, x0, x21                // dst
     mov x0, x21
     mov x1, x19
@@ -1966,8 +1764,7 @@ always_name_store:
     bl copy_n_nul
     // advance cursor: += len + 1
     add x20, x20, #1
-    adrp x0, PAGE(tc_excl_tmp_cur)
-    add x0, x0, LO12(tc_excl_tmp_cur)
+    LEA x0, tc_excl_tmp_cur
     ldr x1, [x0]
     add x1, x1, x20
     str x1, [x0]
@@ -1986,21 +1783,17 @@ copy_split_to_flat:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x0, PAGE(tc_split_n)
-    add x0, x0, LO12(tc_split_n)
+    LEA x0, tc_split_n
     ldr x19, [x0]
-    adrp x0, PAGE(tc_excl_flat_n)
-    add x0, x0, LO12(tc_excl_flat_n)
+    LEA x0, tc_excl_flat_n
     str x19, [x0]
-    adrp x0, PAGE(tc_excl_flat)
-    add x0, x0, LO12(tc_excl_flat)
+    LEA x0, tc_excl_flat
     mov x20, x0
     mov x21, #0
 .Lcsf_loop:
     cmp x21, x19
     b.ge .Lcsf_done
-    adrp x0, PAGE(tc_split_tab)
-    add x0, x0, LO12(tc_split_tab)
+    LEA x0, tc_split_tab
     mov x1, #16
     mul x1, x21, x1
     add x0, x0, x1
@@ -2051,8 +1844,7 @@ split_names:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x19, x0                     // src
-    adrp x0, PAGE(tc_split_buf)
-    add x0, x0, LO12(tc_split_buf)
+    LEA x0, tc_split_buf
     mov x20, x0                     // dst
     mov x21, #0                     // count
 .Lsn_skip:
@@ -2061,8 +1853,7 @@ split_names:
     bl is_split_sep
     cbnz x0, .Lsn_skip_adv
     // start of a token
-    adrp x0, PAGE(tc_split_tab)
-    add x0, x0, LO12(tc_split_tab)
+    LEA x0, tc_split_tab
     mov x1, #16
     mul x1, x21, x1
     add x0, x0, x1
@@ -2087,8 +1878,7 @@ split_names:
 .Lsn_tok_end:
     mov w0, #0
     strb w0, [x20], #1
-    adrp x0, PAGE(tc_split_tab)
-    add x0, x0, LO12(tc_split_tab)
+    LEA x0, tc_split_tab
     mov x1, #16
     mul x1, x21, x1
     add x0, x0, x1
@@ -2101,8 +1891,7 @@ split_names:
     add x19, x19, #1
     b .Lsn_skip
 .Lsn_done:
-    adrp x0, PAGE(tc_split_n)
-    add x0, x0, LO12(tc_split_n)
+    LEA x0, tc_split_n
     str x21, [x0]
     mov x0, x21
     ldp x21, x22, [sp], #16
@@ -2125,8 +1914,7 @@ split_toml_array:
     mov x20, x0                     // n
     mov x21, #0                     // out count
     mov x23, #0                     // source index
-    adrp x0, PAGE(tc_split_buf)
-    add x0, x0, LO12(tc_split_buf)
+    LEA x0, tc_split_buf
     mov x22, x0                     // dst cursor
 .Lsta_loop:
     cmp x23, x20
@@ -2143,8 +1931,7 @@ split_toml_array:
     mov x1, x24
     bl strip_copy_lower             // x0 = out len
     cbz x0, .Lsta_next              // empty after strip -> skip
-    adrp x2, PAGE(tc_split_tab)
-    add x2, x2, LO12(tc_split_tab)
+    LEA x2, tc_split_tab
     mov x3, #16
     mul x3, x21, x3
     add x2, x2, x3
@@ -2160,8 +1947,7 @@ split_toml_array:
     add x23, x23, #1
     b .Lsta_loop
 .Lsta_done:
-    adrp x0, PAGE(tc_split_n)
-    add x0, x0, LO12(tc_split_n)
+    LEA x0, tc_split_n
     str x21, [x0]
     mov x0, x21
     ldp x23, x24, [sp], #16
@@ -2278,15 +2064,13 @@ group_index_of:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0                     // name
-    adrp x0, PAGE(tc_excl_group_n)
-    add x0, x0, LO12(tc_excl_group_n)
+    LEA x0, tc_excl_group_n
     ldr x20, [x0]
     mov x0, #0
 .Lgio_loop:
     cmp x0, x20
     b.ge .Lgio_no
-    adrp x2, PAGE(tc_excl_groups)
-    add x2, x2, LO12(tc_excl_groups)
+    LEA x2, tc_excl_groups
     mov x3, #24
     mul x3, x0, x3
     add x2, x2, x3
@@ -2314,8 +2098,7 @@ group_index_of:
 // ----------------------------------------------------------------------------
     .p2align 2
 group_arr_at:
-    adrp x1, PAGE(tc_excl_groups)
-    add x1, x1, LO12(tc_excl_groups)
+    LEA x1, tc_excl_groups
     mov x2, #24
     mul x0, x0, x2
     add x0, x1, x0
@@ -2330,8 +2113,7 @@ group_arr_at:
 always_group_arr:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x1, PAGE(tc_excl_always)
-    add x1, x1, LO12(tc_excl_always)
+    LEA x1, tc_excl_always
     mov x2, #16
     mul x0, x0, x2
     add x0, x1, x0
@@ -2360,19 +2142,16 @@ sort_groups_join:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                     // dst
-    adrp x0, PAGE(tc_excl_group_n)
-    add x0, x0, LO12(tc_excl_group_n)
+    LEA x0, tc_excl_group_n
     ldr x20, [x0]                   // n
     cbz x20, .Lsgj_none
-    adrp x0, PAGE(tc_cfg_scratch2)
-    add x0, x0, LO12(tc_cfg_scratch2)
+    LEA x0, tc_cfg_scratch2
     mov x21, x0                     // ptr array base
     mov x22, #0
 .Lsgj_fill:
     cmp x22, x20
     b.ge .Lsgj_sort
-    adrp x0, PAGE(tc_excl_groups)
-    add x0, x0, LO12(tc_excl_groups)
+    LEA x0, tc_excl_groups
     mov x1, #24
     mul x1, x22, x1
     add x0, x0, x1
@@ -2412,8 +2191,7 @@ sort_groups_join:
     cmp x22, x20
     b.ge .Lsgj_done
     cbz x22, .Lsgj_join_name
-    adrp x1, PAGE(s_comma_space)
-    add x1, x1, LO12(s_comma_space)
+    LEA x1, s_comma_space
     bl cat_cstr
 .Lsgj_join_name:
     ldr x1, [x21, x22, lsl #3]
@@ -2422,8 +2200,7 @@ sort_groups_join:
     b .Lsgj_join_loop
 .Lsgj_none:
     mov x0, x19
-    adrp x1, PAGE(s_none_defined)
-    add x1, x1, LO12(s_none_defined)
+    LEA x1, s_none_defined
     bl cat_cstr
 .Lsgj_done:
     ldp x23, x24, [sp], #16
@@ -2437,8 +2214,7 @@ sort_groups_join:
 // ----------------------------------------------------------------------------
     .p2align 2
 excl_src_buf_slot:
-    adrp x1, PAGE(tc_excl_src_buf)
-    add x1, x1, LO12(tc_excl_src_buf)
+    LEA x1, tc_excl_src_buf
     mov x2, #64
     mul x0, x0, x2
     add x0, x1, x0
@@ -2472,15 +2248,13 @@ source_add:
     stp x23, x24, [sp, #-16]!
     mov x19, x0                     // ptr
     mov x20, x1                     // len
-    adrp x21, PAGE(tc_excl_src_count)
-    add x21, x21, LO12(tc_excl_src_count)
+    LEA x21, tc_excl_src_count
     ldr x22, [x21]                  // count
     mov x23, #0
 .Lsa_loop:
     cmp x23, x22
     b.ge .Lsa_append
-    adrp x0, PAGE(tc_excl_sources)
-    add x0, x0, LO12(tc_excl_sources)
+    LEA x0, tc_excl_sources
     mov x1, #16
     mul x1, x23, x1
     add x0, x0, x1
@@ -2498,8 +2272,7 @@ source_add:
     add x23, x23, #1
     b .Lsa_loop
 .Lsa_append:
-    adrp x0, PAGE(tc_excl_sources)
-    add x0, x0, LO12(tc_excl_sources)
+    LEA x0, tc_excl_sources
     mov x1, #16
     mul x1, x22, x1
     add x0, x0, x1
@@ -2529,11 +2302,9 @@ apply_flat_tokens:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x0, PAGE(tc_excl_flat_n)
-    add x0, x0, LO12(tc_excl_flat_n)
+    LEA x0, tc_excl_flat_n
     ldr x21, [x0]                   // count
-    adrp x0, PAGE(tc_excl_flat)
-    add x0, x0, LO12(tc_excl_flat)
+    LEA x0, tc_excl_flat
     mov x19, x0                     // cursor
     mov x23, #0                     // counter
 .Laft_loop:
@@ -2566,8 +2337,7 @@ apply_split_tokens:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x0, PAGE(tc_split_n)
-    add x0, x0, LO12(tc_split_n)
+    LEA x0, tc_split_n
     ldr x1, [x0]
     mov x0, x20
     bl apply_split_tokens_n
@@ -2591,8 +2361,7 @@ apply_split_tokens_n:
 .Last_loop:
     cmp x22, x21
     b.ge .Last_done
-    adrp x0, PAGE(tc_split_tab)
-    add x0, x0, LO12(tc_split_tab)
+    LEA x0, tc_split_tab
     mov x1, #16
     mul x1, x22, x1
     add x0, x0, x1
@@ -2622,8 +2391,7 @@ add_excl_login:
     mov x19, x0                     // login
     mov x20, x1                     // len
     mov x21, x2                     // source idx
-    adrp x22, PAGE(tc_excl_set)
-    add x22, x22, LO12(tc_excl_set)
+    LEA x22, tc_excl_set
     ldr x23, [x22]                  // count
     cmp x23, #TC_EX_MAX
     b.ge .Lael_full
@@ -2660,8 +2428,7 @@ add_excl_login:
     str x23, [x22]
     b .Lael_done
 .Lael_full:
-    adrp x0, PAGE(s_too_many)
-    add x0, x0, LO12(s_too_many)
+    LEA x0, s_too_many
     bl tc_fail
 .Lael_done:
     ldp x23, x24, [sp], #16
@@ -2759,8 +2526,7 @@ excl_remove_if_present:
     stp x25, x26, [sp, #-16]!
     mov x19, x0                     // login
     mov x20, x1                     // len
-    adrp x21, PAGE(tc_excl_set)
-    add x21, x21, LO12(tc_excl_set)
+    LEA x21, tc_excl_set
     ldr x22, [x21]                  // count
     mov x23, #0
 .Ler_loop:
@@ -2854,8 +2620,7 @@ memeq:
 cat_comma_if:
     stp x29, x30, [sp, #-16]!
     cbz x1, .Lcci_done
-    adrp x1, PAGE(s_comma_space)
-    add x1, x1, LO12(s_comma_space)
+    LEA x1, s_comma_space
     bl cat_cstr
 .Lcci_done:
     ldp x29, x30, [sp], #16

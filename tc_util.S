@@ -159,15 +159,13 @@ tc_fail:
     mov x0, #0                      // fflush(NULL)
     bl fflush
     mov x0, #STDERR                 // write(2, "error: ", err_prefix_len)
-    adrp x1, PAGE(err_prefix)
-    add x1, x1, LO12(err_prefix)
+    LEA x1, err_prefix
     mov x2, #err_prefix_len
     bl write
     mov x0, x19                     // tc_eputs(message)
     bl tc_eputs
     mov x0, #STDERR                 // write(2, "\n", err_newline_len)
-    adrp x1, PAGE(err_newline)
-    add x1, x1, LO12(err_newline)
+    LEA x1, err_newline
     mov x2, #err_newline_len
     bl write
     mov w0, #1                      // exit(1)
@@ -316,8 +314,7 @@ tc_expanduser:
 .Lxpu_found:
     cmp x22, #1
     b.ne .Lxpu_named
-    adrp x0, PAGE(pu_s_home)
-    add x0, x0, LO12(pu_s_home)
+    LEA x0, pu_s_home
     bl getenv
     cbz x0, .Lxpu_self_pwd
     mov x23, x0                     // home = $HOME (may be empty)
@@ -334,13 +331,11 @@ tc_expanduser:
     sub x9, x22, #1                 // name length
     cmp x9, #PATH_SCRATCH_SZ - 1
     b.ge .Lxpu_unchanged
-    adrp x0, PAGE(tc_path_scratch2)
-    add x0, x0, LO12(tc_path_scratch2)
+    LEA x0, tc_path_scratch2
     add x1, x19, #1
     mov x2, x9
     bl pu_copy_n
-    adrp x0, PAGE(tc_path_scratch2)
-    add x0, x0, LO12(tc_path_scratch2)
+    LEA x0, tc_path_scratch2
     bl getpwnam
     cbz x0, .Lxpu_unchanged
     ldr x23, [x0, #PW_DIR_OFF]
@@ -400,8 +395,7 @@ tc_expanduser:
     ldp x29, x30, [sp], #16
     ret
 .Lxpu_too_long:
-    adrp x0, PAGE(pu_s_too_long)
-    add x0, x0, LO12(pu_s_too_long)
+    LEA x0, pu_s_too_long
     bl tc_fail
 
 // ----------------------------------------------------------------------------
@@ -418,8 +412,7 @@ tc_platform_default_logs_dir:
     stp x29, x30, [sp, #-16]!
     mov x2, x1
     mov x1, x0
-    adrp x0, PAGE(pu_s_mac_logs_dir)
-    add x0, x0, LO12(pu_s_mac_logs_dir)
+    LEA x0, pu_s_mac_logs_dir
     bl tc_expanduser
     ldp x29, x30, [sp], #16
     ret
@@ -446,8 +439,7 @@ tc_default_config_path:
     mov x19, x0                     // dst
     mov x20, x1                     // cap
 #ifndef __APPLE__
-    adrp x0, PAGE(pu_s_xdg_config)
-    add x0, x0, LO12(pu_s_xdg_config)
+    LEA x0, pu_s_xdg_config
     bl getenv
     cbz x0, .Ldcp_home
     ldrb w1, [x0]
@@ -466,8 +458,7 @@ tc_default_config_path:
     add x0, x19, x22
     sub x9, x22, #1
     ldrb w9, [x21, x9]
-    adrp x1, PAGE(pu_s_config_tail)       // "/twitch-counts.toml"
-    add x1, x1, LO12(pu_s_config_tail)
+    LEA x1, pu_s_config_tail  // "/twitch-counts.toml"
     cmp w9, #'/'
     b.ne .Ldcp_join
     add x1, x1, #1                  // "twitch-counts.toml"
@@ -476,13 +467,11 @@ tc_default_config_path:
     sub x0, x0, x19
     b .Ldcp_out
 .Ldcp_too_long:
-    adrp x0, PAGE(pu_s_too_long)
-    add x0, x0, LO12(pu_s_too_long)
+    LEA x0, pu_s_too_long
     bl tc_fail
 .Ldcp_home:
 #endif
-    adrp x0, PAGE(pu_s_default_config)
-    add x0, x0, LO12(pu_s_default_config)
+    LEA x0, pu_s_default_config
     mov x1, x19
     mov x2, x20
     bl tc_expanduser
@@ -508,10 +497,8 @@ tc_shorten_path:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x19, x0                     // path
-    adrp x0, PAGE(pu_s_tilde)
-    add x0, x0, LO12(pu_s_tilde)
-    adrp x1, PAGE(tc_path_scratch2)
-    add x1, x1, LO12(tc_path_scratch2)
+    LEA x0, pu_s_tilde
+    LEA x1, tc_path_scratch2
     mov x2, #PATH_SCRATCH_SZ
     bl tc_expanduser
     mov x20, x0                     // home length
@@ -522,8 +509,7 @@ tc_shorten_path:
     cmp x21, x20
     b.lt .Lsp_orig
     // path.startswith(home)?
-    adrp x22, PAGE(tc_path_scratch2)
-    add x22, x22, LO12(tc_path_scratch2)
+    LEA x22, tc_path_scratch2
     mov x9, #0
 .Lsp_cmp:
     cmp x9, x20
@@ -539,15 +525,13 @@ tc_shorten_path:
     add x9, x9, #2                  // + '~' + NUL
     cmp x9, #PATH_SCRATCH_SZ
     b.gt .Lsp_orig
-    adrp x0, PAGE(tc_path_scratch)
-    add x0, x0, LO12(tc_path_scratch)
+    LEA x0, tc_path_scratch
     mov w1, #'~'
     strb w1, [x0], #1
     add x1, x19, x20
     sub x2, x21, x20
     bl pu_copy_n
-    adrp x0, PAGE(tc_path_scratch)
-    add x0, x0, LO12(tc_path_scratch)
+    LEA x0, tc_path_scratch
     b .Lsp_done
 .Lsp_orig:
     mov x0, x19
@@ -694,8 +678,7 @@ ei_is_space:
     FUNC_TYPE(tc_term_columns)
 tc_term_columns:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(ts_s_columns)
-    add x0, x0, LO12(ts_s_columns)
+    LEA x0, ts_s_columns
     bl tc_env_int
     cbnz x0, .Ltc_ret
     mov x0, #2                      // ws_col offset
@@ -711,8 +694,7 @@ tc_term_columns:
     FUNC_TYPE(tc_term_lines)
 tc_term_lines:
     stp x29, x30, [sp, #-16]!
-    adrp x0, PAGE(ts_s_lines)
-    add x0, x0, LO12(ts_s_lines)
+    LEA x0, ts_s_lines
     bl tc_env_int
     cbnz x0, .Ltl_ret
     mov x0, #0                      // ws_row offset

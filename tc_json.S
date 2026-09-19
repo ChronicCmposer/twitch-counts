@@ -160,11 +160,9 @@ jinit:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0
-    adrp x0, PAGE(tc_json_fd)
-    add x0, x0, LO12(tc_json_fd)
+    LEA x0, tc_json_fd
     str x19, [x0]
-    adrp x0, PAGE(tc_json_cur)
-    add x0, x0, LO12(tc_json_cur)
+    LEA x0, tc_json_cur
     str xzr, [x0]
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -175,16 +173,13 @@ jinit:
 jflush:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x0, PAGE(tc_json_cur)
-    add x0, x0, LO12(tc_json_cur)
+    LEA x0, tc_json_cur
     ldr x19, [x0]
     cbz x19, .Ljfl_done
     str xzr, [x0]
-    adrp x0, PAGE(tc_json_fd)
-    add x0, x0, LO12(tc_json_fd)
+    LEA x0, tc_json_fd
     ldr x0, [x0]
-    adrp x1, PAGE(tc_json_buf)
-    add x1, x1, LO12(tc_json_buf)
+    LEA x1, tc_json_buf
     mov x2, x19
     bl write
 .Ljfl_done:
@@ -198,20 +193,17 @@ jputc:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov w19, w0
-    adrp x0, PAGE(tc_json_cur)
-    add x0, x0, LO12(tc_json_cur)
+    LEA x0, tc_json_cur
     ldr x20, [x0]
     cmp x20, #JBUF_SZ
     b.lt .Ljpc_ok
     bl jflush
     mov x20, #0
 .Ljpc_ok:
-    adrp x1, PAGE(tc_json_buf)
-    add x1, x1, LO12(tc_json_buf)
+    LEA x1, tc_json_buf
     strb w19, [x1, x20]
     add x20, x20, #1
-    adrp x1, PAGE(tc_json_cur)
-    add x1, x1, LO12(tc_json_cur)
+    LEA x1, tc_json_cur
     str x20, [x1]
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -418,13 +410,11 @@ jint:
 jbool:
     stp x29, x30, [sp, #-16]!
     cbz x0, .Ljbo_false
-    adrp x0, PAGE(s_j_true)
-    add x0, x0, LO12(s_j_true)
+    LEA x0, s_j_true
     bl jputs
     b .Ljbo_done
 .Ljbo_false:
-    adrp x0, PAGE(s_j_false)
-    add x0, x0, LO12(s_j_false)
+    LEA x0, s_j_false
     bl jputs
 .Ljbo_done:
     ldp x29, x30, [sp], #16
@@ -439,16 +429,12 @@ json_now_iso:
     stp x23, x24, [sp, #-16]!
     mov x19, x0
     mov x0, #CLOCK_REALTIME
-    adrp x1, PAGE(tc_json_ts)
-    add x1, x1, LO12(tc_json_ts)
+    LEA x1, tc_json_ts
     bl clock_gettime
-    adrp x0, PAGE(tc_json_ts)
-    add x0, x0, LO12(tc_json_ts)
-    adrp x1, PAGE(tc_json_tm)
-    add x1, x1, LO12(tc_json_tm)
+    LEA x0, tc_json_ts
+    LEA x1, tc_json_tm
     bl localtime_r
-    adrp x0, PAGE(tc_json_tm)
-    add x0, x0, LO12(tc_json_tm)
+    LEA x0, tc_json_tm
     ldr w20, [x0, #TM_YEAR]
     add x20, x20, #1900
     ldr w21, [x0, #TM_MON]
@@ -598,51 +584,38 @@ tc_json_emit:
     mov x0, #STDOUT
     bl jinit
     // { + schema blob
-    adrp x0, PAGE(s_j_open)
-    add x0, x0, LO12(s_j_open)
+    LEA x0, s_j_open
     mov x1, #2
     bl jputraw
-    adrp x0, PAGE(tc_json_schema_blob)
-    add x0, x0, LO12(tc_json_schema_blob)
+    LEA x0, tc_json_schema_blob
     mov x1, #tc_json_schema_blob_len
     bl jputraw
     // schema_version + generated_at
-    adrp x0, PAGE(s_j_schema_version)
-    add x0, x0, LO12(s_j_schema_version)
+    LEA x0, s_j_schema_version
     bl jputs
-    adrp x0, PAGE(s_j_generated_at)
-    add x0, x0, LO12(s_j_generated_at)
+    LEA x0, s_j_generated_at
     bl jputs
-    adrp x0, PAGE(tc_json_iso)
-    add x0, x0, LO12(tc_json_iso)
+    LEA x0, tc_json_iso
     bl json_now_iso
-    adrp x0, PAGE(tc_json_iso)
-    add x0, x0, LO12(tc_json_iso)
+    LEA x0, tc_json_iso
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // query
-    adrp x0, PAGE(s_j_query)
-    add x0, x0, LO12(s_j_query)
+    LEA x0, s_j_query
     bl jputs
     // channel
-    adrp x0, PAGE(s_j_qchannel)
-    add x0, x0, LO12(s_j_qchannel)
+    LEA x0, s_j_qchannel
     bl jputs
     bl tc_channel_name
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // begin
-    adrp x0, PAGE(s_j_qbegin)
-    add x0, x0, LO12(s_j_qbegin)
+    LEA x0, s_j_qbegin
     bl jputs
-    adrp x19, PAGE(tc_window)
-    add x19, x19, LO12(tc_window)
-    adrp x20, PAGE(tc_json_iso)
-    add x20, x20, LO12(tc_json_iso)
+    LEA x19, tc_window
+    LEA x20, tc_json_iso
     mov x0, x20
     ldr x1, [x19, #TC_W_BEGIN_YMD]
     ldr x2, [x19, #TC_W_BEGIN_SOD]
@@ -652,15 +625,12 @@ tc_json_emit:
     strb w1, [x0]
     mov x0, x20
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // end
-    adrp x0, PAGE(s_j_qend)
-    add x0, x0, LO12(s_j_qend)
+    LEA x0, s_j_qend
     bl jputs
-    adrp x20, PAGE(tc_json_iso)
-    add x20, x20, LO12(tc_json_iso)
+    LEA x20, tc_json_iso
     mov x0, x20
     ldr x1, [x19, #TC_W_END_YMD]
     ldr x2, [x19, #TC_W_END_SOD]
@@ -670,149 +640,112 @@ tc_json_emit:
     strb w1, [x0]
     mov x0, x20
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // min_count
-    adrp x0, PAGE(s_j_qmin)
-    add x0, x0, LO12(s_j_qmin)
+    LEA x0, s_j_qmin
     bl jputs
     ldr x0, [x19, #TC_W_THRESHOLD]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // top
-    adrp x0, PAGE(s_j_qtop)
-    add x0, x0, LO12(s_j_qtop)
+    LEA x0, s_j_qtop
     bl jputs
-    adrp x19, PAGE(tc_plan_limit)
-    add x19, x19, LO12(tc_plan_limit)
+    LEA x19, tc_plan_limit
     ldr x20, [x19]
     cbz x20, .Lje_top_null
     mov x0, x20
     bl jint
     b .Lje_top_done
 .Lje_top_null:
-    adrp x0, PAGE(s_j_null)
-    add x0, x0, LO12(s_j_null)
+    LEA x0, s_j_null
     bl jputs
 .Lje_top_done:
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // state
-    adrp x0, PAGE(s_j_qstate)
-    add x0, x0, LO12(s_j_qstate)
+    LEA x0, s_j_qstate
     bl jputs
-    adrp x19, PAGE(tc_window)
-    add x19, x19, LO12(tc_window)
+    LEA x19, tc_window
     ldr x20, [x19, #TC_W_STATE_FILTER]
     cbz x20, .Lje_state_null
-    adrp x0, PAGE(state_names_json)
-    add x0, x0, LO12(state_names_json)
+    LEA x0, state_names_json
     sub x1, x20, #1
     ldr x0, [x0, x1, lsl #3]
     bl jquoted
     b .Lje_state_done
 .Lje_state_null:
-    adrp x0, PAGE(s_j_null)
-    add x0, x0, LO12(s_j_null)
+    LEA x0, s_j_null
     bl jputs
 .Lje_state_done:
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // excluded
-    adrp x0, PAGE(s_j_qexcluded)
-    add x0, x0, LO12(s_j_qexcluded)
+    LEA x0, s_j_qexcluded
     bl jputs
     bl emit_excluded_array
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // sort
-    adrp x0, PAGE(s_j_qsort)
-    add x0, x0, LO12(s_j_qsort)
+    LEA x0, s_j_qsort
     bl jputs
-    adrp x19, PAGE(tc_plan_sort)
-    add x19, x19, LO12(tc_plan_sort)
+    LEA x19, tc_plan_sort
     ldr x20, [x19]
-    adrp x0, PAGE(metric_names_json)
-    add x0, x0, LO12(metric_names_json)
+    LEA x0, metric_names_json
     ldr x0, [x0, x20, lsl #3]
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // share_floor
-    adrp x0, PAGE(s_j_qsf)
-    add x0, x0, LO12(s_j_qsf)
+    LEA x0, s_j_qsf
     bl jputs
-    adrp x0, PAGE(s_j_sf_req)
-    add x0, x0, LO12(s_j_sf_req)
+    LEA x0, s_j_sf_req
     bl jputs
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x0, [x19, #TC_O_SHARE_FLOOR]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
-    adrp x0, PAGE(s_j_sf_app)
-    add x0, x0, LO12(s_j_sf_app)
+    LEA x0, s_j_sf_app
     bl jputs
-    adrp x19, PAGE(tc_plan_share_floor)
-    add x19, x19, LO12(tc_plan_share_floor)
+    LEA x19, tc_plan_share_floor
     ldr x20, [x19]
     cbz x20, .Lje_sf_false
-    adrp x0, PAGE(s_j_true)
-    add x0, x0, LO12(s_j_true)
+    LEA x0, s_j_true
     bl jputs
     b .Lje_sf_done
 .Lje_sf_false:
-    adrp x0, PAGE(s_j_false)
-    add x0, x0, LO12(s_j_false)
+    LEA x0, s_j_false
     bl jputs
 .Lje_sf_done:
-    adrp x0, PAGE(s_j_close4)
-    add x0, x0, LO12(s_j_close4)
+    LEA x0, s_j_close4
     bl jputs
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // sources
-    adrp x0, PAGE(s_j_qsources)
-    add x0, x0, LO12(s_j_qsources)
+    LEA x0, s_j_qsources
     bl jputs
     bl emit_sources
-    adrp x0, PAGE(s_j_close4nl)
-    add x0, x0, LO12(s_j_close4nl)
+    LEA x0, s_j_close4nl
     bl jputs
-    adrp x0, PAGE(s_j_nl)
-    add x0, x0, LO12(s_j_nl)
+    LEA x0, s_j_nl
     bl jputs
     // close query, open totals
-    adrp x0, PAGE(s_j_query_close)
-    add x0, x0, LO12(s_j_query_close)
+    LEA x0, s_j_query_close
     bl jputs
-    adrp x0, PAGE(s_j_totals)
-    add x0, x0, LO12(s_j_totals)
+    LEA x0, s_j_totals
     bl jputs
     bl emit_totals
-    adrp x0, PAGE(s_j_close2)
-    add x0, x0, LO12(s_j_close2)
+    LEA x0, s_j_close2
     bl jputs
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // rows
-    adrp x0, PAGE(s_j_rows)
-    add x0, x0, LO12(s_j_rows)
+    LEA x0, s_j_rows
     bl jputs
     bl emit_rows
-    adrp x0, PAGE(s_j_end)
-    add x0, x0, LO12(s_j_end)
+    LEA x0, s_j_end
     bl jputs
     bl jflush
     mov x0, #0
@@ -832,23 +765,20 @@ emit_excluded_array:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x19, PAGE(tc_plan_excl_names_n)
-    add x19, x19, LO12(tc_plan_excl_names_n)
+    LEA x19, tc_plan_excl_names_n
     ldr x20, [x19]                    // n
     cbz x20, .Ljea_empty
     mov w0, #'['
     bl jputc
     mov w0, #'\n'
     bl jputc
-    adrp x21, PAGE(tc_plan_excl_names)
-    add x21, x21, LO12(tc_plan_excl_names)
+    LEA x21, tc_plan_excl_names
     ldr x21, [x21]
     mov x22, #0
 .Ljea_loop:
     cmp x22, x20
     b.ge .Ljea_done
-    adrp x0, PAGE(s_j_ind6)
-    add x0, x0, LO12(s_j_ind6)
+    LEA x0, s_j_ind6
     mov x1, #6
     bl jputraw
     mov x2, #26
@@ -866,8 +796,7 @@ emit_excluded_array:
     add x22, x22, #1
     b .Ljea_loop
 .Ljea_done:
-    adrp x0, PAGE(s_j_ind4)
-    add x0, x0, LO12(s_j_ind4)
+    LEA x0, s_j_ind4
     mov x1, #4
     bl jputraw
     mov w0, #']'
@@ -891,8 +820,7 @@ emit_excluded_array:
 src_str:
     stp x19, x30, [sp, #-16]!
     mov x19, x0
-    adrp x0, PAGE(tc_opts)
-    add x0, x0, LO12(tc_opts)
+    LEA x0, tc_opts
     movz x2, #TC_O_SRC
     add x0, x0, x2
     ldr x0, [x0, x19, lsl #3]
@@ -907,20 +835,17 @@ src_entry:
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // key
     mov x20, x1                        // set id
-    adrp x0, PAGE(s_j_ind6)
-    add x0, x0, LO12(s_j_ind6)
+    LEA x0, s_j_ind6
     mov x1, #6
     bl jputraw
     mov x0, x19
     bl jquoted
-    adrp x0, PAGE(s_j_colon)
-    add x0, x0, LO12(s_j_colon)
+    LEA x0, s_j_colon
     bl jputs
     mov x0, x20
     bl src_str
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -934,19 +859,16 @@ src_entry_ptr:
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // key
     mov x20, x1                        // value ptr
-    adrp x0, PAGE(s_j_ind6)
-    add x0, x0, LO12(s_j_ind6)
+    LEA x0, s_j_ind6
     mov x1, #6
     bl jputraw
     mov x0, x19
     bl jquoted
-    adrp x0, PAGE(s_j_colon)
-    add x0, x0, LO12(s_j_colon)
+    LEA x0, s_j_colon
     bl jputs
     mov x0, x20
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -959,14 +881,12 @@ src_entry_last:
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // key
     mov x20, x1                        // value ptr
-    adrp x0, PAGE(s_j_ind6)
-    add x0, x0, LO12(s_j_ind6)
+    LEA x0, s_j_ind6
     mov x1, #6
     bl jputraw
     mov x0, x19
     bl jquoted
-    adrp x0, PAGE(s_j_colon)
-    add x0, x0, LO12(s_j_colon)
+    LEA x0, s_j_colon
     bl jputs
     mov x0, x20
     bl jquoted
@@ -984,69 +904,54 @@ emit_sources:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     // begin (value is a direct pointer, not a set id)
-    adrp x0, PAGE(s_js_begin)
-    add x0, x0, LO12(s_js_begin)
-    adrp x1, PAGE(tc_window)
-    add x1, x1, LO12(tc_window)
+    LEA x0, s_js_begin
+    LEA x1, tc_window
     ldr x1, [x1, #TC_W_START_SRC]
     bl src_entry_ptr
     // channel
-    adrp x0, PAGE(s_js_channel)
-    add x0, x0, LO12(s_js_channel)
+    LEA x0, s_js_channel
     mov x1, #TC_SET_CHANNEL
     bl src_entry
     // end (only when not defaulted)
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_SRC + TC_SET_END*8]
     cmp x20, #TC_SRC_DEFAULT_NOW
     b.eq .Ljes_show
-    adrp x0, PAGE(s_js_end)
-    add x0, x0, LO12(s_js_end)
+    LEA x0, s_js_end
     mov x1, #TC_SET_END
     bl src_entry
 .Ljes_show:
     // exclude
-    adrp x19, PAGE(tc_plan_src_join)
-    add x19, x19, LO12(tc_plan_src_join)
+    LEA x19, tc_plan_src_join
     ldr x20, [x19]
     cbz x20, .Ljes_excl_none
-    adrp x0, PAGE(s_js_exclude)
-    add x0, x0, LO12(s_js_exclude)
+    LEA x0, s_js_exclude
     mov x1, x20
     bl src_entry_ptr
     b .Ljes_header
 .Ljes_excl_none:
-    adrp x0, PAGE(s_js_exclude)
-    add x0, x0, LO12(s_js_exclude)
-    adrp x1, PAGE(s_jn_none)
-    add x1, x1, LO12(s_jn_none)
+    LEA x0, s_js_exclude
+    LEA x1, s_jn_none
     bl src_entry_ptr
 .Ljes_header:
-    adrp x0, PAGE(s_js_header)
-    add x0, x0, LO12(s_js_header)
+    LEA x0, s_js_header
     mov x1, #TC_SET_HEADER
     bl src_entry
-    adrp x0, PAGE(s_js_logs_dir)
-    add x0, x0, LO12(s_js_logs_dir)
+    LEA x0, s_js_logs_dir
     mov x1, #TC_SET_LOGS_DIR
     bl src_entry
-    adrp x0, PAGE(s_js_min_count)
-    add x0, x0, LO12(s_js_min_count)
+    LEA x0, s_js_min_count
     mov x1, #TC_SET_MIN_COUNT
     bl src_entry
-    adrp x0, PAGE(s_js_share_floor)
-    add x0, x0, LO12(s_js_share_floor)
+    LEA x0, s_js_share_floor
     mov x1, #TC_SET_SHARE_FLOOR
     bl src_entry
     // show (only when asked)
-    adrp x19, PAGE(tc_opts)
-    add x19, x19, LO12(tc_opts)
+    LEA x19, tc_opts
     ldr x20, [x19, #TC_O_SRC + TC_SET_SHOW*8]
     cmp x20, #TC_SRC_DEFAULT
     b.eq .Ljes_sort
-    adrp x0, PAGE(s_js_show)
-    add x0, x0, LO12(s_js_show)
+    LEA x0, s_js_show
     mov x1, #TC_SET_SHOW
     bl src_entry
 .Ljes_sort:
@@ -1054,31 +959,25 @@ emit_sources:
     ldr x20, [x19, #TC_O_SRC + TC_SET_SORT*8]
     cmp x20, #TC_SRC_DEFAULT_BUILTIN
     b.eq .Ljes_state
-    adrp x0, PAGE(s_js_sort)
-    add x0, x0, LO12(s_js_sort)
+    LEA x0, s_js_sort
     mov x1, #TC_SET_SORT
     bl src_entry
 .Ljes_state:
     ldr x20, [x19, #TC_O_SRC + TC_SET_STATE*8]
     cmp x20, #TC_SRC_DEFAULT
     b.eq .Ljes_state_nofilter
-    adrp x0, PAGE(s_js_state)
-    add x0, x0, LO12(s_js_state)
+    LEA x0, s_js_state
     mov x1, #TC_SET_STATE
     bl src_entry
     b .Ljes_top
 .Ljes_state_nofilter:
-    adrp x0, PAGE(s_js_state)
-    add x0, x0, LO12(s_js_state)
-    adrp x1, PAGE(s_j_not_filtered)
-    add x1, x1, LO12(s_j_not_filtered)
+    LEA x0, s_js_state
+    LEA x1, s_j_not_filtered
     bl src_entry_ptr
 .Ljes_top:
     // top (last, no comma)
-    adrp x0, PAGE(s_js_top)
-    add x0, x0, LO12(s_js_top)
-    adrp x1, PAGE(tc_plan_limit_src)
-    add x1, x1, LO12(tc_plan_limit_src)
+    LEA x0, s_js_top
+    LEA x1, tc_plan_limit_src
     ldr x1, [x1]
     bl src_entry_last
     ldp x19, x20, [sp], #16
@@ -1095,176 +994,130 @@ emit_totals:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     // users_shown
-    adrp x0, PAGE(s_j_t_shown)
-    add x0, x0, LO12(s_j_t_shown)
+    LEA x0, s_j_t_shown
     bl jputs
-    adrp x19, PAGE(tc_plan_displayed_n)
-    add x19, x19, LO12(tc_plan_displayed_n)
+    LEA x19, tc_plan_displayed_n
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // users_above_threshold
-    adrp x0, PAGE(s_j_t_above)
-    add x0, x0, LO12(s_j_t_above)
+    LEA x0, s_j_t_above
     bl jputs
-    adrp x19, PAGE(tc_plan_reported_n)
-    add x19, x19, LO12(tc_plan_reported_n)
+    LEA x19, tc_plan_reported_n
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // users_in_range
-    adrp x0, PAGE(s_j_t_inrange)
-    add x0, x0, LO12(s_j_t_inrange)
+    LEA x0, s_j_t_inrange
     bl jputs
-    adrp x19, PAGE(tc_plan_in_range)
-    add x19, x19, LO12(tc_plan_in_range)
+    LEA x19, tc_plan_in_range
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // users_excluded
-    adrp x0, PAGE(s_j_t_excl)
-    add x0, x0, LO12(s_j_t_excl)
+    LEA x0, s_j_t_excl
     bl jputs
-    adrp x19, PAGE(tc_plan_excl_appeared)
-    add x19, x19, LO12(tc_plan_excl_appeared)
+    LEA x19, tc_plan_excl_appeared
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // messages_shown
-    adrp x0, PAGE(s_j_t_mshown)
-    add x0, x0, LO12(s_j_t_mshown)
+    LEA x0, s_j_t_mshown
     bl jputs
-    adrp x19, PAGE(tc_plan_msgs_shown)
-    add x19, x19, LO12(tc_plan_msgs_shown)
+    LEA x19, tc_plan_msgs_shown
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // messages_in_range
-    adrp x0, PAGE(s_j_t_minrange)
-    add x0, x0, LO12(s_j_t_minrange)
+    LEA x0, s_j_t_minrange
     bl jputs
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x0, [x19, #TC_T_MESSAGES]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // messages_hidden
-    adrp x0, PAGE(s_j_t_mhidden)
-    add x0, x0, LO12(s_j_t_mhidden)
+    LEA x0, s_j_t_mhidden
     bl jputs
-    adrp x19, PAGE(tc_plan_msgs_hidden)
-    add x19, x19, LO12(tc_plan_msgs_hidden)
+    LEA x19, tc_plan_msgs_hidden
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // messages_excluded
-    adrp x0, PAGE(s_j_t_mexcl)
-    add x0, x0, LO12(s_j_t_mexcl)
+    LEA x0, s_j_t_mexcl
     bl jputs
-    adrp x19, PAGE(tc_plan_excl_msgs)
-    add x19, x19, LO12(tc_plan_excl_msgs)
+    LEA x19, tc_plan_excl_msgs
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // truncated
-    adrp x0, PAGE(s_j_t_trunc)
-    add x0, x0, LO12(s_j_t_trunc)
+    LEA x0, s_j_t_trunc
     bl jputs
-    adrp x19, PAGE(tc_plan_hidden_n)
-    add x19, x19, LO12(tc_plan_hidden_n)
+    LEA x19, tc_plan_hidden_n
     ldr x20, [x19]
     cbz x20, .Ljt_trunc_false
-    adrp x0, PAGE(s_j_true)
-    add x0, x0, LO12(s_j_true)
+    LEA x0, s_j_true
     bl jputs
     b .Ljt_trunc_done
 .Ljt_trunc_false:
-    adrp x0, PAGE(s_j_false)
-    add x0, x0, LO12(s_j_false)
+    LEA x0, s_j_false
     bl jputs
 .Ljt_trunc_done:
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // states
-    adrp x0, PAGE(s_j_t_states)
-    add x0, x0, LO12(s_j_t_states)
+    LEA x0, s_j_t_states
     bl jputs
     bl emit_totals_states
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // log_files
-    adrp x0, PAGE(s_j_t_files)
-    add x0, x0, LO12(s_j_t_files)
+    LEA x0, s_j_t_files
     bl jputs
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x0, [x19, #TC_T_FILES]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // users_below_share_floor
-    adrp x0, PAGE(s_j_t_below)
-    add x0, x0, LO12(s_j_t_below)
+    LEA x0, s_j_t_below
     bl jputs
-    adrp x19, PAGE(tc_plan_below_floor)
-    add x19, x19, LO12(tc_plan_below_floor)
+    LEA x19, tc_plan_below_floor
     ldr x0, [x19]
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // cache
-    adrp x0, PAGE(s_j_t_cache)
-    add x0, x0, LO12(s_j_t_cache)
+    LEA x0, s_j_t_cache
     bl jputs
-    adrp x0, PAGE(s_j_cache_used)
-    add x0, x0, LO12(s_j_cache_used)
+    LEA x0, s_j_cache_used
     bl jputs
-    adrp x19, PAGE(tc_plan_cache_used)
-    add x19, x19, LO12(tc_plan_cache_used)
+    LEA x19, tc_plan_cache_used
     ldr x20, [x19]
     cbz x20, .Ljt_used_false
-    adrp x0, PAGE(s_j_true)
-    add x0, x0, LO12(s_j_true)
+    LEA x0, s_j_true
     bl jputs
     b .Ljt_used_done
 .Ljt_used_false:
-    adrp x0, PAGE(s_j_false)
-    add x0, x0, LO12(s_j_false)
+    LEA x0, s_j_false
     bl jputs
 .Ljt_used_done:
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
-    adrp x0, PAGE(s_j_cache_days)
-    add x0, x0, LO12(s_j_cache_days)
+    LEA x0, s_j_cache_days
     bl jputs
     ldr x0, [x19, #8]                 // reused
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
-    adrp x0, PAGE(s_j_cache_prob)
-    add x0, x0, LO12(s_j_cache_prob)
+    LEA x0, s_j_cache_prob
     bl jputs
     ldr x20, [x19, #24]               // problem
     cbz x20, .Ljt_prob_null
@@ -1272,22 +1125,17 @@ emit_totals:
     bl jquoted
     b .Ljt_prob_done
 .Ljt_prob_null:
-    adrp x0, PAGE(s_j_null)
-    add x0, x0, LO12(s_j_null)
+    LEA x0, s_j_null
     bl jputs
 .Ljt_prob_done:
-    adrp x0, PAGE(s_j_nl)
-    add x0, x0, LO12(s_j_nl)
+    LEA x0, s_j_nl
     bl jputs
-    adrp x0, PAGE(s_j_close4nl)
-    add x0, x0, LO12(s_j_close4nl)
+    LEA x0, s_j_close4nl
     bl jputs
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // unreadable
-    adrp x0, PAGE(s_j_t_unreadable)
-    add x0, x0, LO12(s_j_t_unreadable)
+    LEA x0, s_j_t_unreadable
     bl jputs
     bl emit_unreadable
     ldp x23, x24, [sp], #16
@@ -1304,8 +1152,7 @@ emit_totals_states:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x20, [x19, #TC_T_STATES + 0]
     ldr x21, [x19, #TC_T_STATES + 8]
     ldr x22, [x19, #TC_T_STATES + 16]
@@ -1323,16 +1170,13 @@ emit_totals_states:
     add x25, x19, #TC_T_STATES
     ldr x25, [x25, x24, lsl #3]
     cbz x25, .Ljts_next
-    adrp x0, PAGE(s_j_ind6)
-    add x0, x0, LO12(s_j_ind6)
+    LEA x0, s_j_ind6
     mov x1, #6
     bl jputraw
-    adrp x0, PAGE(state_names_json)
-    add x0, x0, LO12(state_names_json)
+    LEA x0, state_names_json
     ldr x0, [x0, x24, lsl #3]
     bl jquoted
-    adrp x0, PAGE(s_j_colon)
-    add x0, x0, LO12(s_j_colon)
+    LEA x0, s_j_colon
     bl jputs
     mov x0, x25
     bl jint
@@ -1360,8 +1204,7 @@ emit_totals_states:
     add x24, x24, #1
     b .Ljts_loop
 .Ljts_done:
-    adrp x0, PAGE(s_j_close4nl)
-    add x0, x0, LO12(s_j_close4nl)
+    LEA x0, s_j_close4nl
     bl jputs
     b .Ljts_out
 .Ljts_empty:
@@ -1383,8 +1226,7 @@ emit_unreadable:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x19, PAGE(tc_tally)
-    add x19, x19, LO12(tc_tally)
+    LEA x19, tc_tally
     ldr x20, [x19, #TC_T_UNR_COUNT]
     cbz x20, .Ljun_empty
     mov w0, #'['
@@ -1400,34 +1242,27 @@ emit_unreadable:
 .Ljun_loop:
     cmp x22, x20
     b.ge .Ljun_done
-    adrp x0, PAGE(s_j_ind6)
-    add x0, x0, LO12(s_j_ind6)
+    LEA x0, s_j_ind6
     mov x1, #6
     bl jputraw
-    adrp x0, PAGE(s_j_row_open)
-    add x0, x0, LO12(s_j_row_open)
+    LEA x0, s_j_row_open
     mov x1, #2
     bl jputraw
-    adrp x0, PAGE(s_j_ind8)
-    add x0, x0, LO12(s_j_ind8)
+    LEA x0, s_j_ind8
     mov x1, #8
     bl jputraw
-    adrp x0, PAGE(s_j_file)
-    add x0, x0, LO12(s_j_file)
+    LEA x0, s_j_file
     bl jputs
     mov x2, #TC_T_UNR_ENTRY_SZ
     mul x2, x22, x2
     add x0, x21, x2
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
-    adrp x0, PAGE(s_j_ind8)
-    add x0, x0, LO12(s_j_ind8)
+    LEA x0, s_j_ind8
     mov x1, #8
     bl jputraw
-    adrp x0, PAGE(s_j_problem)
-    add x0, x0, LO12(s_j_problem)
+    LEA x0, s_j_problem
     bl jputs
     mov x2, #TC_T_UNR_ENTRY_SZ
     mul x2, x22, x2
@@ -1436,8 +1271,7 @@ emit_unreadable:
     bl jquoted
     mov w0, #'\n'
     bl jputc
-    adrp x0, PAGE(s_j_close6nl)
-    add x0, x0, LO12(s_j_close6nl)
+    LEA x0, s_j_close6nl
     bl jputs
     add x9, x22, #1
     cmp x9, x20
@@ -1450,8 +1284,7 @@ emit_unreadable:
     add x22, x22, #1
     b .Ljun_loop
 .Ljun_done:
-    adrp x0, PAGE(s_j_ind4)
-    add x0, x0, LO12(s_j_ind4)
+    LEA x0, s_j_ind4
     bl jputs
     mov w0, #']'
     bl jputc
@@ -1476,16 +1309,14 @@ emit_rows:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, PAGE(tc_plan_displayed_n)
-    add x19, x19, LO12(tc_plan_displayed_n)
+    LEA x19, tc_plan_displayed_n
     ldr x20, [x19]                    // n
     cbz x20, .Ljer_empty
     mov w0, #'['
     bl jputc
     mov w0, #'\n'
     bl jputc
-    adrp x21, PAGE(tc_plan_reported)
-    add x21, x21, LO12(tc_plan_reported)
+    LEA x21, tc_plan_reported
     ldr x21, [x21]
     mov x22, #0                        // i
 .Ljer_loop:
@@ -1494,41 +1325,33 @@ emit_rows:
     mov x0, #72                        // ROW_SZ
     mul x0, x22, x0
     add x23, x21, x0                   // rec
-    adrp x0, PAGE(s_j_ind4)
-    add x0, x0, LO12(s_j_ind4)
+    LEA x0, s_j_ind4
     mov x1, #4
     bl jputraw
-    adrp x0, PAGE(s_j_row_open)
-    add x0, x0, LO12(s_j_row_open)
+    LEA x0, s_j_row_open
     mov x1, #2
     bl jputraw
     // login
-    adrp x0, PAGE(s_j_login)
-    add x0, x0, LO12(s_j_login)
+    LEA x0, s_j_login
     bl jputs
     add x0, x23, #0                    // login ptr
     bl jquoted
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // count
-    adrp x0, PAGE(s_j_count)
-    add x0, x0, LO12(s_j_count)
+    LEA x0, s_j_count
     bl jputs
     ldr x0, [x23, #32]                 // ROW_COUNT
     bl jint
-    adrp x0, PAGE(s_j_comma_nl)
-    add x0, x0, LO12(s_j_comma_nl)
+    LEA x0, s_j_comma_nl
     bl jputs
     // states
-    adrp x0, PAGE(s_j_states_k)
-    add x0, x0, LO12(s_j_states_k)
+    LEA x0, s_j_states_k
     bl jputs
     bl emit_row_states            // ends with the states close "      }"
     mov w0, #'\n'
     bl jputc
-    adrp x0, PAGE(s_j_close4nl)
-    add x0, x0, LO12(s_j_close4nl)
+    LEA x0, s_j_close4nl
     bl jputs                      // "    }"
     add x9, x22, #1
     cmp x9, x20
@@ -1541,8 +1364,7 @@ emit_rows:
     add x22, x22, #1
     b .Ljer_loop
 .Ljer_done:
-    adrp x0, PAGE(s_j_rows_close)
-    add x0, x0, LO12(s_j_rows_close)
+    LEA x0, s_j_rows_close
     bl jputs
     b .Ljer_out
 .Ljer_empty:
@@ -1568,8 +1390,7 @@ emit_row_states:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x23                       // rec
-    adrp x20, PAGE(tc_window)
-    add x20, x20, LO12(tc_window)
+    LEA x20, tc_window
     ldr x21, [x20, #TC_W_STATE_FILTER]
     // gather the three (state, count) pairs
     ldr x22, [x19, #40]                // ROW_LIVE
@@ -1618,16 +1439,13 @@ emit_row_states:
     mov x27, x23
 .Ljrs_emit:
     cbz x27, .Ljrs_next
-    adrp x0, PAGE(s_j_ind8)
-    add x0, x0, LO12(s_j_ind8)
+    LEA x0, s_j_ind8
     mov x1, #8
     bl jputraw
-    adrp x0, PAGE(state_names_json)
-    add x0, x0, LO12(state_names_json)
+    LEA x0, state_names_json
     ldr x0, [x0, x26, lsl #3]
     bl jquoted
-    adrp x0, PAGE(s_j_colon)
-    add x0, x0, LO12(s_j_colon)
+    LEA x0, s_j_colon
     bl jputs
     mov x0, x27
     bl jint
@@ -1662,8 +1480,7 @@ emit_row_states:
     add x26, x26, #1
     b .Ljrs_loop
 .Ljrs_done:
-    adrp x0, PAGE(s_j_close6nl)
-    add x0, x0, LO12(s_j_close6nl)
+    LEA x0, s_j_close6nl
     bl jputs
     b .Ljrs_out
 .Ljrs_empty:
@@ -1693,13 +1510,11 @@ tc_json_err:
     mov x19, x0
     mov x0, #STDERR
     bl jinit
-    adrp x0, PAGE(s_j_err_open)
-    add x0, x0, LO12(s_j_err_open)
+    LEA x0, s_j_err_open
     bl jputs
     mov x0, x19
     bl jquoted
-    adrp x0, PAGE(s_j_err_close)
-    add x0, x0, LO12(s_j_err_close)
+    LEA x0, s_j_err_close
     bl jputs
     bl jflush
     mov w0, #1

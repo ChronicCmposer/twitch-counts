@@ -16,6 +16,11 @@
 //    PAGE(sym) / LO12(sym)   adrp+add/ldr page-relative addressing:
 //                            GNU  `adrp x0, sym` / `add x0, x0, :lo12:sym`
 //                            Mach `adrp x0, sym@PAGE` / `add x0, x0, sym@PAGEOFF`
+//    LEA reg, sym            the adrp+add pair above as one line (reg = &sym);
+//    LEA_OFF reg, sym, off   the same plus `add reg, reg, #off`.  Modules
+//                            use these for every symbol address; PAGE/LO12
+//                            remain for the load-through form
+//                            `adrp xN, PAGE(sym)` / `ldr xM, [xN, LO12(sym)]`.
 //    RODATA                  the read-only data section.  On Darwin the
 //                            regions hold pointer tables that the linker
 //                            refuses inside __TEXT, so they live in
@@ -56,6 +61,16 @@
     .macro LOAD_EXTERN_DATA_ADDR reg, sym
     adrp \reg, \sym@GOTPAGE
     ldr  \reg, [\reg, \sym@GOTPAGEOFF]
+    .endm
+
+    .macro LEA reg, sym                 // reg = &sym
+    adrp \reg, \sym@PAGE
+    add  \reg, \reg, \sym@PAGEOFF
+    .endm
+    .macro LEA_OFF reg, sym, off        // reg = &sym + off
+    adrp \reg, \sym@PAGE
+    add  \reg, \reg, \sym@PAGEOFF
+    add  \reg, \reg, #\off
     .endm
 
 // C symbol rename table (Mach-O leading underscore).  Every C symbol the
@@ -162,6 +177,16 @@
     .macro LOAD_EXTERN_DATA_ADDR reg, sym
     adrp \reg, \sym
     add  \reg, \reg, :lo12:\sym
+    .endm
+
+    .macro LEA reg, sym                 // reg = &sym
+    adrp \reg, \sym
+    add  \reg, \reg, :lo12:\sym
+    .endm
+    .macro LEA_OFF reg, sym, off        // reg = &sym + off
+    adrp \reg, \sym
+    add  \reg, \reg, :lo12:\sym
+    add  \reg, \reg, #\off
     .endm
 
 #endif
