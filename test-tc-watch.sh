@@ -130,7 +130,10 @@ rc = "alive"
 # KeyboardInterrupt handling is installed exits with a traceback instead
 # of the shape under test.
 first_out = None
-deadline = start + tmo
+# Before the child has printed anything the clock is generous (a cold
+# Python on a loaded VM has taken several seconds to import and paint);
+# once it has, <timeout> counts from that first output.
+deadline = start + max(tmo, 20.0)
 while time.time() < deadline:
     since = (time.time() - first_out) if first_out is not None else -1.0
     if sig_after >= 0 and not sent and since > sig_after:
@@ -178,9 +181,9 @@ while time.time() < deadline:
             buf += chunk
             if first_out is None:
                 first_out = time.time()
-                # the run's timeout counts from here too: a slow start-up
-                # must not eat the time the scripted SIGINT/append needs
-                deadline = max(deadline, first_out + tmo)
+                # the run's timeout counts from here: a slow start-up must
+                # not eat the time the scripted SIGINT/append needs
+                deadline = first_out + tmo
 if rc == "alive":
     os.kill(pid, signal.SIGKILL)
     try: os.waitpid(pid, 0)
