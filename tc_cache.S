@@ -185,7 +185,6 @@
     .equ SQLITE_OPEN_CREATE,    0x00000004
     .equ SQLITE_OPEN_FULLMUTEX, 0x00010000
     .equ OPEN_FLAGS,           (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX)
-    .equ SECS_PER_DAY,         86400
     .equ LAST_SECOND,          86399
     .equ CACHE_KEEP_DAYS,      7
     // STAT_SZ / ST_SIZE / ST_MTIM_SEC / ST_MTIM_NSEC come from tc_platform.h
@@ -195,12 +194,6 @@
     .equ SCRATCH_SZ,           512
     .equ FP_SZ,                17       // 16 hex chars + NUL
     .equ PROB_BUF_SZ,          256
-    .equ TM_YEAR,              20       // struct tm int offsets (musl aarch64)
-    .equ TM_MON,               16
-    .equ TM_MDAY,              12
-    .equ TM_HOUR,              8
-    .equ TM_MIN,               4
-    .equ TM_SEC,               0
     .equ FNV_OFFSET,           0xcbf29ce484222325
     .equ FNV_PRIME,            0x100000001b3
 

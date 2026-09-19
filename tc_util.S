@@ -42,8 +42,6 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ STDOUT, 1                   // standard output file descriptor
-    .equ STDERR, 2                   // standard error file descriptor
 
 // ----------------------------------------------------------------------------
 // tc_strlen — length of a NUL-terminated string.

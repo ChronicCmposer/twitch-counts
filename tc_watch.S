@@ -152,13 +152,6 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ STDOUT,         1
-    .equ STDERR,         2
-    .equ O_RDONLY,       0
-    .equ SIGINT,         2
-    .equ SEEK_SET,       0
-    .equ CLOCK_REALTIME, 0
-    .equ SECS_PER_DAY,   86400
     .equ LAST_SECOND,    86399
     .equ FILE_CAP,       1073741824      // 1 GiB sanity cap (as tc_core.S)
     .equ READ_CHUNK,     65536
@@ -168,7 +161,6 @@
     // TIOCGWINSZ and CLOCK_MONOTONIC are defined per platform in
     // tc_platform.h; only the d_type VALUE below is module-local (it is
     // identical on both platforms).
-    .equ DT_REG,         8
 
     // reader record offsets (READER_SZ 936)
     .equ RD_PATH,        0               // 704 path buffer

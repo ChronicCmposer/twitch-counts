@@ -177,14 +177,13 @@
 //  `.equ ST_MODE, 16` becomes an assembler error instead of silently
 //  overriding the platform value.
 //
-//  Identical on both platforms (so defined once, unconditionally):
-//    struct tm      tm_sec 0, tm_min 4, tm_hour 8, tm_mday 12, tm_mon 16,
-//                   tm_year 20 (int each)
+//  The values that are identical on both platforms are defined once,
+//  unconditionally, after the per-platform block below (struct tm, the
+//  file-type bits, the dirent types, the descriptors and the clock id).
+//  Also identical but referenced by raw offset in the modules:
 //    struct timespec tv_sec 0, tv_nsec 8 (16 bytes)
 //    struct winsize ws_row 0, ws_col 2 (u16 each, 8 bytes)
 //    struct option  name 0, has_arg 8, flag 16, val 24 (32 bytes)
-//    O_RDONLY 0, SEEK_SET 0, S_IFMT 0xF000, S_IFREG 0x8000, DT_DIR 4,
-//    DT_REG 8, SIGINT 2, CLOCK_REALTIME 0, EINTR 4, ENOENT 2
 //
 #ifdef __APPLE__
 // struct stat (sizeof 144): st_dev is 4 bytes, st_mode is 2 bytes.
@@ -244,8 +243,33 @@
 // pw_gecos 24, pw_dir 32, pw_shell 40
 #define PW_DIR_OFF      32
 #endif
+// ---- identical on both platforms --------------------------------------------
 #define EINTR           4
 #define ENOENT          2
+#define O_RDONLY        0
+#define SEEK_SET        0
+#define S_IFMT          0xF000
+#define S_IFREG         0x8000
+#define S_IFDIR         0x4000
+#define DT_DIR          4
+#define DT_REG          8
+#define SIGINT          2
+#define CLOCK_REALTIME  0
+#define STDOUT          1           // the descriptors, not the stdio streams
+#define STDERR          2
+// struct tm (int fields)
+#define TM_SEC          0
+#define TM_MIN          4
+#define TM_HOUR         8
+#define TM_MDAY         12
+#define TM_MON          16
+#define TM_YEAR         20
+
+// ---- plain numeric constants every module needs ------------------------------
+//  Not platform facts, but defined here for the same fail-loud reason: a
+//  module-local `.equ SECS_PER_DAY, 86400` would silently shadow a shared
+//  value, whereas with the cpp macro in scope it fails to assemble.
+#define SECS_PER_DAY    86400
 
 // Field loads whose WIDTH differs between the platforms.  `n` is the
 // register number: LOAD_ST_MODE 1, x0  ->  w1 = st_mode (zero-extended).

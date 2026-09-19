@@ -89,9 +89,6 @@
 // ----------------------------------------------------------------------------
 // Module constants
 // ----------------------------------------------------------------------------
-    .equ O_RDONLY,      0
-    .equ S_IFMT,        0xF000
-    .equ S_IFREG,       0x8000
 
     .equ CFG_PATH_SZ,   512          // resolved config path buffer
     .equ CFG_SCRATCH_SZ,1024

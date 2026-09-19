@@ -130,11 +130,8 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ SECS_PER_DAY,    86400
     .equ LAST_SECOND,     86399
     .equ FILE_CAP,        1073741824      // 1 GiB sanity cap (documented)
-    .equ O_RDONLY,        0
-    .equ DT_DIR,          4
     .equ MAX_DNAMES,      256
     .equ DNAME_SZ,        256
     .equ READ_CHUNK,      8192
@@ -402,8 +399,8 @@ tc_resolve_channel:
     adrp x0, PAGE(tc_core_statbuf)
     add x0, x0, LO12(tc_core_statbuf)
     LOAD_ST_MODE 1, x0
-    and w1, w1, #0xF000                // S_IFMT
-    cmp w1, #0x4000                    // S_IFDIR
+    and w1, w1, #S_IFMT
+    cmp w1, #S_IFDIR
     b.ne .Lrc_dir_notfound
     // os.listdir(logs_dir): a directory that cannot be listed is main()'s
     // OSError backstop, "PermissionError: [Errno 13] Permission denied: '...'"

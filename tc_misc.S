@@ -110,11 +110,6 @@
 // ----------------------------------------------------------------------------
 // Module constants
 // ----------------------------------------------------------------------------
-    .equ STDOUT,          1
-    .equ STDERR,          2
-    .equ DT_DIR,          4
-    .equ SECS_PER_DAY,    86400
-    .equ CLOCK_REALTIME,  0
     .equ MISC_ARENA_SZ,   262144
     .equ MISC_MAX_NAMES,  1024
     .equ MISC_MAX_USERS,  4096

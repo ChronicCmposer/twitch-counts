@@ -43,17 +43,8 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ STDOUT,          1
-    .equ STDERR,          2
     .equ JBUF_SZ,         16384
     .equ JISO_SZ,         64
-    .equ CLOCK_REALTIME,  0
-    .equ TM_TM_YEAR,      20             // struct tm offsets (aarch64 musl)
-    .equ TM_TM_MON,       16
-    .equ TM_TM_MDAY,      12
-    .equ TM_TM_HOUR,      8
-    .equ TM_TM_MIN,       4
-    .equ TM_TM_SEC,       0
 
 // ----------------------------------------------------------------------------
 // .bss
@@ -458,20 +449,20 @@ json_now_iso:
     bl localtime_r
     adrp x0, PAGE(tc_json_tm)
     add x0, x0, LO12(tc_json_tm)
-    ldr w20, [x0, #TM_TM_YEAR]
+    ldr w20, [x0, #TM_YEAR]
     add x20, x20, #1900
-    ldr w21, [x0, #TM_TM_MON]
+    ldr w21, [x0, #TM_MON]
     add x21, x21, #1
-    ldr w22, [x0, #TM_TM_MDAY]
+    ldr w22, [x0, #TM_MDAY]
     mov x1, #10000
     mul x20, x20, x1
     mov x1, #100
     mul x21, x21, x1
     add x20, x20, x21
     add x20, x20, x22                  // ymd
-    ldr w21, [x0, #TM_TM_HOUR]
-    ldr w22, [x0, #TM_TM_MIN]
-    ldr w23, [x0, #TM_TM_SEC]
+    ldr w21, [x0, #TM_HOUR]
+    ldr w22, [x0, #TM_MIN]
+    ldr w23, [x0, #TM_SEC]
     mov x1, #3600
     mul x21, x21, x1
     mov x1, #60

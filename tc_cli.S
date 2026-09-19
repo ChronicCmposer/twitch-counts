@@ -75,10 +75,6 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ STDOUT, 1
-    .equ STDERR, 2
-    .equ CLOCK_REALTIME, 0
-    .equ SECS_PER_DAY, 86400
 
     .equ VAL_CHANNEL,        1
     .equ VAL_BEGIN,          2
@@ -6014,7 +6010,7 @@ tc_parse_duration:
     ldr x7, =604800
     b .Lpdur_apply
 .Lpdur_d:
-    ldr x7, =86400
+    ldr x7, =SECS_PER_DAY
     b .Lpdur_apply
 .Lpdur_h:
     mov x7, #3600
