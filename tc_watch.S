@@ -483,7 +483,7 @@ watch_g_files:    .skip 8
 watch_g_parsed:   .skip 8
 watch_g_reused:   .skip 8
 watch_g_unr_n:    .skip 8
-watch_g_unr:      .skip 64 * 96       // {name[64], reason[32]}
+watch_g_unr:      .skip TC_T_UNR_MAX * TC_T_UNR_ENTRY_SZ  // tc_tally's unreadable entry layout
     // gather shared state (set by watch_gather, read by watch_gather_file)
 watch_g_begin:    .skip 8             // begin epoch
 watch_g_end:      .skip 8             // end epoch
@@ -4444,7 +4444,7 @@ watch_count_tick:
 .Lwct_unr_loop:
     cmp x14, x11
     b.ge .Lwct_unr_done
-    mov x15, #96
+    mov x15, #TC_T_UNR_ENTRY_SZ
     mul x15, x14, x15
     add x16, x13, x15
     add x17, x12, x15
@@ -4458,7 +4458,7 @@ watch_count_tick:
     // the caller's x19.
     mov x9, #0
 .Lwct_unr_copy:
-    cmp x9, #96
+    cmp x9, #TC_T_UNR_ENTRY_SZ
     b.ge .Lwct_unr_next
     ldrb w19, [x16, x9]
     strb w19, [x17, x9]
@@ -4560,11 +4560,14 @@ watch_gather:
     ret
 
 // ============================================================================
-// watch_gather_file(i) — process one in-range listing entry.
+// watch_gather_file(i) — process one in-range listing entry: bounds and
+//   whole_day, the path, stat, then one of three ways to its window: the
+//   session memo (inline), the rollup (watch_gf_sqlite_hit) or the reader
+//   (watch_gf_reader).  An unreadable file is recorded by name, as skip().
 //   Register roles: x19=listing entry, x20=stat ptr, x21=ymd, x22=day_start,
 //   x23=lo, x24=hi, x25=whole_day, x26=enter, x27=size, x28=mtime_ns.
-//   Reads the shared state from tc_watch_g_*; writes watch_g_enter and
-//   the bookkeeping counters.
+//   Reads the shared state from watch_g_*; writes watch_g_enter and the
+//   bookkeeping counters.
 // ============================================================================
     .p2align 2
 watch_gather_file:
@@ -4635,44 +4638,12 @@ watch_gather_file:
     strb w2, [x0], #1
     add x1, x19, #TC_L_NAME
     bl watch_wc_cat
-    // stat
+    // stat (x19, the entry, is callee-saved: it survives the calls above)
     LEA x0, watch_fpath
     LEA x20, watch_stat
     mov x1, x20
     bl stat
     cbnz w0, .Lwgf_stat_fail
-    // entry was clobbered by the path build; reload it
-    LEA x9, tc_listing
-    ldr x10, [x9, #TC_L_ENTRIES]
-    mov x11, #TC_L_ENTRY_SZ
-    mul x11, x0, x11
-    // (x0 was the stat result 0; recompute the entry from the loop index —
-    // we did not keep i; the entry base is stable, rebuild via a scratch)
-    b .Lwgf_entry_reload
-.Lwgf_entry_reload:
-    // the loop index is recoverable: scan the listing for the ymd is wrong;
-    // instead we stash the entry pointer in x19 before any call — it was
-    // clobbered.  Recover it from the fdless scan below.
-    // (fixed: we keep x19 as the entry across calls by re-reading it here)
-    LEA x9, tc_listing
-    ldr x10, [x9, #TC_L_ENTRIES]
-    // scan for the entry whose ymd matches x21
-    LEA x11, tc_listing
-    ldr x12, [x11, #TC_L_COUNT]
-    mov x13, #0
-.Lwgf_rescan:
-    cmp x13, x12
-    b.ge .Lwgf_done
-    mov x14, #TC_L_ENTRY_SZ
-    mul x14, x13, x14
-    add x14, x10, x14
-    ldr x15, [x14, #TC_L_YMD]
-    cmp x15, x21
-    b.eq .Lwgf_rescan_done
-    add x13, x13, #1
-    b .Lwgf_rescan
-.Lwgf_rescan_done:
-    mov x19, x14                        // entry
     ldr x27, [x20, #ST_SIZE]
     ldr x9, [x20, #ST_MTIM_SEC]
     movz x10, #0xCA00, lsl #0
@@ -4717,9 +4688,60 @@ watch_gather_file:
     cmp w0, #2
     b.eq .Lwgf_unreadable
     cmp w0, #1
-    b.eq .Lwgf_sqlite_hit
-    b .Lwgf_reader
-.Lwgf_sqlite_hit:
+    b.ne .Lwgf_reader
+    // sqlite hit: the day's counts come from the rollup
+    mov x0, x21                        // ymd
+    mov x1, x20                        // stat
+    mov x2, x26                        // enter
+    mov x3, x27                        // size
+    mov x4, x28                        // mtime_ns
+    bl watch_gf_sqlite_hit             // x0 = 0, or -1 unreadable
+    tbnz x0, #63, .Lwgf_unreadable
+    b .Lwgf_done
+.Lwgf_reader:
+    mov x0, x21                        // ymd
+    mov x1, x20                        // stat
+    mov x2, x26                        // enter
+    mov x3, x23                        // lo
+    mov x4, x24                        // hi
+    mov x5, x25                        // whole_day
+    mov x6, x27                        // size
+    mov x7, x28                        // mtime_ns
+    bl watch_gf_reader                 // x0 = 0, or -1 unreadable
+    tbnz x0, #63, .Lwgf_unreadable
+    b .Lwgf_done
+.Lwgf_stat_fail:
+    bl tc_capture_errno
+.Lwgf_unreadable:
+    // skip(): the errno captured at the failing call, as tc_core.S
+    LEA x0, watch_reason
+    bl tc_errno_reason
+    mov x1, x0
+    add x0, x19, #TC_L_NAME
+    bl watch_record_unreadable
+    LEA x9, watch_g_enter
+    str xzr, [x9]
+.Lwgf_done:
+    EPILOGUE 5
+    ret
+
+// ============================================================================
+// watch_gf_sqlite_hit(x0=ymd, x1=stat ptr, x2=enter, x3=size, x4=mtime_ns)
+//   The rollup served the whole day: count the reuse, read the file once
+//   through its reader (cold, so the memo can be built), memoise the day and
+//   append its window.  -> x0 = 0, or -1 when the file could not be read
+//   (errno captured at the failing call).
+//   Register roles as in watch_gather_file: x19=reader, x20=stat, x21=ymd,
+//   x26=enter, x27=size, x28=mtime_ns (x22-x25 scratch).
+// ============================================================================
+    .p2align 2
+watch_gf_sqlite_hit:
+    PROLOGUE 5
+    mov x21, x0                        // ymd
+    mov x20, x1                        // stat ptr
+    mov x26, x2                        // enter
+    mov x27, x3                        // size
+    mov x28, x4                        // mtime_ns
     LEA x9, watch_sqlite_hit
     mov x10, #1
     str x10, [x9]
@@ -4734,17 +4756,17 @@ watch_gather_file:
     mov x19, x0                        // rd
     ldr x9, [x19, #RD_REVISION]
 
-    cbnz x9, .Lwgf_sh_ready
+    cbnz x9, .Lwgs_sh_ready
     ldr x9, [x19, #RD_PARTIAL]
-    cbnz x9, .Lwgf_sh_ready
+    cbnz x9, .Lwgs_sh_ready
     mov x0, x19
     mov x1, x20                        // stat
     mov x2, x26
     mov x3, #0
     bl watch_reader_refresh
     cmp x0, #0
-    b.lt .Lwgf_unreadable
-.Lwgf_sh_ready:
+    b.lt .Lwgs_bad
+.Lwgs_sh_ready:
 
     ldr x22, [x19, #RD_EXIT]           // exit (x22 free)
     ldr x23, [x19, #RD_ENTER]          // enter (x23 free)
@@ -4769,8 +4791,38 @@ watch_gather_file:
     ldr x9, [x11, #DM_EXIT]
     LEA x10, watch_g_enter
     str x9, [x10]
-    b .Lwgf_done
-.Lwgf_reader:
+    b .Lwgs_ok
+.Lwgs_ok:
+    mov x0, #0
+    EPILOGUE 5
+    ret
+.Lwgs_bad:
+    mov x0, #-1
+    EPILOGUE 5
+    ret
+
+// ============================================================================
+// watch_gf_reader(x0=ymd, x1=stat ptr, x2=enter, x3=lo, x4=hi, x5=whole_day,
+//                 x6=size, x7=mtime_ns)
+//   The incremental path: refresh the day's TailReader (respecting the
+//   retain floor unless seeking), take its window over [lo, hi], write a
+//   cold whole day to the rollup and memoise it, and append the window.
+//   -> x0 = 0, or -1 when the file could not be read.
+//   Register roles as in watch_gather_file: x19=reader, x20=stat, x21=ymd,
+//   x23=lo (then the window), x24=hi, x25=whole_day, x26=enter, x27=size,
+//   x28=mtime_ns.
+// ============================================================================
+    .p2align 2
+watch_gf_reader:
+    PROLOGUE 5
+    mov x21, x0                        // ymd
+    mov x20, x1                        // stat ptr
+    mov x26, x2                        // enter
+    mov x23, x3                        // lo
+    mov x24, x4                        // hi
+    mov x25, x5                        // whole_day
+    mov x27, x6                        // size
+    mov x28, x7                        // mtime_ns
     LEA x0, watch_fpath
     mov x1, x21
     bl watch_reader_get
@@ -4780,30 +4832,30 @@ watch_gather_file:
     mov x3, #0
     LEA x9, watch_seeking
     ldr x9, [x9]
-    cbnz x9, .Lwgf_floor_done
+    cbnz x9, .Lwgr_floor_done
     LEA x9, watch_retain_seconds
     ldr d0, [x9]
     fcmp d0, #0.0
-    b.le .Lwgf_floor_done
+    b.le .Lwgr_floor_done
     scvtf d1, x23
     fsub d0, d1, d0
     fcmp d0, #0.0
-    b.le .Lwgf_floor_done
+    b.le .Lwgr_floor_done
     fcvtzs x3, d0
-.Lwgf_floor_done:
+.Lwgr_floor_done:
     mov x0, x19
     mov x1, x20                        // stat
     mov x2, x26                        // enter
     bl watch_reader_refresh            // x0 = status (floor in x3)
     cmp x0, #0
-    b.lt .Lwgf_unreadable
+    b.lt .Lwgr_bad
 
-    cbz x0, .Lwgf_parsed_done
+    cbz x0, .Lwgr_parsed_done
     LEA x9, watch_g_parsed
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
-.Lwgf_parsed_done:
+.Lwgr_parsed_done:
     // window(lo, hi)
     mov x0, x19
     mov x1, x23
@@ -4812,27 +4864,27 @@ watch_gather_file:
     mov x23, x0                        // window ptr (lo no longer needed)
 
     // put whole day (cold read, no appends, not partial)
-    cbz x25, .Lwgf_put_done
+    cbz x25, .Lwgr_put_done
     LEA x9, watch_g_cache
     ldr x9, [x9]
-    cbz x9, .Lwgf_put_done
+    cbz x9, .Lwgr_put_done
     ldr x9, [x19, #RD_APPENDS]
-    cbnz x9, .Lwgf_put_done
+    cbnz x9, .Lwgr_put_done
     ldr x9, [x19, #RD_PARTIAL]
-    cbnz x9, .Lwgf_put_done
+    cbnz x9, .Lwgr_put_done
     ldr x0, [x19, #RD_EXIT]
     bl tc_cache_put_day
-.Lwgf_put_done:
+.Lwgr_put_done:
     ldr x9, [x19, #RD_EXIT]
     LEA x10, watch_g_enter
     str x9, [x10]
     // memo the whole day (never partial)
-    cbz x25, .Lwgf_win_add
+    cbz x25, .Lwgr_win_add
     LEA x9, watch_g_cache
     ldr x9, [x9]
-    cbz x9, .Lwgf_win_add
+    cbz x9, .Lwgr_win_add
     ldr x9, [x19, #RD_PARTIAL]
-    cbnz x9, .Lwgf_win_add
+    cbnz x9, .Lwgr_win_add
     mov x0, x19
     bl watch_reader_day                // x0 = day record
     mov x25, x0                        // counts (x25 free now)
@@ -4850,23 +4902,17 @@ watch_gather_file:
     mov x11, x0
     ldr x0, [x11, #DM_COUNTS]
     bl watch_win_add
-    b .Lwgf_done
-.Lwgf_win_add:
+    b .Lwgr_ok
+.Lwgr_win_add:
     mov x0, x23
     bl watch_win_add
-    b .Lwgf_done
-.Lwgf_stat_fail:
-    bl tc_capture_errno
-.Lwgf_unreadable:
-    // skip(): the errno captured at the failing call, as tc_core.S
-    LEA x0, watch_reason
-    bl tc_errno_reason
-    mov x1, x0
-    add x0, x19, #TC_L_NAME
-    bl watch_record_unreadable
-    LEA x9, watch_g_enter
-    str xzr, [x9]
-.Lwgf_done:
+    b .Lwgr_ok
+.Lwgr_ok:
+    mov x0, #0
+    EPILOGUE 5
+    ret
+.Lwgr_bad:
+    mov x0, #-1
     EPILOGUE 5
     ret
 
@@ -4925,16 +4971,15 @@ watch_record_unreadable:
     mov x20, x1                        // reason
     LEA x9, watch_g_unr_n
     ldr x10, [x9]
-    ldr x11, =64
-    cmp x10, x11
+    cmp x10, #TC_T_UNR_MAX
     b.ge .Lwru_done
     LEA x11, watch_g_unr
-    mov x12, #96
+    mov x12, #TC_T_UNR_ENTRY_SZ
     mul x12, x10, x12
     add x11, x11, x12
     mov x13, #0
 .Lwru_name:
-    cmp x13, #63
+    cmp x13, #(TC_T_UNR_NAME_SZ - 1)
     b.ge .Lwru_name_done
     ldrb w14, [x19, x13]
     strb w14, [x11, x13]
@@ -4944,10 +4989,10 @@ watch_record_unreadable:
 .Lwru_name_done:
     mov w14, #0
     strb w14, [x11, x13]
-    add x11, x11, #64
+    add x11, x11, #TC_T_UNR_NAME_SZ
     mov x13, #0
 .Lwru_reason:
-    cmp x13, #31
+    cmp x13, #(TC_T_UNR_REASON_SZ - 1)
     b.ge .Lwru_reason_done
     ldrb w14, [x20, x13]
     strb w14, [x11, x13]

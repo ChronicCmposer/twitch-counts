@@ -415,6 +415,34 @@ fi
 rm -rf "$LOGS/$VCH"
 
 # ---------------------------------------------------------------------------
+echo "== unreadable files under --watch: named like Python's skip() =="
+# Two unreadable days among readable ones: the full header's unreadable row
+# must name both files (basename) with the OSError text exactly as Python
+# does (the row is clipped to the pty width on both sides).  chmod 000
+# needs a non-root user to bite.
+if [ "$(id -u)" != "0" ]; then
+    UCH=unrch
+    mkdir -p "$LOGS/$UCH"
+    printf '[10:00:00] alice: hi\n[10:00:01] bob: yo\n' > "$LOGS/$UCH/$UCH-2026-09-01.log"
+    printf '[10:00:00] carol: hey\n' > "$LOGS/$UCH/$UCH-2026-09-02.log"
+    printf '[10:00:00] dave: hey\n' > "$LOGS/$UCH/$UCH-2026-09-03.log"
+    printf '[10:00:00] erin: hey\n' > "$LOGS/$UCH/$UCH-2026-09-04.log"
+    chmod 000 "$LOGS/$UCH/$UCH-2026-09-02.log" "$LOGS/$UCH/$UCH-2026-09-03.log"
+    NBASE=( -c "$UCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache -b 2026-09-01 -e 2026-09-04 --header full )
+    run_pty "$DATA/unr_asm.out" 4 1.0 -1 "" "$BIN" "${NBASE[@]}"
+    tc_strip_ansi "$DATA/unr_asm.out" > "$DATA/unr_asm.plain"
+    run_pty "$DATA/unr_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${NBASE[@]}"
+    tc_strip_ansi "$DATA/unr_py.out" > "$DATA/unr_py.plain"
+    check "unreadable row names both files like Python" \
+        "$(grep '^unreadable:' "$DATA/unr_py.plain" | head -1)" \
+        "$(grep '^unreadable:' "$DATA/unr_asm.plain" | head -1)"
+    chmod 644 "$LOGS/$UCH/$UCH-2026-09-02.log" "$LOGS/$UCH/$UCH-2026-09-03.log"
+    rm -rf "$LOGS/$UCH"
+else
+    ok "unreadable files under --watch (skipped: running as root)"
+fi
+
+# ---------------------------------------------------------------------------
 if [ "$UNAME_S" = "Darwin" ]; then
     echo "== event-driven wake: -w 5, notify=true shows an append within 1.5s =="
     # The "append updates the frame" test above (and this block's own later
