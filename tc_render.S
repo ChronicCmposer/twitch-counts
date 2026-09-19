@@ -2820,7 +2820,7 @@ choose_limit:
     // isatty(1)?
     mov x0, #1
     bl isatty
-    cbz x0, .Lcl_term_unlimited
+    cbz w0, .Lcl_term_unlimited        // int result: test w0, not x0
     // term lines
     sub sp, sp, #16
     mov x0, #1
@@ -2838,8 +2838,8 @@ choose_limit:
 .Lcl_term_fallback2:
     mov w23, #24
 .Lcl_term_calc:
-    // limit = max(rows - (reserved + 8), 5)
-    add x23, x23, x22
+    // limit = max(rows - (reserved + 8), 5)   (Python adaptive_row_limit)
+    sub x23, x23, x22                  // was `add`: a 30-line terminal got 32 rows
     sub x23, x23, #8
     cmp x23, #5
     b.ge .Lcl_term_store
