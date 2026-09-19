@@ -73,9 +73,9 @@
     .globl free
     .globl qsort
     .globl strcmp
-    .globl snprintf
+    .globl tc_snprintf_d
     .globl isatty
-    .globl ioctl
+    .globl tc_ioctl_p
     .globl write
     .globl memset
     .globl tc_strlen
@@ -97,7 +97,6 @@
 // ----------------------------------------------------------------------------
     .equ STDOUT,          1
     .equ STDERR,          2
-    .equ TIOCGWINSZ,      0x5413
     .equ ROW_LOGIN,       0
     .equ ROW_COUNT,       32
     .equ ROW_LIVE,        40
@@ -302,6 +301,7 @@ s_p_at_least:       .asciz "at-least"
 s_p_at_most:        .asciz "at-most"
 s_p_nearest:        .asciz "nearest"
 // metric names indexed by TC_M_*
+    .p2align 3
 metric_names:
     .quad s_m_count
     .quad s_m_login
@@ -318,6 +318,7 @@ s_m_unknown:        .asciz "unknown"
 s_m_offshare:       .asciz "offline-share"
 s_m_liveshare:      .asciz "live-share"
 // metric headers indexed by TC_M_*
+    .p2align 3
 metric_headers:
     .quad h_m_count
     .quad h_m_login
@@ -946,7 +947,7 @@ fmt_share_cell:
     mov x1, #CELL_SZ
     adrp x2, PAGE(s_share_fmt)
     add x2, x2, LO12(s_share_fmt)
-    bl snprintf
+    bl tc_snprintf_d
     add x0, x19, x0
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -2819,10 +2820,10 @@ choose_limit:
     // term lines
     sub sp, sp, #16
     mov x0, #1
-    mov x1, #TIOCGWINSZ
+    ldr x1, =TIOCGWINSZ
     mov x2, sp
-    bl ioctl
-    cmp x0, #0
+    bl tc_ioctl_p
+    cmp w0, #0
     b.ne .Lcl_term_fallback
     ldrh w23, [sp]                     // ws_row
     add sp, sp, #16

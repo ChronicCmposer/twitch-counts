@@ -97,15 +97,12 @@
     .equ CFG_SCRATCH_SZ,1024
     .equ VAL_BUF_SZ,    512          // unquoted-value scratch (x2 buffers)
     .equ CFG_ERRBUF_SZ, 128          // toml_parse error buffer
-    .equ CFG_STAT_SZ,   160          // struct stat (aarch64 musl)
     .equ EX_GROUP_MAX,  64           // max [exclude] groups / always names
     .equ SPLIT_MAX,     256          // max names from one split call
 
-    // struct stat offsets (musl aarch64 bits/stat.h)
-    .equ ST_MODE,       16
-    .equ ST_SIZE,       48
-    .equ ST_MTIM_SEC,   88
-    .equ ST_MTIM_NSEC,  96
+    // struct stat offsets: ST_MODE/ST_SIZE/ST_MTIM_SEC/ST_MTIM_NSEC and the
+    // struct stat buffer size STAT_SZ are per-platform and come from
+    // tc_platform.h (musl aarch64 vs. Darwin arm64 layouts differ).
 
     // config load state
     .equ CFG_ST_NONE,   0            // not attempted
@@ -134,7 +131,7 @@ tc_cfg_val_a:       .skip VAL_BUF_SZ
 tc_cfg_val_b:       .skip VAL_BUF_SZ
 tc_cfg_val_tog:     .skip 8
 tc_cfg_errbuf:      .skip CFG_ERRBUF_SZ
-tc_cfg_statbuf:     .skip CFG_STAT_SZ
+tc_cfg_statbuf:     .skip STAT_SZ
 tc_cfg_fd:          .skip 8
 tc_cfg_buf:         .skip 8          // malloc'd file buffer
 tc_cfg_bufsz:       .skip 8
@@ -927,7 +924,7 @@ tc_config_identity:
     cbnz x0, .Lci_missing
     adrp x0, PAGE(tc_cfg_statbuf)
     add x0, x0, LO12(tc_cfg_statbuf)
-    ldr x1, [x0, #ST_MODE]
+    LOAD_ST_MODE 1, x0
     and x1, x1, #S_IFMT
     cmp x1, #S_IFREG
     b.ne .Lci_missing
@@ -1295,7 +1292,7 @@ config_do_load:
     mov x1, x20
     bl stat
     cbnz x0, .Ldl_notfile
-    ldr x1, [x20, #ST_MODE]
+    LOAD_ST_MODE 1, x20
     and x1, x1, #S_IFMT
     cmp x1, #S_IFREG
     b.ne .Ldl_notfile
@@ -1625,7 +1622,7 @@ cfg_errno_message:
     stp x21, x22, [sp, #-16]!
     // capture errno first
     bl __errno_location
-    ldr x20, [x0]                   // errno
+    ldr w20, [x0]                   // errno (int; w-load zero-extends into x20)
     mov x0, x20
     bl strerror
     mov x21, x0                     // strerror text

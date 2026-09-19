@@ -2,9 +2,9 @@
 // tc_util.S — shared utilities for twitch-counts-full (split from tc_entry.S)
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static — musl libc + crt1.o (startfile)
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
 //
 //  This module owns every .global utility the other tc_*.S modules share.
 //  The split from tc_entry.S (Wave A, Phase 2): utilities live here,
@@ -16,6 +16,11 @@
 //    tc_eputs(x0=s)           print string to stderr (unbuffered)
 //    tc_putu64(x0=v)          print unsigned 64-bit decimal to stdout, no commas
 //    tc_fail(x0=msg)          print "error: <msg>" to stderr, exit 1 (noreturn)
+//    tc_snprintf_d(x0=buf, x1=size, x2=fmt, d0=value)  -> x0 = snprintf() result
+//    tc_snprintf_i(x0=buf, x1=size, x2=fmt, x3=value)  -> x0 = snprintf() result
+//    tc_ioctl_p(x0=fd, x1=request, x2=ptr)             -> x0 = ioctl() result
+//      (fixed-arity wrappers for the variadic libc calls; see below and
+//      tc_platform.h — modules never call snprintf/ioctl directly)
 //
 //  AAPCS64 notes (the rules every later phase must follow)
 //  -------------------------------------------------------
@@ -166,6 +171,70 @@ tc_fail:
     bl write
     mov w0, #1                      // exit(1)
     bl exit
+
+// ----------------------------------------------------------------------------
+// Fixed-arity wrappers for the variadic libc calls the modules make.
+//
+//   tc_snprintf_d(x0=buf, x1=size, x2=fmt, d0=value)  -> x0 = int
+//   tc_snprintf_i(x0=buf, x1=size, x2=fmt, x3=value)  -> x0 = int
+//   tc_ioctl_p(x0=fd, x1=request, x2=ptr)             -> x0 = int
+//
+//   Call sites set the registers up exactly as for the libc function and
+//   only differ in the `bl` target.  On Linux (AAPCS64) the one anonymous
+//   argument is already where snprintf/ioctl read it, so the wrapper is a
+//   tail call.  On Darwin arm64 anonymous arguments are passed in 8-byte
+//   STACK slots starting at the callee's sp, so the wrapper opens a 32-byte
+//   frame — [sp,#0] the argument slot, [sp,#16] saved x29/x30 — stores the
+//   argument, calls, and unwinds.  Like the libc call they wrap, the
+//   wrappers clobber x0-x17 and preserve x19-x28; sp stays 16-aligned.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_snprintf_d
+    FUNC_TYPE(tc_snprintf_d)
+tc_snprintf_d:
+#ifdef __APPLE__
+    sub sp, sp, #32
+    stp x29, x30, [sp, #16]
+    str d0, [sp]                    // the double goes in the first vararg slot
+    bl snprintf
+    ldp x29, x30, [sp, #16]
+    add sp, sp, #32
+    ret
+#else
+    b snprintf                      // d0 is already the first anonymous argument
+#endif
+
+    .p2align 2
+    .global tc_snprintf_i
+    FUNC_TYPE(tc_snprintf_i)
+tc_snprintf_i:
+#ifdef __APPLE__
+    sub sp, sp, #32
+    stp x29, x30, [sp, #16]
+    str x3, [sp]                    // %d reads the low 32 bits of the slot
+    bl snprintf
+    ldp x29, x30, [sp, #16]
+    add sp, sp, #32
+    ret
+#else
+    b snprintf                      // x3 is already the first anonymous argument
+#endif
+
+    .p2align 2
+    .global tc_ioctl_p
+    FUNC_TYPE(tc_ioctl_p)
+tc_ioctl_p:
+#ifdef __APPLE__
+    sub sp, sp, #32
+    stp x29, x30, [sp, #16]
+    str x2, [sp]                    // the pointer is ioctl's anonymous argument
+    bl ioctl
+    ldp x29, x30, [sp, #16]
+    add sp, sp, #32
+    ret
+#else
+    b ioctl                         // x2 is already the anonymous argument
+#endif
 
 // ----------------------------------------------------------------------------
 // Read-only message data.  Lengths are label differences so the writer and

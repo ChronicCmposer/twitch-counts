@@ -113,6 +113,7 @@
     .globl open
     .globl close
     .globl read
+    .globl __errno_location
     .globl strcmp
     .globl tc_strlen
     .globl tc_fail
@@ -131,7 +132,6 @@
     .equ FILE_CAP,        1073741824      // 1 GiB sanity cap (documented)
     .equ O_RDONLY,        0
     .equ DT_DIR,          4
-    .equ EINTR,           -4
     .equ MAX_DNAMES,      256
     .equ DNAME_SZ,        256
     .equ READ_CHUNK,      8192
@@ -380,10 +380,10 @@ tc_resolve_channel:
     mov x0, x19
     bl readdir
     cbz x0, .Lrc_list_done
-    ldrb w1, [x0, #18]                 // d_type
+    ldrb w1, [x0, #D_TYPE_OFF]         // d_type
     cmp w1, #DT_DIR
     b.ne .Lrc_list
-    add x1, x0, #19                    // d_name
+    add x1, x0, #D_NAME_OFF            // d_name
     // skip "." and ".."
     ldrb w2, [x1]
     cmp w2, #'.'
@@ -398,7 +398,8 @@ tc_resolve_channel:
     ldr x3, [x20]
     cmp x3, #MAX_DNAMES
     b.ge .Lrc_list
-    // name length, capped at DNAME_SZ-1
+    // name length, capped at DNAME_SZ-1 (Darwin d_name can run up to 1023
+    // bytes; this cap already rejects anything that long, same as Linux)
     mov x4, x1
     mov x5, #0
 .Lrc_nlen:
@@ -594,7 +595,7 @@ tc_build_listing:
     mov x0, x20
     bl readdir
     cbz x0, .Lbl_done
-    add x22, x0, #19                   // d_name (callee-saved)
+    add x22, x0, #D_NAME_OFF           // d_name (callee-saved)
     mov x0, x22
     bl parse_log_filename              // x0 = ymd or 0 (clobbers x0-x2)
     cbz x0, .Lbl_list
@@ -1708,8 +1709,15 @@ tc_read_file:
     b.gt .Lrf_large
     b .Lrf_loop
 .Lrf_retry:
-    ldr x2, =EINTR
-    cmp x0, x2
+    // read() returned -1; consult errno (its VALUE, not a return code — the
+    // old `ldr x2, =EINTR` / cmp against read()'s x0 here compared a return
+    // code against errno's numeric value and could never match on either
+    // platform).  fd/buf/cap/total live in x19-x23 (path is x19), all
+    // callee-saved, so they need no manual spill across this call: it
+    // clobbers only x0-x17 like any libc call.
+    bl __errno_location                // x0 = &errno
+    ldr w0, [x0]
+    cmp w0, #EINTR
     b.eq .Lrf_read
     b .Lrf_read_err
 .Lrf_done:

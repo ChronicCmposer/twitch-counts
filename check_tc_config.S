@@ -19,6 +19,10 @@
     .globl tc_source_str
     .globl tc_build_exclusions
     .globl tc_strlen
+    .globl tc_printf_i
+    .globl tc_printf_ii
+    .globl tc_printf_ip
+    .globl tc_printf_p
 
 // ----------------------------------------------------------------------------
 // tc_load_src_id(x0=set id) -> x0 = the source id at TC_O_SRC[set id]
@@ -48,7 +52,7 @@ tc_print_src:
     add x0, x0, LO12(fmt_src)
     mov x1, x20
     mov x2, x19
-    bl printf
+    bl tc_printf_ip
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
@@ -88,7 +92,7 @@ main:
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CHANNEL
-    bl printf
+    bl tc_printf_p
     mov x0, #TC_SET_CHANNEL
     bl tc_load_src_id
     cmp x0, #TC_SRC_DYN_ALIAS
@@ -106,7 +110,7 @@ main:
     add x0, x0, LO12(fmt_chan_src)
     mov x1, x20
     mov x2, x19
-    bl printf
+    bl tc_printf_ip
     b 2f
 1:
     mov x0, #TC_SET_CHANNEL
@@ -118,7 +122,7 @@ main:
     add x0, x0, LO12(fmt_chan_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
 2:
 
     // ---- logs_dir ----------------------------------------------------------
@@ -127,7 +131,7 @@ main:
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_LOGS_DIR
-    bl printf
+    bl tc_printf_p
     mov x0, #TC_SET_LOGS_DIR
     bl tc_print_src_of
 
@@ -137,13 +141,13 @@ main:
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CONFIG_PATH
-    bl printf
+    bl tc_printf_p
     adrp x0, PAGE(fmt_loaded)
     add x0, x0, LO12(fmt_loaded)
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     ldr x1, [x1, #TC_O_CONFIG_LOADED]
-    bl printf
+    bl tc_printf_i
 
     // ---- numeric settings --------------------------------------------------
     adrp x19, PAGE(tc_opts)
@@ -151,47 +155,47 @@ main:
     ldr x1, [x19, #TC_O_MIN_COUNT]
     adrp x0, PAGE(fmt_min_count)
     add x0, x0, LO12(fmt_min_count)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_MIN_COUNT
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_TOP]
     adrp x0, PAGE(fmt_top)
     add x0, x0, LO12(fmt_top)
-    bl printf
+    bl tc_printf_i
 
     ldr x1, [x19, #TC_O_HEADER_MODE]
     adrp x0, PAGE(fmt_header)
     add x0, x0, LO12(fmt_header)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_HEADER
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_SORT]
     adrp x0, PAGE(fmt_sort)
     add x0, x0, LO12(fmt_sort)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_SORT
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_STATE_FILTER]
     adrp x0, PAGE(fmt_state)
     add x0, x0, LO12(fmt_state)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_STATE
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_USERS_POLICY]
     adrp x0, PAGE(fmt_users_policy)
     add x0, x0, LO12(fmt_users_policy)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_USERS_POLICY
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_USERS_MAX]
     adrp x0, PAGE(fmt_users_max)
     add x0, x0, LO12(fmt_users_max)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_USERS_MAX
     bl tc_print_src_of
 
@@ -202,7 +206,7 @@ main:
     ldr x2, [x20, #TC_W_END_SOD]
     adrp x0, PAGE(fmt_end)
     add x0, x0, LO12(fmt_end)
-    bl printf
+    bl tc_printf_ii
     mov x0, #TC_SET_END
     bl tc_print_src_of
 
@@ -210,7 +214,7 @@ main:
     ldr x2, [x20, #TC_W_BEGIN_SOD]
     adrp x0, PAGE(fmt_begin)
     add x0, x0, LO12(fmt_begin)
-    bl printf
+    bl tc_printf_ii
     // begin source (window start source pointer)
     ldr x21, [x20, #TC_W_START_SRC]
     mov x0, x21
@@ -220,62 +224,62 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
 
     // ---- watch/tail values ------------------------------------------------
     ldr x1, [x19, #TC_O_INTERVAL]
     adrp x0, PAGE(fmt_interval)
     add x0, x0, LO12(fmt_interval)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_INTERVAL
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_HOLD]
     adrp x0, PAGE(fmt_hold)
     add x0, x0, LO12(fmt_hold)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_HOLD
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_SHADES]
     adrp x0, PAGE(fmt_shades)
     add x0, x0, LO12(fmt_shades)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_SHADES
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_USER_WIDTH]
     adrp x0, PAGE(fmt_user_width)
     add x0, x0, LO12(fmt_user_width)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_USER_WIDTH
     bl tc_print_src_of
 
     adrp x0, PAGE(fmt_fade_up)
     add x0, x0, LO12(fmt_fade_up)
     add x1, x19, #TC_O_FADE_UP_RAW
-    bl printf
+    bl tc_printf_p
     mov x0, #TC_SET_FADE_UP
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_NOTIFY]
     adrp x0, PAGE(fmt_notify)
     add x0, x0, LO12(fmt_notify)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_NOTIFY
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_MAX_EVENTS]
     adrp x0, PAGE(fmt_max_events)
     add x0, x0, LO12(fmt_max_events)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_MAX_EVENTS
     bl tc_print_src_of
 
     ldr x1, [x19, #TC_O_SEED_LOOKBACK]
     adrp x0, PAGE(fmt_seed_lookback)
     add x0, x0, LO12(fmt_seed_lookback)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_SEED_LOOKBACK
     bl tc_print_src_of
 
@@ -285,7 +289,7 @@ main:
     adrp x0, PAGE(fmt_excl_count)
     add x0, x0, LO12(fmt_excl_count)
     mov x1, x23
-    bl printf
+    bl tc_printf_i
     add x20, x19, #8                // entries base
     mov x24, #0
 .Lexcl_loop:
@@ -300,7 +304,7 @@ main:
     adrp x0, PAGE(fmt_excl)
     add x0, x0, LO12(fmt_excl)
     mov x1, x21
-    bl printf
+    bl tc_printf_p
     // source label: tc_excl_sources[idx] = {ptr, len}
     adrp x0, PAGE(tc_excl_sources)
     add x0, x0, LO12(tc_excl_sources)
@@ -311,7 +315,7 @@ main:
     ldr x2, [x0]                    // ptr (string for %.*s)
     adrp x0, PAGE(fmt_src)
     add x0, x0, LO12(fmt_src)
-    bl printf
+    bl tc_printf_ip
     add x24, x24, #1
     b .Lexcl_loop
 .Lexcl_done:
@@ -340,7 +344,7 @@ main:
     ldr x2, [x0]                    // ptr (string)
     adrp x0, PAGE(fmt_src2)
     add x0, x0, LO12(fmt_src2)
-    bl printf
+    bl tc_printf_ip
     add x25, x25, #1
     b .Lesrc_loop
 .Lesrc_done:

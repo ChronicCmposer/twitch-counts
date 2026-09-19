@@ -141,6 +141,7 @@ s_jn_live:          .asciz "live"
 s_jn_offline:       .asciz "offline"
 s_jn_unknown:       .asciz "unknown"
 
+    .p2align 3
 metric_names_json:
     .quad s_jm_count
     .quad s_jm_login

@@ -78,7 +78,6 @@
     .equ STDOUT, 1
     .equ STDERR, 2
     .equ TERM_WIDTH, 80
-    .equ SYS_WRITE, 64
     .equ CLOCK_REALTIME, 0
     .equ SECS_PER_DAY, 86400
 
@@ -638,13 +637,15 @@ tc_print_usage:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_fd_write(x0=fd, x1=buf, x2=len)
+// tc_fd_write(x0=fd, x1=buf, x2=len) — tail call to libc write(2), not a raw
+// syscall (write is renamed to _write on Darwin by tc_platform.h).  Like any
+// libc call it clobbers x0-x17; callers must hold nothing live there across
+// it.  x0 = write()'s return value (bytes written, or -1) is passed through
+// unexamined to our own caller.
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_fd_write:
-    mov x8, #SYS_WRITE
-    svc #0
-    ret
+    b write
 
 // ----------------------------------------------------------------------------
 // tc_fd_puts(x0=fd, x1=s)
@@ -867,33 +868,44 @@ tc_handle_opt:
     mov x1, #1
     strb w1, [x0, #TC_SET_STATE]
     b .Lho_done
+// x19 = the state constant for the option just parsed (current arg); x1 =
+// the state constant already stored in tc_cli_state (the earlier, conflicting
+// arg).  Each adrp/add pair below must name the SAME symbol -- a mismatched
+// pair (adrp of one canonical string, add LO12 of another) only produced the
+// right address by accident on Linux, when both strings happened to share a
+// 4 KiB page; it breaks in general and must not be "merged" into a shared
+// add via a fall-through label.
 .Lho_state_conflict:
     cmp x19, #TC_ST_LIVE
     b.eq .Lho_sc_live
     cmp x19, #TC_ST_OFFLINE
     b.eq .Lho_sc_offline
     adrp x0, PAGE(s_canon_unknown)
-    b .Lho_sc_y
+    add x0, x0, LO12(s_canon_unknown)
+    b .Lho_sc_prev
 .Lho_sc_live:
     adrp x0, PAGE(s_canon_live)
-    b .Lho_sc_y
+    add x0, x0, LO12(s_canon_live)
+    b .Lho_sc_prev
 .Lho_sc_offline:
     adrp x0, PAGE(s_canon_offline)
-.Lho_sc_y:
-    add x0, x0, LO12(s_canon_live)
+    add x0, x0, LO12(s_canon_offline)
+.Lho_sc_prev:
     cmp x1, #TC_ST_LIVE
     b.eq .Lho_sc_prev_live
     cmp x1, #TC_ST_OFFLINE
     b.eq .Lho_sc_prev_offline
     adrp x1, PAGE(s_canon_unknown)
+    add x1, x1, LO12(s_canon_unknown)
     b .Lho_sc_emit
 .Lho_sc_prev_live:
     adrp x1, PAGE(s_canon_live)
+    add x1, x1, LO12(s_canon_live)
     b .Lho_sc_emit
 .Lho_sc_prev_offline:
     adrp x1, PAGE(s_canon_offline)
-.Lho_sc_emit:
     add x1, x1, LO12(s_canon_offline)
+.Lho_sc_emit:
     bl tc_arg_not_allowed
 
 .Lho_exclude:

@@ -15,6 +15,11 @@
     .globl printf
     .globl tc_cli_parse
     .globl tc_source_str
+    .globl tc_printf_i
+    .globl tc_printf_ii
+    .globl tc_printf_ip
+    .globl tc_printf_p
+    .globl tc_printf_7i
 
     .p2align 2
 main:
@@ -31,7 +36,7 @@ main:
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CHANNEL
-    bl printf
+    bl tc_printf_p
     // channel source
     mov x0, #TC_SET_CHANNEL
     bl tc_load_src_id              // x0 = source id
@@ -42,7 +47,7 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
 
     // ---- logs_dir ----------------------------------------------------------
     adrp x0, PAGE(fmt_logs_dir)
@@ -50,7 +55,7 @@ main:
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_LOGS_DIR
-    bl printf
+    bl tc_printf_p
     mov x0, #TC_SET_LOGS_DIR
     bl tc_load_src_id
     bl tc_source_str
@@ -60,7 +65,7 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
 
     // ---- window ------------------------------------------------------------
     adrp x19, PAGE(tc_window)
@@ -71,7 +76,7 @@ main:
     add x0, x0, LO12(fmt_begin)
     mov x1, x20
     mov x2, x21
-    bl printf
+    bl tc_printf_ii
     // begin source = window start source (static ptr or composed buffer)
     ldr x0, [x19, #TC_W_START_SRC]
     bl tc_strlen_local
@@ -82,14 +87,14 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x21
     mov x2, x22
-    bl printf
+    bl tc_printf_ip
     ldr x20, [x19, #TC_W_END_YMD]
     ldr x21, [x19, #TC_W_END_SOD]
     adrp x0, PAGE(fmt_end)
     add x0, x0, LO12(fmt_end)
     mov x1, x20
     mov x2, x21
-    bl printf
+    bl tc_printf_ii
     // end source
     mov x0, #TC_SET_END
     bl tc_load_src_id
@@ -100,12 +105,12 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
     // window kind
     ldr x1, [x19, #TC_W_KIND]
     adrp x0, PAGE(fmt_kind)
     add x0, x0, LO12(fmt_kind)
-    bl printf
+    bl tc_printf_i
 
     // ---- numeric settings ---------------------------------------------------
     adrp x19, PAGE(tc_opts)
@@ -113,7 +118,7 @@ main:
     ldr x1, [x19, #TC_O_MIN_COUNT]
     adrp x0, PAGE(fmt_min_count)
     add x0, x0, LO12(fmt_min_count)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_MIN_COUNT
     bl tc_load_src_id
     bl tc_source_str
@@ -123,17 +128,17 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
 
     ldr x1, [x19, #TC_O_TOP]
     adrp x0, PAGE(fmt_top)
     add x0, x0, LO12(fmt_top)
-    bl printf
+    bl tc_printf_i
 
     ldr x1, [x19, #TC_O_STATE_FILTER]
     adrp x0, PAGE(fmt_state)
     add x0, x0, LO12(fmt_state)
-    bl printf
+    bl tc_printf_i
     mov x0, #TC_SET_STATE
     bl tc_load_src_id
     bl tc_source_str
@@ -143,12 +148,12 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
 
     ldr x1, [x19, #TC_O_SORT]
     adrp x0, PAGE(fmt_sort)
     add x0, x0, LO12(fmt_sort)
-    bl printf
+    bl tc_printf_i
 
     // columns
     adrp x0, PAGE(fmt_columns)
@@ -160,7 +165,7 @@ main:
     ldr x5, [x19, #TC_O_COLUMNS + 24]
     ldr x6, [x19, #TC_O_COLUMNS + 32]
     ldr x7, [x19, #TC_O_COLUMNS + 40]
-    bl printf
+    bl tc_printf_7i
     ldr x0, [x19, #TC_O_COLUMNS_SRC_PTR]
     cbz x0, .Lcols_none
     mov x21, x0
@@ -170,7 +175,7 @@ main:
     add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
-    bl printf
+    bl tc_printf_ip
     b .Lcols_done
 .Lcols_none:
     adrp x0, PAGE(fmt_src_none)
@@ -181,43 +186,43 @@ main:
     ldr x1, [x19, #TC_O_HEADER_MODE]
     adrp x0, PAGE(fmt_header)
     add x0, x0, LO12(fmt_header)
-    bl printf
+    bl tc_printf_i
 
     ldr x1, [x19, #TC_O_FLAGS]
     and x1, x1, #TC_F_JSON
     lsr x1, x1, #3
     adrp x0, PAGE(fmt_json)
     add x0, x0, LO12(fmt_json)
-    bl printf
+    bl tc_printf_i
 
     ldr x1, [x19, #TC_O_FLAGS]
     and x1, x1, #TC_F_WATCH_PRESENT
     lsr x1, x1, #4
     adrp x0, PAGE(fmt_watch)
     add x0, x0, LO12(fmt_watch)
-    bl printf
+    bl tc_printf_i
 
     ldr x1, [x19, #TC_O_USERS]
     adrp x0, PAGE(fmt_users)
     add x0, x0, LO12(fmt_users)
-    bl printf
+    bl tc_printf_i
 
     ldr x1, [x19, #TC_O_FLAGS]
     adrp x0, PAGE(fmt_flags)
     add x0, x0, LO12(fmt_flags)
-    bl printf
+    bl tc_printf_i
 
     adrp x0, PAGE(fmt_config)
     add x0, x0, LO12(fmt_config)
     adrp x1, PAGE(tc_opts)
     add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CONFIG_PATH
-    bl printf
+    bl tc_printf_p
 
     ldr x1, [x19, #TC_O_COLOR_MODE]
     adrp x0, PAGE(fmt_color)
     add x0, x0, LO12(fmt_color)
-    bl printf
+    bl tc_printf_i
 
     mov w0, #0
     ldp x29, x30, [sp], #16

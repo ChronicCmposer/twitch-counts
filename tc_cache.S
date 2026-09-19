@@ -187,10 +187,9 @@
     .equ SECS_PER_DAY,         86400
     .equ LAST_SECOND,          86399
     .equ CACHE_KEEP_DAYS,      7
-    .equ STAT_SZ,              160      // struct stat (aarch64 musl)
-    .equ ST_SIZE,              48
-    .equ ST_MTIM_SEC,          88
-    .equ ST_MTIM_NSEC,         96
+    // STAT_SZ / ST_SIZE / ST_MTIM_SEC / ST_MTIM_NSEC come from tc_platform.h
+    // (per-platform struct stat offsets); see the LOAD_ST_MODE/LOAD_ST_DEV
+    // notes there for the fields that also differ in width.
     .equ PATH_SZ,              640
     .equ SCRATCH_SZ,           512
     .equ FP_SZ,                17       // 16 hex chars + NUL
@@ -314,6 +313,7 @@ s_fp_fmt:    .asciz "fmt=[HH:MM:SS] who: msg"
 s_fp_states: .asciz "states=live,offline,unknown"
 s_fp_whole:  .asciz "whole=0..86399"
 s_fp_class:  .asciz "class=process_lines+process_message+line_is_marker+speaker_login"
+    .p2align 3
 s_fp_parts:
     .quad s_fp_head
     .quad s_fp_schema

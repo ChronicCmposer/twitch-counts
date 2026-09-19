@@ -84,7 +84,8 @@
 // Externals
 // ----------------------------------------------------------------------------
     .globl isatty
-    .globl ioctl
+    .globl tc_ioctl_p
+    .globl __errno_location
     .globl write
     .globl read
     .globl open
@@ -99,7 +100,8 @@
     .globl malloc
     .globl free
     .globl realloc
-    .globl snprintf
+    .globl tc_snprintf_d
+    .globl tc_snprintf_i
     .globl pow
     .globl rint
     .globl clock_gettime
@@ -148,28 +150,19 @@
     .equ STDOUT,         1
     .equ STDERR,         2
     .equ O_RDONLY,       0
-    .equ EINTR,          -4
     .equ SIGINT,         2
     .equ SEEK_SET,       0
-    .equ CLOCK_MONOTONIC,1
     .equ CLOCK_REALTIME, 0
-    .equ TIOCGWINSZ,     0x5413
     .equ SECS_PER_DAY,   86400
     .equ LAST_SECOND,    86399
     .equ FILE_CAP,       1073741824      // 1 GiB sanity cap (as tc_core.S)
     .equ READ_CHUNK,     65536
 
-    // struct stat offsets (musl aarch64)
-    .equ ST_DEV,         0
-    .equ ST_INO,         8
-    .equ ST_MODE,        16
-    .equ ST_SIZE,        48
-    .equ ST_MTIM_SEC,    88
-    .equ ST_MTIM_NSEC,   96
-
-    // dirent offsets (musl aarch64)
-    .equ DT_TYPE,        18
-    .equ DT_NAME,        19
+    // struct stat offsets (ST_DEV/ST_INO/ST_MODE/ST_SIZE/ST_MTIM_SEC/
+    // ST_MTIM_NSEC/STAT_SZ), dirent offsets (D_TYPE_OFF/D_NAME_OFF), EINTR,
+    // TIOCGWINSZ and CLOCK_MONOTONIC are defined per platform in
+    // tc_platform.h; only the d_type VALUE below is module-local (it is
+    // identical on both platforms).
     .equ DT_REG,         8
 
     // reader record offsets (READER_SZ 936)
@@ -507,7 +500,11 @@ tc_watch_ts:         .skip 16            // clock_gettime / nanosleep ts
 tc_watch_ts2:        .skip 16
 tc_watch_join_old:   .skip 8             // old chunk base during remainder join
 tc_watch_tm:         .skip 64            // struct tm (localtime_r)
-tc_watch_stat:       .skip 128           // struct stat (musl aarch64: 128 bytes)
+tc_watch_stat:       .skip STAT_SZ       // struct stat buffer (platform-sized;
+                                          // Darwin's struct stat is 144 bytes,
+                                          // wider than musl's 128, so a fixed
+                                          // 128 would overrun the two fields
+                                          // that follow)
 tc_watch_choose_wall:.skip 8             // epoch seconds (palette chooser)
 tc_watch_choose_hold:.skip 8             // double
 tc_watch_highlight_on:.skip 8            // u64 1 when highlight rules exist
@@ -1005,7 +1002,7 @@ watch_load_settings:
     mov x1, #128
     adrp x2, PAGE(fmt_g)
     add x2, x2, LO12(fmt_g)
-    bl snprintf
+    bl tc_snprintf_d
     mov x0, x23
     bl tc_strlen
     add x23, x23, x0
@@ -1310,8 +1307,13 @@ watch_build_listing:
     add x1, x1, LO12(tc_watch_stat)
     bl stat
     cbnz w0, .Lwbl_rebuild
-    adrp x9, PAGE(tc_watch_ts)
-    add x9, x9, LO12(tc_watch_ts)
+    // BUGFIX (was: pointed at tc_watch_ts, a 16-byte timespec; on Linux the
+    // ST_MTIM_SEC/ST_MTIM_NSEC offsets from that base landed inside
+    // tc_watch_tm instead, so the memo compared garbage, not the directory's
+    // real mtime).  x9 must point at tc_watch_stat, the struct stat that
+    // 'bl stat' just filled above.
+    adrp x9, PAGE(tc_watch_stat)
+    add x9, x9, LO12(tc_watch_stat)
     ldr x10, [x9, #ST_MTIM_SEC]
     movz x11, #0xCA00, lsl #0
     movk x11, #0x3B9A, lsl #16         // 1000000000
@@ -1352,10 +1354,10 @@ watch_build_listing:
     mov x0, x19
     bl readdir
     cbz x0, .Lwbl_close
-    ldrb w1, [x0, #DT_TYPE]
+    ldrb w1, [x0, #D_TYPE_OFF]
     cmp w1, #DT_REG
     b.ne .Lwbl_list
-    add x21, x0, #DT_NAME             // name ptr (callee-saved)
+    add x21, x0, #D_NAME_OFF          // name ptr (callee-saved)
     mov x0, x21
     bl tc_strlen
     mov x22, x0                       // name len
@@ -1424,8 +1426,9 @@ watch_build_listing:
     add x1, x1, LO12(tc_watch_stat)
     bl stat
     cbnz w0, .Lwbl_memo_skip
-    adrp x9, PAGE(tc_watch_ts)
-    add x9, x9, LO12(tc_watch_ts)
+    // BUGFIX: same tc_watch_ts -> tc_watch_stat fix as above.
+    adrp x9, PAGE(tc_watch_stat)
+    add x9, x9, LO12(tc_watch_stat)
     ldr x10, [x9, #ST_MTIM_SEC]
     movz x11, #0xCA00, lsl #0
     movk x11, #0x3B9A, lsl #16
@@ -2343,8 +2346,12 @@ watch_reader_refresh:
     mov x20, x1                        // stat
     mov x21, x2                        // enter
     mov x22, x3                        // floor
-    // identity = (st_dev, st_ino); rewound = size < offset or identity changed
-    ldr x23, [x20, #ST_DEV]
+    // identity = (st_dev, st_ino); rewound = size < offset or identity changed.
+    // dev_t is 64-bit on musl / 32-bit on Darwin; LOAD_ST_DEV picks the right
+    // width and zero-extends on Darwin, so the 64-bit compares/stores of x23
+    // below (against RD_DEV, itself only ever written from this load) stay
+    // consistent on both platforms.
+    LOAD_ST_DEV 23, x20
     ldr x24, [x20, #ST_INO]
     ldr x25, [x20, #ST_SIZE]
     ldr x26, [x19, #RD_OFFSET]
@@ -2452,6 +2459,10 @@ watch_reader_refresh:
     b.le .Lwrrf_rloop
     b .Lwrrf_close_err
 .Lwrrf_eintr:
+    // read() returned -1; check errno (x23/x24/x25/x26 are callee-saved and
+    // survive the call, which clobbers x0-x17 like any libc call).
+    bl __errno_location
+    ldr w9, [x0]
     cmp w9, #EINTR
     b.eq .Lwrrf_rloop
     b .Lwrrf_close_err
@@ -4739,13 +4750,21 @@ watch_count_tick:
     mul x15, x14, x15
     add x16, x13, x15
     add x17, x12, x15
-    mov x18, #0
+    // x9 (byte index) instead of x18 (reserved on Darwin): x9 last held
+    // &tc_tally (line above .Lwct_unr_loop, used only to derive x12) and is
+    // not read again until it is freshly reloaded after .Lwct_unr_done, so
+    // it is dead across this whole copy loop.  w19 is a byte temp here; the
+    // routine's prologue/epilogue save/restore x19 around the entire
+    // function (stp x19,x20 on entry, ldp x19,x20 on exit with no early
+    // exit in between), so this in-function scratch use does not leak into
+    // the caller's x19.
+    mov x9, #0
 .Lwct_unr_copy:
-    cmp x18, #96
+    cmp x9, #96
     b.ge .Lwct_unr_next
-    ldrb w19, [x16, x18]
-    strb w19, [x17, x18]
-    add x18, x18, #1
+    ldrb w19, [x16, x9]
+    strb w19, [x17, x9]
+    add x9, x9, #1
     b .Lwct_unr_copy
 .Lwct_unr_next:
     add x14, x14, #1
@@ -5988,6 +6007,10 @@ watch_scan_markers:
     b.le .Lwsm_rloop
     b .Lwsm_close
 .Lwsm_eintr:
+    // read() returned -1; check errno (x20/x21/x22/x23 are callee-saved and
+    // survive the call, which clobbers x0-x17 like any libc call).
+    bl __errno_location
+    ldr w9, [x0]
     cmp w9, #EINTR
     b.eq .Lwsm_rloop
     b .Lwsm_close
@@ -6460,7 +6483,7 @@ watch_build_ramps:
     mov x1, #128
     adrp x2, PAGE(fmt_g)
     add x2, x2, LO12(fmt_g)
-    bl snprintf
+    bl tc_snprintf_d
     mov x0, x23
     bl tc_strlen
     add x23, x23, x0
@@ -8013,8 +8036,12 @@ watch_tint_remove:
 .Lwtr_copy:
     cmp x17, #TT_SZ
     b.ge .Lwtr_shift_next
-    ldrb w18, [x15, x17]
-    strb w18, [x16, x17]
+    // x9 (byte value temp) instead of x18 (reserved on Darwin): x9's last
+    // write above was to help form x16 (line before this loop) and it is
+    // not read again until the next outer iteration recomputes it fresh,
+    // so it is dead across this whole inner loop.
+    ldrb w9, [x15, x17]
+    strb w9, [x16, x17]
     add x17, x17, #1
     b .Lwtr_copy
 .Lwtr_shift_next:
@@ -8761,7 +8788,7 @@ watch_build_status:
     mov x1, #128
     adrp x2, PAGE(fmt_g)
     add x2, x2, LO12(fmt_g)
-    bl snprintf
+    bl tc_snprintf_d
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
@@ -8795,7 +8822,7 @@ watch_build_status:
     mov x1, #128
     adrp x2, PAGE(fmt_g)
     add x2, x2, LO12(fmt_g)
-    bl snprintf
+    bl tc_snprintf_d
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
@@ -8853,7 +8880,7 @@ watch_build_status:
     mov x1, #128
     adrp x2, PAGE(fmt_0f)
     add x2, x2, LO12(fmt_0f)
-    bl snprintf
+    bl tc_snprintf_d
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
@@ -8887,7 +8914,7 @@ watch_build_status:
     mov x1, #128
     adrp x2, PAGE(fmt_0f)
     add x2, x2, LO12(fmt_0f)
-    bl snprintf
+    bl tc_snprintf_d
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
@@ -9214,7 +9241,7 @@ watch_screen_paint:
     add x3, x27, #1
     adrp x2, PAGE(s_home_fmt)
     add x2, x2, LO12(s_home_fmt)
-    bl snprintf
+    bl tc_snprintf_i
     mov x0, x25
     bl tc_strlen
     add x25, x25, x0
@@ -9252,7 +9279,7 @@ watch_screen_paint:
     mov x3, x9
     adrp x2, PAGE(s_home_fmt)
     add x2, x2, LO12(s_home_fmt)
-    bl snprintf
+    bl tc_snprintf_i
     mov x0, x25
     bl tc_strlen
     add x25, x25, x0
@@ -9345,13 +9372,13 @@ watch_terminal_width:
     stp x19, x20, [sp, #-16]!
     mov x0, #STDOUT
     bl isatty
-    cbz x0, .Lwtw_fallback
+    cbz w0, .Lwtw_fallback            // int result: test w0, not x0
     sub sp, sp, #16
     mov x0, #STDOUT
-    mov x1, #TIOCGWINSZ
+    ldr x1, =TIOCGWINSZ                // not a valid mov immediate on Darwin
     mov x2, sp
-    bl ioctl
-    cmp x0, #0
+    bl tc_ioctl_p
+    cmp w0, #0
     b.ne .Lwtw_fallback2
     ldrh w9, [sp, #2]                  // ws_col
     add sp, sp, #16

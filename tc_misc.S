@@ -2428,10 +2428,10 @@ misc_list_dirs:
     mov x0, x20
     bl readdir
     cbz x0, .Lld_done
-    ldrb w1, [x0, #18]                  // d_type
+    ldrb w1, [x0, #D_TYPE_OFF]          // d_type
     cmp w1, #DT_DIR
     b.ne .Lld_loop
-    add x21, x0, #19                    // d_name
+    add x21, x0, #D_NAME_OFF            // d_name
     ldrb w2, [x21]
     cmp w2, #'.'
     b.ne .Lld_keep

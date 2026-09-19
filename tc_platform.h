@@ -63,7 +63,7 @@
 // renamed by a macro because `exit -> _exit -> __exit` would chain; the
 // single call site in tc_main.S spells it per platform.
 #define main                    _main
-#define __errno_location        __error
+#define __errno_location        ___error
 #define clock_gettime           _clock_gettime
 #define close                   _close
 #define closedir                _closedir
@@ -164,5 +164,92 @@
     .endm
 
 #endif
+
+
+// ============================================================================
+// libc struct layouts and OS constants
+// ============================================================================
+//  Every value below was derived by compiling a probe against the platform's
+//  own headers (macOS SDK via clang; musl-1.2.6 via clang --target
+//  aarch64-linux-musl against third_party/musl-1.2.6), never from memory.
+//  They are cpp macros rather than .equ so that a stale module-local
+//  `.equ ST_MODE, 16` becomes an assembler error instead of silently
+//  overriding the platform value.
+//
+//  Identical on both platforms (so defined once, unconditionally):
+//    struct tm      tm_sec 0, tm_min 4, tm_hour 8, tm_mday 12, tm_mon 16,
+//                   tm_year 20 (int each)
+//    struct timespec tv_sec 0, tv_nsec 8 (16 bytes)
+//    struct winsize ws_row 0, ws_col 2 (u16 each, 8 bytes)
+//    struct option  name 0, has_arg 8, flag 16, val 24 (32 bytes)
+//    O_RDONLY 0, SEEK_SET 0, S_IFMT 0xF000, S_IFREG 0x8000, DT_DIR 4,
+//    DT_REG 8, SIGINT 2, CLOCK_REALTIME 0, EINTR 4, ENOENT 2
+//
+#ifdef __APPLE__
+// struct stat (sizeof 144): st_dev is 4 bytes, st_mode is 2 bytes.
+#define ST_DEV          0
+#define ST_MODE         4
+#define ST_INO          8
+#define ST_MTIM_SEC     48          // st_mtimespec.tv_sec
+#define ST_MTIM_NSEC    56          // st_mtimespec.tv_nsec
+#define ST_SIZE         96
+#define STAT_SZ         160         // buffer size for a struct stat (>= 144)
+// struct dirent (d_namlen occupies 18-19; d_name is up to 1023 bytes)
+#define D_TYPE_OFF      20
+#define D_NAME_OFF      21
+// ioctl(2) request: not a valid mov immediate, load it with `ldr xN, =TIOCGWINSZ`
+#define TIOCGWINSZ      0x40087468
+// "monotonic" for the watch loop: CLOCK_UPTIME_RAW (8) is what CPython's
+// time.monotonic() uses on macOS (mach_absolute_time), and like it stops
+// while the machine sleeps.  Darwin's CLOCK_MONOTONIC is 6 and keeps
+// counting through sleep; clock id 1 is not a Darwin clock at all.
+#define CLOCK_MONOTONIC 8
+#else
+// struct stat (sizeof 128, musl aarch64): st_dev 8 bytes, st_mode 4 bytes.
+#define ST_DEV          0
+#define ST_MODE         16
+#define ST_INO          8
+#define ST_MTIM_SEC     88
+#define ST_MTIM_NSEC    96
+#define ST_SIZE         48
+#define STAT_SZ         160
+// struct dirent
+#define D_TYPE_OFF      18
+#define D_NAME_OFF      19
+#define TIOCGWINSZ      0x5413
+#define CLOCK_MONOTONIC 1
+#endif
+#define EINTR           4
+#define ENOENT          2
+
+// Field loads whose WIDTH differs between the platforms.  `n` is the
+// register number: LOAD_ST_MODE 1, x0  ->  w1 = st_mode (zero-extended).
+#ifdef __APPLE__
+    .macro LOAD_ST_MODE n, base         // mode_t is 16-bit on Darwin
+    ldrh w\n, [\base, #ST_MODE]
+    .endm
+    .macro LOAD_ST_DEV n, base          // dev_t is 32-bit on Darwin
+    ldr  w\n, [\base, #ST_DEV]
+    .endm
+#else
+    .macro LOAD_ST_MODE n, base         // mode_t is 32-bit on musl
+    ldr  w\n, [\base, #ST_MODE]
+    .endm
+    .macro LOAD_ST_DEV n, base          // dev_t is 64-bit on musl
+    ldr  x\n, [\base, #ST_DEV]
+    .endm
+#endif
+
+// Variadic C calls.  On Darwin arm64 every anonymous argument travels in an
+// 8-byte STACK slot at the callee's sp, not in x1..x7/d0..d7 as on Linux.
+// Modules never call a variadic libc function directly; they call these
+// fixed-arity wrappers (defined in tc_util.S / check_tc_printf.S), whose
+// Darwin bodies do the marshalling once:
+//   tc_snprintf_d(x0=buf, x1=size, x2=fmt, d0=double)  -> x0 = int
+//   tc_snprintf_i(x0=buf, x1=size, x2=fmt, x3=int)     -> x0 = int
+//   tc_ioctl_p(x0=fd, x1=request, x2=pointer)          -> x0 = int
+//   (harness only) tc_printf_i / tc_printf_ii / tc_printf_p / tc_printf_ip
+//   / tc_printf_7i with the anonymous arguments in x1.. as on Linux.
+// open(path, O_RDONLY) passes no anonymous argument and is called directly.
 
 #endif // TC_PLATFORM_H
