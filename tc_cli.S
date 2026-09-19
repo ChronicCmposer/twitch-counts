@@ -222,6 +222,8 @@ tc_scratch:         .skip SCRATCH_SZ
 help_text:          .skip HELP_TEXT_SZ  // "--config" help line before wrapping
 help_line:          .skip HELP_LINE_SZ  // one wrapped line
 tc_scratch2:        .skip SCRATCH_SZ
+tc_dt_bad_year:     .skip 16              // {year, week} of a rejected ISO week
+tc_err_display:     .skip SCRATCH_SZ      // normalised value quoted by a resolve error
 tc_strtod_end:      .skip 8
 tc_tm_buf:          .skip 64
 tc_ts_buf:          .skip 16
@@ -1550,13 +1552,17 @@ tc_handle_typed:
     add x4, x4, #1
     b .Lht_mc
 .Lht_bad:
+    // x1 = status, x2 = the offending item (P_METRICS: parse_columns raises
+    // on the first unknown name, not the whole list)
+    mov x3, x1                      // status
+    mov x1, x20                     // display: the raw value ...
+    cmp w24, #P_METRICS
+    b.ne .Lht_bad_go
+    cbz x2, .Lht_bad_go
+    mov x1, x2                      // ... or the first unknown column
+.Lht_bad_go:
     ldr x0, [x21, #VT_CANON]
     mov x2, x24                     // parser
-    mov x3, x1                      // status
-    mov x1, x20                     // display (fallback)
-    cbz x3, .Lht_bad_go             // (status is in x1? no — fix below)
-    b .Lht_bad_go
-.Lht_bad_go:
     // x1 = display, x2 = parser, x3 = status
     bl tc_emit_typed_err
 .Lht_string:
@@ -1852,19 +1858,33 @@ tc_emit_msg_body:
     mov x19, x0
     b .Lmb_done
 .Lmb_dt_week:
-    // status 3: display = year (x2), status extra... week is not passed here;
-    // the caller (tc_resolve_datetime_err) handles status 3 separately.
+    // status 3: "no week {week} in ISO year {year} (weeks run 1-52, or 1-53
+    // in long years)" -- week and year were parked by tc_parse_datetime
     mov x0, x19
     adrp x1, PAGE(s_week_no_prefix)
     add x1, x1, LO12(s_week_no_prefix)
     bl tc_cat_cstr
     mov x19, x0
+    adrp x9, PAGE(tc_dt_bad_year)
+    add x9, x9, LO12(tc_dt_bad_year)
+    ldr x1, [x9, #8]                // week
     mov x0, x19
-    mov x1, x21
     bl tc_format_u64
     mov x19, x0
+    mov x0, x19
     adrp x1, PAGE(s_week_in_iso)
     add x1, x1, LO12(s_week_in_iso)
+    bl tc_cat_cstr
+    mov x19, x0
+    adrp x9, PAGE(tc_dt_bad_year)
+    add x9, x9, LO12(tc_dt_bad_year)
+    ldr x1, [x9]                    // year
+    mov x0, x19
+    bl tc_format_u64
+    mov x19, x0
+    mov x0, x19
+    adrp x1, PAGE(s_week_suffix)
+    add x1, x1, LO12(s_week_suffix)
     bl tc_cat_cstr
     mov x19, x0
     b .Lmb_done
@@ -3228,12 +3248,17 @@ tc_store_from_raw:
     mov x1, x20
     bl tc_parse_for_store
     cbz x1, .Lsfr_store
-    // conversion error
+    // conversion error: x1 = status, x2 = the offending item (P_METRICS)
+    mov x4, x1                      // status (before x1 is reused below)
+    mov x3, x20                     // display: the raw value ...
+    cmp w23, #P_METRICS
+    b.ne .Lsfr_err_go
+    cbz x2, .Lsfr_err_go
+    mov x3, x2                      // ... or the first unknown column
+.Lsfr_err_go:
     ldr x0, [x22, #SP_FLAG]
     mov x1, x21
     mov x2, x23
-    mov x3, x20
-    mov x4, x1                      // status
     bl tc_resolve_err
 .Lsfr_store:
     cmp w23, #P_METRICS
@@ -3317,6 +3342,26 @@ tc_resolve_err:
     mov x21, x2
     mov x22, x3
     mov x23, x4
+    // parse_datetime() quotes str(text).strip(), parse_duration() quotes
+    // str(text).strip().lower(): normalise the display the same way (into
+    // its own buffer: tc_scratch is where the message is built)
+    cmp x21, #P_DATETIME
+    b.eq .Lre_norm
+    cmp x21, #P_DATETIME_EOD
+    b.eq .Lre_norm
+    cmp x21, #P_DURATION
+    b.ne .Lre_norm_done
+.Lre_norm:
+    adrp x0, PAGE(tc_err_display)
+    add x0, x0, LO12(tc_err_display)
+    mov x1, x22
+    bl tc_strip_copy
+    mov x22, x0
+    cmp x21, #P_DURATION
+    b.ne .Lre_norm_done
+    mov x0, x22
+    bl tc_lowercase
+.Lre_norm_done:
     adrp x0, PAGE(tc_scratch)
     add x0, x0, LO12(tc_scratch)
     mov x24, x0
@@ -3324,15 +3369,28 @@ tc_resolve_err:
     mov x1, x19
     bl tc_cat_cstr
     mov x24, x0
+    // source_label(): "<flag> (from <src>)" only when the source is not the
+    // flag itself (a value given on the command line reads "--since: ...")
+    mov x0, x20
+    bl tc_source_str
+    mov x25, x0
+    mov x26, x1
+    mov x0, x19
+    mov x1, x25
+    bl tc_streq
+    cbz w0, .Lre_from
+    mov x0, x24
+    adrp x1, PAGE(s_colon_space)
+    add x1, x1, LO12(s_colon_space)
+    bl tc_cat_cstr
+    mov x24, x0
+    b .Lre_body
+.Lre_from:
     mov x0, x24
     adrp x1, PAGE(s_from_prefix)
     add x1, x1, LO12(s_from_prefix)
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x20
-    bl tc_source_str
-    mov x25, x0
-    mov x26, x1
     mov x0, x24
     mov x1, x25
     mov x2, x26
@@ -3343,6 +3401,7 @@ tc_resolve_err:
     add x1, x1, LO12(s_from_suffix)
     bl tc_cat_cstr
     mov x24, x0
+.Lre_body:
     mov x0, x24
     mov x1, x21
     mov x2, x22
@@ -3554,12 +3613,12 @@ tc_resolve_window:
     mov x1, #0
     bl tc_parse_datetime
     cbz x2, .Lrw_begin_ok
+    mov x4, x2                      // status (before x2 is reused below)
     adrp x0, PAGE(s_flag_begin)
     add x0, x0, LO12(s_flag_begin)
     mov x1, x22
     mov x2, #P_DATETIME
     mov x3, x21                     // the raw begin string (display)
-    mov x4, x2                      // status
     bl tc_resolve_err
 .Lrw_begin_ok:
     adrp x19, PAGE(tc_window)
@@ -3576,12 +3635,12 @@ tc_resolve_window:
     mov x0, x21
     bl tc_parse_duration
     cbz x1, .Lrw_since_ok
+    mov x4, x1                      // status (before x1 is reused below)
     adrp x0, PAGE(s_flag_since)
     add x0, x0, LO12(s_flag_since)
     mov x1, x22
     mov x2, #P_DURATION
     mov x3, x21                     // the raw since string (display)
-    mov x4, x1                      // status
     bl tc_resolve_err
 .Lrw_since_ok:
     mov x25, x0                     // delta seconds (from tc_parse_duration)
@@ -4147,7 +4206,7 @@ tc_resolve_highlights:
     mov x11, #TC_HL_PAT_SZ
     mul x10, x10, x11
     add x0, x9, x10                     // pattern slot
-    mov w2, #0
+    ldr w2, =PCRE2_OPTS                 // Python re: Unicode \w \s \d, case folding
     adrp x3, PAGE(tc_hl_errcode)
     add x3, x3, LO12(tc_hl_errcode)
     adrp x4, PAGE(tc_hl_erroff)
@@ -4776,8 +4835,12 @@ tc_format_u64:
     ldrb w4, [x21], #1
     strb w4, [x3], #1
     sub x2, x2, #1
+    b .Lfu_copy_loop                // (copied one digit and returned the
+                                    // start cursor before: "--users 12" read
+                                    // "--users 1" and the ISO-week error
+                                    // lost its numbers)
 .Lfu_done:
-    mov x0, x19
+    mov x0, x3                      // cursor after the digits
     add sp, sp, #32
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -5356,6 +5419,12 @@ tc_parse_datetime:
     mov x2, #0
     b .Lpd_ret
 .Lpd_week_bad:
+    // status 3: the message wants the rejected week and its year; the
+    // resolve-error path only carries (display, status), so park them
+    adrp x0, PAGE(tc_dt_bad_year)
+    add x0, x0, LO12(tc_dt_bad_year)
+    str x22, [x0]
+    str x23, [x0, #8]
     mov x0, #0
     mov x1, #0
     mov x2, #3

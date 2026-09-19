@@ -539,3 +539,8 @@
 // ============================================================================
 
 #endif // TC_LAYOUT_INC
+
+// pcre2_compile options for [[watch.highlight]] patterns: PCRE2_UTF | PCRE2_UCP
+// (Python re on str is Unicode-aware: \\w \\d \\s \\b and (?i) folding) |
+// PCRE2_MATCH_INVALID_UTF (a log line with invalid UTF-8 must not raise)
+    .equ PCRE2_OPTS, 0x040A0000
