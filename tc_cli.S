@@ -1458,21 +1458,66 @@ tc_parse_for_store:
     mov x2, #0
     ldp x30, xzr, [sp], #16
     ret
-.Lpfs_pos:     mov x0, x1; bl tc_parse_positive_int; ldp x30, xzr, [sp], #16; ret
-.Lpfs_nonneg:  mov x0, x1; bl tc_parse_nonnegative_int; ldp x30, xzr, [sp], #16; ret
-.Lpfs_nnf:     mov x0, x1; bl tc_parse_nonnegative_float; ldp x30, xzr, [sp], #16; ret
-.Lpfs_pf:      mov x0, x1; bl tc_parse_positive_float; ldp x30, xzr, [sp], #16; ret
-.Lpfs_dur:     mov x0, x1; bl tc_parse_duration; ldp x30, xzr, [sp], #16; ret
-.Lpfs_header:  mov x0, x1; bl tc_parse_header; ldp x30, xzr, [sp], #16; ret
-.Lpfs_sort:    mov x0, x1; bl tc_parse_sort; ldp x30, xzr, [sp], #16; ret
-.Lpfs_metrics: mov x0, x1; bl tc_parse_metrics; ldp x30, xzr, [sp], #16; ret
-.Lpfs_policy:  mov x0, x1; bl tc_parse_users_policy; ldp x30, xzr, [sp], #16; ret
-.Lpfs_bool:    mov x0, x1; bl tc_parse_bool; ldp x30, xzr, [sp], #16; ret
-.Lpfs_curve:   mov x0, x1; bl tc_parse_curve; ldp x30, xzr, [sp], #16; ret
-.Lpfs_hex:     mov x0, x1; bl tc_parse_hex_colour; ldp x30, xzr, [sp], #16; ret
-.Lpfs_color:   mov x0, x1; bl tc_parse_color_choice; ldp x30, xzr, [sp], #16; ret
-.Lpfs_complete: mov x0, x1; bl tc_parse_complete_choice; ldp x30, xzr, [sp], #16; ret
-.Lpfs_state:   mov x0, x1; bl tc_parse_state; ldp x30, xzr, [sp], #16; ret
+.Lpfs_pos:     mov x0, x1
+    bl tc_parse_positive_int
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_nonneg:  mov x0, x1
+    bl tc_parse_nonnegative_int
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_nnf:     mov x0, x1
+    bl tc_parse_nonnegative_float
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_pf:      mov x0, x1
+    bl tc_parse_positive_float
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_dur:     mov x0, x1
+    bl tc_parse_duration
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_header:  mov x0, x1
+    bl tc_parse_header
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_sort:    mov x0, x1
+    bl tc_parse_sort
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_metrics: mov x0, x1
+    bl tc_parse_metrics
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_policy:  mov x0, x1
+    bl tc_parse_users_policy
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_bool:    mov x0, x1
+    bl tc_parse_bool
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_curve:   mov x0, x1
+    bl tc_parse_curve
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_hex:     mov x0, x1
+    bl tc_parse_hex_colour
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_color:   mov x0, x1
+    bl tc_parse_color_choice
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_complete: mov x0, x1
+    bl tc_parse_complete_choice
+    ldp x30, xzr, [sp], #16
+    ret
+.Lpfs_state:   mov x0, x1
+    bl tc_parse_state
+    ldp x30, xzr, [sp], #16
+    ret
 
 // ============================================================================
 // tc_emit_typed_err(x0=canonical, x1=display, x2=parser, x3=status) — exit 2
@@ -6169,13 +6214,26 @@ tc_parse_sort:
     mov x0, #0
     mov x1, #1
     b .Lpso_ret
-.Lpso_count:  mov x0, #TC_M_COUNT;  mov x1, #0; b .Lpso_ret
-.Lpso_login:  mov x0, #TC_M_LOGIN;  mov x1, #0; b .Lpso_ret
-.Lpso_live:   mov x0, #TC_M_LIVE;   mov x1, #0; b .Lpso_ret
-.Lpso_offline:mov x0, #TC_M_OFFLINE;mov x1, #0; b .Lpso_ret
-.Lpso_unknown:mov x0, #TC_M_UNKNOWN;mov x1, #0; b .Lpso_ret
-.Lpso_os:     mov x0, #TC_M_OFFLINE_SHARE; mov x1, #0; b .Lpso_ret
-.Lpso_ls:     mov x0, #TC_M_LIVE_SHARE; mov x1, #0
+.Lpso_count:  mov x0, #TC_M_COUNT
+    mov x1, #0
+    b .Lpso_ret
+.Lpso_login:  mov x0, #TC_M_LOGIN
+    mov x1, #0
+    b .Lpso_ret
+.Lpso_live:   mov x0, #TC_M_LIVE
+    mov x1, #0
+    b .Lpso_ret
+.Lpso_offline:mov x0, #TC_M_OFFLINE
+    mov x1, #0
+    b .Lpso_ret
+.Lpso_unknown:mov x0, #TC_M_UNKNOWN
+    mov x1, #0
+    b .Lpso_ret
+.Lpso_os:     mov x0, #TC_M_OFFLINE_SHARE
+    mov x1, #0
+    b .Lpso_ret
+.Lpso_ls:     mov x0, #TC_M_LIVE_SHARE
+    mov x1, #0
 .Lpso_ret:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -6237,11 +6295,20 @@ tc_parse_curve:
     mov x0, #0
     mov x1, #1
     b .Lpc_ret
-.Lpc_linear: mov x0, #TC_CURVE_LINEAR; mov x1, #0; b .Lpc_ret
-.Lpc_power:  mov x0, #TC_CURVE_POWER; mov x1, #0; b .Lpc_ret
-.Lpc_easeout:mov x0, #TC_CURVE_EASE_OUT; mov x1, #0; b .Lpc_ret
-.Lpc_bias:   mov x0, #TC_CURVE_BIAS; mov x1, #0; b .Lpc_ret
-.Lpc_eio:    mov x0, #TC_CURVE_EASE_IN_OUT; mov x1, #0
+.Lpc_linear: mov x0, #TC_CURVE_LINEAR
+    mov x1, #0
+    b .Lpc_ret
+.Lpc_power:  mov x0, #TC_CURVE_POWER
+    mov x1, #0
+    b .Lpc_ret
+.Lpc_easeout:mov x0, #TC_CURVE_EASE_OUT
+    mov x1, #0
+    b .Lpc_ret
+.Lpc_bias:   mov x0, #TC_CURVE_BIAS
+    mov x1, #0
+    b .Lpc_ret
+.Lpc_eio:    mov x0, #TC_CURVE_EASE_IN_OUT
+    mov x1, #0
 .Lpc_ret:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -6291,9 +6358,14 @@ tc_parse_users_policy:
     mov x0, #0
     mov x1, #1
     b .Lpp_ret
-.Lpp_at_least: mov x0, #TC_POLICY_AT_LEAST; mov x1, #0; b .Lpp_ret
-.Lpp_at_most:  mov x0, #TC_POLICY_AT_MOST; mov x1, #0; b .Lpp_ret
-.Lpp_nearest:  mov x0, #TC_POLICY_NEAREST; mov x1, #0
+.Lpp_at_least: mov x0, #TC_POLICY_AT_LEAST
+    mov x1, #0
+    b .Lpp_ret
+.Lpp_at_most:  mov x0, #TC_POLICY_AT_MOST
+    mov x1, #0
+    b .Lpp_ret
+.Lpp_nearest:  mov x0, #TC_POLICY_NEAREST
+    mov x1, #0
 .Lpp_ret:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -6562,9 +6634,14 @@ tc_parse_color_choice:
     mov x0, #0
     mov x1, #1
     b .Lpcol_ret
-.Lpcol_auto:  mov x0, #TC_COLOR_AUTO; mov x1, #0; b .Lpcol_ret
-.Lpcol_always: mov x0, #TC_COLOR_ALWAYS; mov x1, #0; b .Lpcol_ret
-.Lpcol_never:  mov x0, #TC_COLOR_NEVER; mov x1, #0
+.Lpcol_auto:  mov x0, #TC_COLOR_AUTO
+    mov x1, #0
+    b .Lpcol_ret
+.Lpcol_always: mov x0, #TC_COLOR_ALWAYS
+    mov x1, #0
+    b .Lpcol_ret
+.Lpcol_never:  mov x0, #TC_COLOR_NEVER
+    mov x1, #0
 .Lpcol_ret:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -6636,13 +6713,26 @@ tc_parse_complete_choice:
     mov x0, #0
     mov x1, #1
     b .Lpcom_ret
-.Lpcom_channels: mov x0, #TC_COMPLETE_CHANNELS; mov x1, #0; b .Lpcom_ret
-.Lpcom_groups:   mov x0, #TC_COMPLETE_GROUPS; mov x1, #0; b .Lpcom_ret
-.Lpcom_dates:    mov x0, #TC_COMPLETE_DATES; mov x1, #0; b .Lpcom_ret
-.Lpcom_weeks:    mov x0, #TC_COMPLETE_WEEKS; mov x1, #0; b .Lpcom_ret
-.Lpcom_periods:  mov x0, #TC_COMPLETE_PERIODS; mov x1, #0; b .Lpcom_ret
-.Lpcom_users:    mov x0, #TC_COMPLETE_USERS; mov x1, #0; b .Lpcom_ret
-.Lpcom_includes: mov x0, #TC_COMPLETE_INCLUDES; mov x1, #0
+.Lpcom_channels: mov x0, #TC_COMPLETE_CHANNELS
+    mov x1, #0
+    b .Lpcom_ret
+.Lpcom_groups:   mov x0, #TC_COMPLETE_GROUPS
+    mov x1, #0
+    b .Lpcom_ret
+.Lpcom_dates:    mov x0, #TC_COMPLETE_DATES
+    mov x1, #0
+    b .Lpcom_ret
+.Lpcom_weeks:    mov x0, #TC_COMPLETE_WEEKS
+    mov x1, #0
+    b .Lpcom_ret
+.Lpcom_periods:  mov x0, #TC_COMPLETE_PERIODS
+    mov x1, #0
+    b .Lpcom_ret
+.Lpcom_users:    mov x0, #TC_COMPLETE_USERS
+    mov x1, #0
+    b .Lpcom_ret
+.Lpcom_includes: mov x0, #TC_COMPLETE_INCLUDES
+    mov x1, #0
 .Lpcom_ret:
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -6804,11 +6894,16 @@ tc_metric_id:
     cbnz x0, .Lmi_ls
     mov x0, #-1
     b .Lmi_ret
-.Lmi_count: mov x0, #TC_M_COUNT; b .Lmi_ret
-.Lmi_live:  mov x0, #TC_M_LIVE; b .Lmi_ret
-.Lmi_offline: mov x0, #TC_M_OFFLINE; b .Lmi_ret
-.Lmi_unknown: mov x0, #TC_M_UNKNOWN; b .Lmi_ret
-.Lmi_os:    mov x0, #TC_M_OFFLINE_SHARE; b .Lmi_ret
+.Lmi_count: mov x0, #TC_M_COUNT
+    b .Lmi_ret
+.Lmi_live:  mov x0, #TC_M_LIVE
+    b .Lmi_ret
+.Lmi_offline: mov x0, #TC_M_OFFLINE
+    b .Lmi_ret
+.Lmi_unknown: mov x0, #TC_M_UNKNOWN
+    b .Lmi_ret
+.Lmi_os:    mov x0, #TC_M_OFFLINE_SHARE
+    b .Lmi_ret
 .Lmi_ls:    mov x0, #TC_M_LIVE_SHARE
 .Lmi_ret:
     ldp x27, x28, [sp], #16
@@ -6936,24 +7031,54 @@ s_week_suffix:  .asciz " (weeks run 1-52, or 1-53 in long years)"
     .p2align 3
 tc_msg_table:
     .skip 24                        // P_NONE
-    .quad s_empty;      .quad s_m_int_suf;    .quad s_m_must_be_1        // P_POS_INT
-    .quad s_empty;      .quad s_m_int_suf;    .quad s_m_row_limit        // P_NONNEG_INT
-    .quad s_empty;      .quad s_m_sec_suf;    .quad s_m_zero_secs        // P_NONNEG_FLOAT
-    .quad s_empty;      .quad s_m_num_suf;    .quad s_m_greater_0        // P_POS_FLOAT
-    .quad s_m_dur_pre;  .quad s_m_dur_suf;    .quad s_m_dur_zero         // P_DURATION
+    .quad s_empty
+    .quad s_m_int_suf
+    .quad s_m_must_be_1   // P_POS_INT
+    .quad s_empty
+    .quad s_m_int_suf
+    .quad s_m_row_limit   // P_NONNEG_INT
+    .quad s_empty
+    .quad s_m_sec_suf
+    .quad s_m_zero_secs   // P_NONNEG_FLOAT
+    .quad s_empty
+    .quad s_m_num_suf
+    .quad s_m_greater_0   // P_POS_FLOAT
+    .quad s_m_dur_pre
+    .quad s_m_dur_suf
+    .quad s_m_dur_zero   // P_DURATION
     .skip 24                        // P_DATETIME_EOD (handled specially)
     .skip 24                        // P_DATETIME (handled specially)
-    .quad s_m_state_pre; .quad s_m_state_suf; .quad 0                    // P_STATE
-    .quad s_m_hdr_pre;  .quad s_m_hdr_suf;    .quad 0                    // P_HEADER
-    .quad s_m_sort_pre; .quad s_m_sort_suf;   .quad 0                    // P_SORT
-    .quad s_m_col_pre;  .quad s_m_col_suf;    .quad 0                    // P_METRICS
-    .quad s_m_policy_pre; .quad s_m_policy_suf; .quad 0                  // P_USERS_POLICY
-    .quad s_m_bool_pre; .quad s_m_bool_suf;   .quad 0                    // P_BOOL
-    .quad s_m_curve_pre; .quad s_m_curve_suf; .quad 0                    // P_CURVE
-    .quad s_empty;      .quad s_m_hex_suf;    .quad 0                    // P_HEX
+    .quad s_m_state_pre
+    .quad s_m_state_suf
+    .quad 0   // P_STATE
+    .quad s_m_hdr_pre
+    .quad s_m_hdr_suf
+    .quad 0   // P_HEADER
+    .quad s_m_sort_pre
+    .quad s_m_sort_suf
+    .quad 0   // P_SORT
+    .quad s_m_col_pre
+    .quad s_m_col_suf
+    .quad 0   // P_METRICS
+    .quad s_m_policy_pre
+    .quad s_m_policy_suf
+    .quad 0   // P_USERS_POLICY
+    .quad s_m_bool_pre
+    .quad s_m_bool_suf
+    .quad 0   // P_BOOL
+    .quad s_m_curve_pre
+    .quad s_m_curve_suf
+    .quad 0   // P_CURVE
+    .quad s_empty
+    .quad s_m_hex_suf
+    .quad 0   // P_HEX
     .skip 24                        // P_HIGHLIGHTS
-    .quad s_m_color_pre; .quad s_m_color_suf; .quad 0                    // P_CHOICES_COLOR
-    .quad s_m_complete_pre; .quad s_m_complete_suf; .quad 0              // P_CHOICES_COMPLETE
+    .quad s_m_color_pre
+    .quad s_m_color_suf
+    .quad 0   // P_CHOICES_COLOR
+    .quad s_m_complete_pre
+    .quad s_m_complete_suf
+    .quad 0   // P_CHOICES_COMPLETE
 
 s_empty:        .asciz ""
 s_m_pre:        .asciz "'"
@@ -7074,42 +7199,186 @@ s_canon_help:       .asciz "-h/--help"
     .p2align 3
 tc_val_table:
     .skip 40
-    .quad s_canon_channel;  .quad TC_SET_CHANNEL;      .word P_NONE, 1; .quad TC_O_CHANNEL;   .quad 0
-    .quad s_canon_begin;    .quad TC_SET_BEGIN;        .word P_NONE, 1; .quad TC_O_BEGIN_RAW; .quad TC_F_BEGIN_GIVEN
-    .quad s_canon_since;    .quad TC_SET_SINCE;        .word P_NONE, 1; .quad TC_O_SINCE_RAW; .quad TC_F_SINCE_GIVEN
-    .quad s_canon_users;    .quad TC_SET_USERS;        .word P_POS_INT, 1; .quad TC_O_USERS;  .quad TC_F_USERS_GIVEN
-    .quad s_canon_users_policy; .quad TC_SET_USERS_POLICY; .word P_USERS_POLICY, 1; .quad TC_O_USERS_POLICY; .quad 0
-    .quad s_canon_users_max; .quad TC_SET_USERS_MAX;   .word P_DURATION, 1; .quad TC_O_USERS_MAX; .quad 0
-    .quad s_canon_end;      .quad TC_SET_END;          .word P_NONE, 1; .quad TC_O_END_RAW;   .quad TC_F_END_GIVEN
-    .quad s_canon_min_count;.quad TC_SET_MIN_COUNT;    .word P_POS_INT, 1; .quad TC_O_MIN_COUNT; .quad 0
-    .quad s_canon_by_state; .quad TC_SET_SHOW;         .word P_NONE, 0; .quad 0;             .quad TC_F_BY_STATE
-    .quad s_canon_show;     .quad TC_SET_SHOW;         .word P_METRICS, 1; .quad TC_O_COLUMNS; .quad 0
-    .quad s_canon_sort;     .quad TC_SET_SORT;         .word P_SORT, 1; .quad TC_O_SORT;      .quad 0
-    .quad s_canon_share_floor; .quad TC_SET_SHARE_FLOOR; .word P_NONNEG_INT, 1; .quad TC_O_SHARE_FLOOR; .quad 0
-    .quad s_canon_top;      .quad TC_SET_TOP;          .word P_NONNEG_INT, 1; .quad TC_O_TOP; .quad 0
-    .quad s_canon_header;   .quad TC_SET_HEADER;       .word P_HEADER, 1; .quad TC_O_HEADER_MODE; .quad 0
-    .quad s_canon_logs_dir; .quad TC_SET_LOGS_DIR;     .word P_NONE, 1; .quad TC_O_LOGS_DIR; .quad 0
-    .quad s_canon_json;     .quad TC_SET_COLOR;        .word P_NONE, 0; .quad 0;             .quad TC_F_JSON
-    .quad s_canon_watch;    .quad TC_SET_INTERVAL;     .word P_NONNEG_FLOAT, 2; .quad TC_O_INTERVAL; .quad TC_F_WATCH_PRESENT
-    .quad s_canon_watch_hold; .quad TC_SET_HOLD;       .word P_NONNEG_FLOAT, 1; .quad TC_O_HOLD; .quad TC_F_WATCH_HOLD_GIVEN
-    .quad s_canon_color;    .quad TC_SET_COLOR;        .word P_CHOICES_COLOR, 1; .quad TC_O_COLOR_MODE; .quad TC_F_COLOR_GIVEN
-    .quad s_canon_live;     .quad TC_SET_STATE;        .word P_NONE, 0; .quad 0;             .quad 0
-    .quad s_canon_offline;  .quad TC_SET_STATE;        .word P_NONE, 0; .quad 0;             .quad 0
-    .quad s_canon_unknown;  .quad TC_SET_STATE;        .word P_NONE, 0; .quad 0;             .quad 0
-    .quad s_canon_exclude;  .quad TC_SET_EXCLUDE;      .word P_NONE, 1; .quad 0;             .quad TC_F_EXCL_GIVEN
-    .quad s_canon_exclude_group; .quad TC_SET_EXCLUDE_GROUP; .word P_NONE, 1; .quad 0;       .quad TC_F_EXCL_GROUP_GIVEN
-    .quad s_canon_exclude_bcast; .quad TC_SET_EXCLUDE_BCAST; .word P_NONE, 0; .quad 0;       .quad TC_F_EXCLUDE_BCAST
-    .quad s_canon_include;  .quad TC_SET_INCLUDE;      .word P_NONE, 1; .quad 0;             .quad TC_F_INCL_GIVEN
-    .quad s_canon_no_exclude; .quad TC_SET_EXCLUDE;    .word P_NONE, 0; .quad 0;             .quad TC_F_NO_EXCLUDE
-    .quad s_canon_config;   .quad TC_SET_CONFIG;       .word P_NONE, 1; .quad TC_O_CONFIG_PATH; .quad TC_F_CONFIG_GIVEN
-    .quad s_canon_no_config;.quad TC_SET_CONFIG;       .word P_NONE, 0; .quad 0;             .quad TC_F_NO_CONFIG
-    .quad s_canon_streamer; .quad TC_SET_STREAMER_MODE;.word P_NONE, 0; .quad 0;             .quad TC_F_STREAMER
-    .quad s_canon_no_cache; .quad TC_SET_COLOR;        .word P_NONE, 0; .quad 0;             .quad TC_F_NO_CACHE
-    .quad s_canon_rebuild_cache; .quad TC_SET_COLOR;   .word P_NONE, 0; .quad 0;             .quad TC_F_REBUILD_CACHE
-    .quad s_canon_manual;   .quad TC_SET_COLOR;        .word P_NONE, 0; .quad 0;             .quad TC_F_MANUAL
-    .quad s_canon_emit_fish;.quad TC_SET_COLOR;        .word P_NONE, 0; .quad 0;             .quad TC_F_EMIT_FISH
-    .quad s_canon_complete; .quad TC_SET_COLOR;        .word P_CHOICES_COMPLETE, 1; .quad TC_O_COMPLETE_KIND; .quad TC_F_COMPLETE_GIVEN
-    .quad s_canon_help;     .quad TC_SET_COLOR;        .word P_NONE, 0; .quad 0;             .quad 0
+    .quad s_canon_channel
+    .quad TC_SET_CHANNEL
+    .word P_NONE, 1
+    .quad TC_O_CHANNEL
+    .quad 0
+    .quad s_canon_begin
+    .quad TC_SET_BEGIN
+    .word P_NONE, 1
+    .quad TC_O_BEGIN_RAW
+    .quad TC_F_BEGIN_GIVEN
+    .quad s_canon_since
+    .quad TC_SET_SINCE
+    .word P_NONE, 1
+    .quad TC_O_SINCE_RAW
+    .quad TC_F_SINCE_GIVEN
+    .quad s_canon_users
+    .quad TC_SET_USERS
+    .word P_POS_INT, 1
+    .quad TC_O_USERS
+    .quad TC_F_USERS_GIVEN
+    .quad s_canon_users_policy
+    .quad TC_SET_USERS_POLICY
+    .word P_USERS_POLICY, 1
+    .quad TC_O_USERS_POLICY
+    .quad 0
+    .quad s_canon_users_max
+    .quad TC_SET_USERS_MAX
+    .word P_DURATION, 1
+    .quad TC_O_USERS_MAX
+    .quad 0
+    .quad s_canon_end
+    .quad TC_SET_END
+    .word P_NONE, 1
+    .quad TC_O_END_RAW
+    .quad TC_F_END_GIVEN
+    .quad s_canon_min_count
+    .quad TC_SET_MIN_COUNT
+    .word P_POS_INT, 1
+    .quad TC_O_MIN_COUNT
+    .quad 0
+    .quad s_canon_by_state
+    .quad TC_SET_SHOW
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_BY_STATE
+    .quad s_canon_show
+    .quad TC_SET_SHOW
+    .word P_METRICS, 1
+    .quad TC_O_COLUMNS
+    .quad 0
+    .quad s_canon_sort
+    .quad TC_SET_SORT
+    .word P_SORT, 1
+    .quad TC_O_SORT
+    .quad 0
+    .quad s_canon_share_floor
+    .quad TC_SET_SHARE_FLOOR
+    .word P_NONNEG_INT, 1
+    .quad TC_O_SHARE_FLOOR
+    .quad 0
+    .quad s_canon_top
+    .quad TC_SET_TOP
+    .word P_NONNEG_INT, 1
+    .quad TC_O_TOP
+    .quad 0
+    .quad s_canon_header
+    .quad TC_SET_HEADER
+    .word P_HEADER, 1
+    .quad TC_O_HEADER_MODE
+    .quad 0
+    .quad s_canon_logs_dir
+    .quad TC_SET_LOGS_DIR
+    .word P_NONE, 1
+    .quad TC_O_LOGS_DIR
+    .quad 0
+    .quad s_canon_json
+    .quad TC_SET_COLOR
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_JSON
+    .quad s_canon_watch
+    .quad TC_SET_INTERVAL
+    .word P_NONNEG_FLOAT, 2
+    .quad TC_O_INTERVAL
+    .quad TC_F_WATCH_PRESENT
+    .quad s_canon_watch_hold
+    .quad TC_SET_HOLD
+    .word P_NONNEG_FLOAT, 1
+    .quad TC_O_HOLD
+    .quad TC_F_WATCH_HOLD_GIVEN
+    .quad s_canon_color
+    .quad TC_SET_COLOR
+    .word P_CHOICES_COLOR, 1
+    .quad TC_O_COLOR_MODE
+    .quad TC_F_COLOR_GIVEN
+    .quad s_canon_live
+    .quad TC_SET_STATE
+    .word P_NONE, 0
+    .quad 0
+    .quad 0
+    .quad s_canon_offline
+    .quad TC_SET_STATE
+    .word P_NONE, 0
+    .quad 0
+    .quad 0
+    .quad s_canon_unknown
+    .quad TC_SET_STATE
+    .word P_NONE, 0
+    .quad 0
+    .quad 0
+    .quad s_canon_exclude
+    .quad TC_SET_EXCLUDE
+    .word P_NONE, 1
+    .quad 0
+    .quad TC_F_EXCL_GIVEN
+    .quad s_canon_exclude_group
+    .quad TC_SET_EXCLUDE_GROUP
+    .word P_NONE, 1
+    .quad 0
+    .quad TC_F_EXCL_GROUP_GIVEN
+    .quad s_canon_exclude_bcast
+    .quad TC_SET_EXCLUDE_BCAST
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_EXCLUDE_BCAST
+    .quad s_canon_include
+    .quad TC_SET_INCLUDE
+    .word P_NONE, 1
+    .quad 0
+    .quad TC_F_INCL_GIVEN
+    .quad s_canon_no_exclude
+    .quad TC_SET_EXCLUDE
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_NO_EXCLUDE
+    .quad s_canon_config
+    .quad TC_SET_CONFIG
+    .word P_NONE, 1
+    .quad TC_O_CONFIG_PATH
+    .quad TC_F_CONFIG_GIVEN
+    .quad s_canon_no_config
+    .quad TC_SET_CONFIG
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_NO_CONFIG
+    .quad s_canon_streamer
+    .quad TC_SET_STREAMER_MODE
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_STREAMER
+    .quad s_canon_no_cache
+    .quad TC_SET_COLOR
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_NO_CACHE
+    .quad s_canon_rebuild_cache
+    .quad TC_SET_COLOR
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_REBUILD_CACHE
+    .quad s_canon_manual
+    .quad TC_SET_COLOR
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_MANUAL
+    .quad s_canon_emit_fish
+    .quad TC_SET_COLOR
+    .word P_NONE, 0
+    .quad 0
+    .quad TC_F_EMIT_FISH
+    .quad s_canon_complete
+    .quad TC_SET_COLOR
+    .word P_CHOICES_COMPLETE, 1
+    .quad TC_O_COMPLETE_KIND
+    .quad TC_F_COMPLETE_GIVEN
+    .quad s_canon_help
+    .quad TC_SET_COLOR
+    .word P_NONE, 0
+    .quad 0
+    .quad 0
 
 // ============================================================================
 // Short option map: {char, val} pairs, 0-terminated
@@ -7139,42 +7408,186 @@ tc_short_pairs:
 // ============================================================================
     .p2align 3
 tc_longopts:
-    .quad lopt_help;        .word 0, 0; .quad 0; .word VAL_HELP;          .word 0
-    .quad lopt_channel;     .word 1, 0; .quad 0; .word VAL_CHANNEL;       .word 0
-    .quad lopt_begin;       .word 1, 0; .quad 0; .word VAL_BEGIN;         .word 0
-    .quad lopt_since;       .word 1, 0; .quad 0; .word VAL_SINCE;         .word 0
-    .quad lopt_users;       .word 1, 0; .quad 0; .word VAL_USERS;         .word 0
-    .quad lopt_users_policy;.word 1, 0; .quad 0; .word VAL_USERS_POLICY;  .word 0
-    .quad lopt_users_max;   .word 1, 0; .quad 0; .word VAL_USERS_MAX;     .word 0
-    .quad lopt_end;         .word 1, 0; .quad 0; .word VAL_END;           .word 0
-    .quad lopt_min_count;   .word 1, 0; .quad 0; .word VAL_MIN_COUNT;     .word 0
-    .quad lopt_by_state;    .word 0, 0; .quad 0; .word VAL_BY_STATE;      .word 0
-    .quad lopt_show;        .word 1, 0; .quad 0; .word VAL_SHOW;          .word 0
-    .quad lopt_sort;        .word 1, 0; .quad 0; .word VAL_SORT;          .word 0
-    .quad lopt_share_floor; .word 1, 0; .quad 0; .word VAL_SHARE_FLOOR;   .word 0
-    .quad lopt_top;         .word 1, 0; .quad 0; .word VAL_TOP;           .word 0
-    .quad lopt_header;      .word 1, 0; .quad 0; .word VAL_HEADER;        .word 0
-    .quad lopt_logs_dir;    .word 1, 0; .quad 0; .word VAL_LOGS_DIR;      .word 0
-    .quad lopt_json;        .word 0, 0; .quad 0; .word VAL_JSON;          .word 0
-    .quad lopt_watch;       .word 2, 0; .quad 0; .word VAL_WATCH;         .word 0
-    .quad lopt_watch_hold;  .word 1, 0; .quad 0; .word VAL_WATCH_HOLD;    .word 0
-    .quad lopt_color;       .word 1, 0; .quad 0; .word VAL_COLOR;         .word 0
-    .quad lopt_live;        .word 0, 0; .quad 0; .word VAL_LIVE;          .word 0
-    .quad lopt_offline;     .word 0, 0; .quad 0; .word VAL_OFFLINE;       .word 0
-    .quad lopt_unknown;     .word 0, 0; .quad 0; .word VAL_UNKNOWN;       .word 0
-    .quad lopt_exclude;     .word 1, 0; .quad 0; .word VAL_EXCLUDE;       .word 0
-    .quad lopt_exclude_group; .word 1, 0; .quad 0; .word VAL_EXCLUDE_GROUP; .word 0
-    .quad lopt_exclude_broadcaster; .word 0, 0; .quad 0; .word VAL_EXCLUDE_BCAST; .word 0
-    .quad lopt_include;     .word 1, 0; .quad 0; .word VAL_INCLUDE;       .word 0
-    .quad lopt_no_exclude;  .word 0, 0; .quad 0; .word VAL_NO_EXCLUDE;    .word 0
-    .quad lopt_config;      .word 1, 0; .quad 0; .word VAL_CONFIG;        .word 0
-    .quad lopt_no_config;   .word 0, 0; .quad 0; .word VAL_NO_CONFIG;     .word 0
-    .quad lopt_streamer;    .word 0, 0; .quad 0; .word VAL_STREAMER;      .word 0
-    .quad lopt_no_cache;    .word 0, 0; .quad 0; .word VAL_NO_CACHE;      .word 0
-    .quad lopt_rebuild_cache; .word 0, 0; .quad 0; .word VAL_REBUILD_CACHE; .word 0
-    .quad lopt_manual;      .word 0, 0; .quad 0; .word VAL_MANUAL;        .word 0
-    .quad lopt_emit_fish;   .word 0, 0; .quad 0; .word VAL_EMIT_FISH;     .word 0
-    .quad lopt_complete;    .word 1, 0; .quad 0; .word VAL_COMPLETE;      .word 0
+    .quad lopt_help
+    .word 0, 0
+    .quad 0
+    .word VAL_HELP
+    .word 0
+    .quad lopt_channel
+    .word 1, 0
+    .quad 0
+    .word VAL_CHANNEL
+    .word 0
+    .quad lopt_begin
+    .word 1, 0
+    .quad 0
+    .word VAL_BEGIN
+    .word 0
+    .quad lopt_since
+    .word 1, 0
+    .quad 0
+    .word VAL_SINCE
+    .word 0
+    .quad lopt_users
+    .word 1, 0
+    .quad 0
+    .word VAL_USERS
+    .word 0
+    .quad lopt_users_policy
+    .word 1, 0
+    .quad 0
+    .word VAL_USERS_POLICY
+    .word 0
+    .quad lopt_users_max
+    .word 1, 0
+    .quad 0
+    .word VAL_USERS_MAX
+    .word 0
+    .quad lopt_end
+    .word 1, 0
+    .quad 0
+    .word VAL_END
+    .word 0
+    .quad lopt_min_count
+    .word 1, 0
+    .quad 0
+    .word VAL_MIN_COUNT
+    .word 0
+    .quad lopt_by_state
+    .word 0, 0
+    .quad 0
+    .word VAL_BY_STATE
+    .word 0
+    .quad lopt_show
+    .word 1, 0
+    .quad 0
+    .word VAL_SHOW
+    .word 0
+    .quad lopt_sort
+    .word 1, 0
+    .quad 0
+    .word VAL_SORT
+    .word 0
+    .quad lopt_share_floor
+    .word 1, 0
+    .quad 0
+    .word VAL_SHARE_FLOOR
+    .word 0
+    .quad lopt_top
+    .word 1, 0
+    .quad 0
+    .word VAL_TOP
+    .word 0
+    .quad lopt_header
+    .word 1, 0
+    .quad 0
+    .word VAL_HEADER
+    .word 0
+    .quad lopt_logs_dir
+    .word 1, 0
+    .quad 0
+    .word VAL_LOGS_DIR
+    .word 0
+    .quad lopt_json
+    .word 0, 0
+    .quad 0
+    .word VAL_JSON
+    .word 0
+    .quad lopt_watch
+    .word 2, 0
+    .quad 0
+    .word VAL_WATCH
+    .word 0
+    .quad lopt_watch_hold
+    .word 1, 0
+    .quad 0
+    .word VAL_WATCH_HOLD
+    .word 0
+    .quad lopt_color
+    .word 1, 0
+    .quad 0
+    .word VAL_COLOR
+    .word 0
+    .quad lopt_live
+    .word 0, 0
+    .quad 0
+    .word VAL_LIVE
+    .word 0
+    .quad lopt_offline
+    .word 0, 0
+    .quad 0
+    .word VAL_OFFLINE
+    .word 0
+    .quad lopt_unknown
+    .word 0, 0
+    .quad 0
+    .word VAL_UNKNOWN
+    .word 0
+    .quad lopt_exclude
+    .word 1, 0
+    .quad 0
+    .word VAL_EXCLUDE
+    .word 0
+    .quad lopt_exclude_group
+    .word 1, 0
+    .quad 0
+    .word VAL_EXCLUDE_GROUP
+    .word 0
+    .quad lopt_exclude_broadcaster
+    .word 0, 0
+    .quad 0
+    .word VAL_EXCLUDE_BCAST
+    .word 0
+    .quad lopt_include
+    .word 1, 0
+    .quad 0
+    .word VAL_INCLUDE
+    .word 0
+    .quad lopt_no_exclude
+    .word 0, 0
+    .quad 0
+    .word VAL_NO_EXCLUDE
+    .word 0
+    .quad lopt_config
+    .word 1, 0
+    .quad 0
+    .word VAL_CONFIG
+    .word 0
+    .quad lopt_no_config
+    .word 0, 0
+    .quad 0
+    .word VAL_NO_CONFIG
+    .word 0
+    .quad lopt_streamer
+    .word 0, 0
+    .quad 0
+    .word VAL_STREAMER
+    .word 0
+    .quad lopt_no_cache
+    .word 0, 0
+    .quad 0
+    .word VAL_NO_CACHE
+    .word 0
+    .quad lopt_rebuild_cache
+    .word 0, 0
+    .quad 0
+    .word VAL_REBUILD_CACHE
+    .word 0
+    .quad lopt_manual
+    .word 0, 0
+    .quad 0
+    .word VAL_MANUAL
+    .word 0
+    .quad lopt_emit_fish
+    .word 0, 0
+    .quad 0
+    .word VAL_EMIT_FISH
+    .word 0
+    .quad lopt_complete
+    .word 1, 0
+    .quad 0
+    .word VAL_COMPLETE
+    .word 0
     .quad 0, 0, 0, 0, 0, 0
 
 lopt_help:      .asciz "help"
@@ -7223,165 +7636,525 @@ optstring:
     .p2align 3
 tc_spec_table:
     // TC_SET_CHANNEL
-    .quad s_env_channel; .quad s_key_channel; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_CHANNEL; .quad TC_SRC_ENV_CHANNEL
-    .quad TC_O_CHANNEL; .quad TC_O_CHANNEL_SZ; .quad s_flag_channel; .quad 0
+    .quad s_env_channel
+    .quad s_key_channel
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_CHANNEL
+    .quad TC_SRC_ENV_CHANNEL
+    .quad TC_O_CHANNEL
+    .quad TC_O_CHANNEL_SZ
+    .quad s_flag_channel
+    .quad 0
     // TC_SET_USERS_POLICY
-    .quad s_env_users_policy; .quad s_key_users_policy; .quad TC_SEC_NONE; .quad P_USERS_POLICY
-    .quad s_def_at_least; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_USERS_POLICY; .quad TC_SRC_ENV_USERS_POLICY
-    .quad TC_O_USERS_POLICY; .quad 0; .quad s_flag_users_policy; .quad 0
+    .quad s_env_users_policy
+    .quad s_key_users_policy
+    .quad TC_SEC_NONE
+    .quad P_USERS_POLICY
+    .quad s_def_at_least
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_USERS_POLICY
+    .quad TC_SRC_ENV_USERS_POLICY
+    .quad TC_O_USERS_POLICY
+    .quad 0
+    .quad s_flag_users_policy
+    .quad 0
     // TC_SET_USERS_MAX
-    .quad s_env_users_max; .quad s_key_users_max; .quad TC_SEC_NONE; .quad P_DURATION
-    .quad s_def_24h; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_USERS_MAX; .quad TC_SRC_ENV_USERS_MAX
-    .quad TC_O_USERS_MAX; .quad 0; .quad s_flag_users_max; .quad 0
+    .quad s_env_users_max
+    .quad s_key_users_max
+    .quad TC_SEC_NONE
+    .quad P_DURATION
+    .quad s_def_24h
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_USERS_MAX
+    .quad TC_SRC_ENV_USERS_MAX
+    .quad TC_O_USERS_MAX
+    .quad 0
+    .quad s_flag_users_max
+    .quad 0
     // TC_SET_END
-    .quad s_env_end; .quad s_key_end; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_END; .quad TC_SRC_ENV_END
-    .quad TC_O_END_RAW; .quad TC_O_END_RAW_SZ; .quad s_flag_end; .quad 0
+    .quad s_env_end
+    .quad s_key_end
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_END
+    .quad TC_SRC_ENV_END
+    .quad TC_O_END_RAW
+    .quad TC_O_END_RAW_SZ
+    .quad s_flag_end
+    .quad 0
     // TC_SET_MIN_COUNT
-    .quad s_env_min_count; .quad s_key_min_count; .quad TC_SEC_NONE; .quad P_POS_INT
-    .quad s_def_1; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_MIN_COUNT; .quad TC_SRC_ENV_MIN_COUNT
-    .quad TC_O_MIN_COUNT; .quad 0; .quad s_flag_min_count; .quad 0
+    .quad s_env_min_count
+    .quad s_key_min_count
+    .quad TC_SEC_NONE
+    .quad P_POS_INT
+    .quad s_def_1
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_MIN_COUNT
+    .quad TC_SRC_ENV_MIN_COUNT
+    .quad TC_O_MIN_COUNT
+    .quad 0
+    .quad s_flag_min_count
+    .quad 0
     // TC_SET_SHOW
-    .quad s_env_show; .quad s_key_show; .quad TC_SEC_NONE; .quad P_METRICS
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_SHOW; .quad TC_SRC_ENV_SHOW
-    .quad TC_O_COLUMNS; .quad 0; .quad s_flag_show; .quad 0
+    .quad s_env_show
+    .quad s_key_show
+    .quad TC_SEC_NONE
+    .quad P_METRICS
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_SHOW
+    .quad TC_SRC_ENV_SHOW
+    .quad TC_O_COLUMNS
+    .quad 0
+    .quad s_flag_show
+    .quad 0
     // TC_SET_SORT
-    .quad s_env_sort; .quad s_key_sort; .quad TC_SEC_NONE; .quad P_SORT
-    .quad s_def_count; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_SORT; .quad TC_SRC_ENV_SORT
-    .quad TC_O_SORT; .quad 0; .quad s_flag_sort; .quad 0
+    .quad s_env_sort
+    .quad s_key_sort
+    .quad TC_SEC_NONE
+    .quad P_SORT
+    .quad s_def_count
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_SORT
+    .quad TC_SRC_ENV_SORT
+    .quad TC_O_SORT
+    .quad 0
+    .quad s_flag_sort
+    .quad 0
     // TC_SET_SHARE_FLOOR
-    .quad s_env_share_floor; .quad s_key_share_floor; .quad TC_SEC_NONE; .quad P_NONNEG_INT
-    .quad s_def_10; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_SHARE_FLOOR; .quad TC_SRC_ENV_SHARE_FLOOR
-    .quad TC_O_SHARE_FLOOR; .quad 0; .quad s_flag_share_floor; .quad 0
+    .quad s_env_share_floor
+    .quad s_key_share_floor
+    .quad TC_SEC_NONE
+    .quad P_NONNEG_INT
+    .quad s_def_10
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_SHARE_FLOOR
+    .quad TC_SRC_ENV_SHARE_FLOOR
+    .quad TC_O_SHARE_FLOOR
+    .quad 0
+    .quad s_flag_share_floor
+    .quad 0
     // TC_SET_TOP
-    .quad s_env_top; .quad s_key_top; .quad TC_SEC_NONE; .quad P_NONNEG_INT
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_TOP; .quad TC_SRC_ENV_TOP
-    .quad TC_O_TOP; .quad 0; .quad s_flag_top; .quad 0
+    .quad s_env_top
+    .quad s_key_top
+    .quad TC_SEC_NONE
+    .quad P_NONNEG_INT
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_TOP
+    .quad TC_SRC_ENV_TOP
+    .quad TC_O_TOP
+    .quad 0
+    .quad s_flag_top
+    .quad 0
     // TC_SET_LOGS_DIR
-    .quad s_env_logs_dir; .quad s_key_logs_dir; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_LOGS_DIR; .quad TC_SRC_ENV_LOGS_DIR
-    .quad TC_O_LOGS_DIR; .quad TC_O_LOGS_DIR_SZ; .quad s_flag_logs_dir; .quad 0
+    .quad s_env_logs_dir
+    .quad s_key_logs_dir
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_LOGS_DIR
+    .quad TC_SRC_ENV_LOGS_DIR
+    .quad TC_O_LOGS_DIR
+    .quad TC_O_LOGS_DIR_SZ
+    .quad s_flag_logs_dir
+    .quad 0
     // TC_SET_HEADER
-    .quad s_env_header; .quad s_key_header; .quad TC_SEC_WATCH; .quad P_HEADER
-    .quad s_def_full; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_HEADER; .quad TC_SRC_ENV_HEADER
-    .quad TC_O_HEADER_MODE; .quad 0; .quad s_flag_header; .quad 0
+    .quad s_env_header
+    .quad s_key_header
+    .quad TC_SEC_WATCH
+    .quad P_HEADER
+    .quad s_def_full
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_HEADER
+    .quad TC_SRC_ENV_HEADER
+    .quad TC_O_HEADER_MODE
+    .quad 0
+    .quad s_flag_header
+    .quad 0
     // TC_SET_STATE
-    .quad s_env_state; .quad s_key_state; .quad TC_SEC_NONE; .quad P_STATE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_LIVE; .quad TC_SRC_ENV_STATE
-    .quad TC_O_STATE_FILTER; .quad 0; .quad s_flag_state; .quad 0
+    .quad s_env_state
+    .quad s_key_state
+    .quad TC_SEC_NONE
+    .quad P_STATE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_LIVE
+    .quad TC_SRC_ENV_STATE
+    .quad TC_O_STATE_FILTER
+    .quad 0
+    .quad s_flag_state
+    .quad 0
     // TC_SET_INTERVAL
-    .quad s_env_watch_interval; .quad s_key_interval; .quad TC_SEC_WATCH; .quad P_NONNEG_FLOAT
-    .quad s_def_1_0; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_INTERVAL
-    .quad TC_O_INTERVAL; .quad 0; .quad s_flag_watch; .quad 0
+    .quad s_env_watch_interval
+    .quad s_key_interval
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_FLOAT
+    .quad s_def_1_0
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_INTERVAL
+    .quad TC_O_INTERVAL
+    .quad 0
+    .quad s_flag_watch
+    .quad 0
     // TC_SET_MIN_INTERVAL
-    .quad s_env_watch_min_interval; .quad s_key_min_interval; .quad TC_SEC_WATCH; .quad P_NONNEG_FLOAT
-    .quad s_def_0_1; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_MIN_INTERVAL
-    .quad TC_O_MIN_INTERVAL; .quad 0; .quad s_flag_watch_min_interval; .quad 0
+    .quad s_env_watch_min_interval
+    .quad s_key_min_interval
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_FLOAT
+    .quad s_def_0_1
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_MIN_INTERVAL
+    .quad TC_O_MIN_INTERVAL
+    .quad 0
+    .quad s_flag_watch_min_interval
+    .quad 0
     // TC_SET_HOLD
-    .quad s_env_watch_hold; .quad s_key_hold; .quad TC_SEC_WATCH; .quad P_NONNEG_FLOAT
-    .quad s_def_3_0; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH_HOLD; .quad TC_SRC_ENV_WATCH_HOLD
-    .quad TC_O_HOLD; .quad 0; .quad s_flag_watch_hold; .quad 0
+    .quad s_env_watch_hold
+    .quad s_key_hold
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_FLOAT
+    .quad s_def_3_0
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH_HOLD
+    .quad TC_SRC_ENV_WATCH_HOLD
+    .quad TC_O_HOLD
+    .quad 0
+    .quad s_flag_watch_hold
+    .quad 0
     // TC_SET_FADE_UP
-    .quad s_env_watch_fade_up; .quad s_key_fade_up; .quad TC_SEC_WATCH; .quad P_HEX
-    .quad s_def_87ff87; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_FADE_UP
-    .quad TC_O_FADE_UP_RGB; .quad 0; .quad s_flag_fade_up; .quad TC_O_FADE_UP_RAW
+    .quad s_env_watch_fade_up
+    .quad s_key_fade_up
+    .quad TC_SEC_WATCH
+    .quad P_HEX
+    .quad s_def_87ff87
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_FADE_UP
+    .quad TC_O_FADE_UP_RGB
+    .quad 0
+    .quad s_flag_fade_up
+    .quad TC_O_FADE_UP_RAW
     // TC_SET_FADE_DOWN
-    .quad s_env_watch_fade_down; .quad s_key_fade_down; .quad TC_SEC_WATCH; .quad P_HEX
-    .quad s_def_8a8a8a; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_FADE_DOWN
-    .quad TC_O_FADE_DOWN_RGB; .quad 0; .quad s_flag_fade_down; .quad TC_O_FADE_DOWN_RAW
+    .quad s_env_watch_fade_down
+    .quad s_key_fade_down
+    .quad TC_SEC_WATCH
+    .quad P_HEX
+    .quad s_def_8a8a8a
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_FADE_DOWN
+    .quad TC_O_FADE_DOWN_RGB
+    .quad 0
+    .quad s_flag_fade_down
+    .quad TC_O_FADE_DOWN_RAW
     // TC_SET_SHADES
-    .quad s_env_watch_shades; .quad s_key_shades; .quad TC_SEC_WATCH; .quad P_POS_INT
-    .quad s_def_3; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_SHADES
-    .quad TC_O_SHADES; .quad 0; .quad s_flag_shades; .quad 0
+    .quad s_env_watch_shades
+    .quad s_key_shades
+    .quad TC_SEC_WATCH
+    .quad P_POS_INT
+    .quad s_def_3
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_SHADES
+    .quad TC_O_SHADES
+    .quad 0
+    .quad s_flag_shades
+    .quad 0
     // TC_SET_USER_WIDTH
-    .quad s_env_watch_user_width; .quad s_key_user_width; .quad TC_SEC_WATCH; .quad P_NONNEG_INT
-    .quad s_def_20; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_USER_WIDTH
-    .quad TC_O_USER_WIDTH; .quad 0; .quad s_flag_user_width; .quad 0
+    .quad s_env_watch_user_width
+    .quad s_key_user_width
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_INT
+    .quad s_def_20
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_USER_WIDTH
+    .quad TC_O_USER_WIDTH
+    .quad 0
+    .quad s_flag_user_width
+    .quad 0
     // TC_SET_FULL_REPAINT
-    .quad s_env_watch_full_repaint; .quad s_key_full_repaint; .quad TC_SEC_WATCH; .quad P_NONNEG_INT
-    .quad s_def_50; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_FULL_REPAINT
-    .quad TC_O_FULL_REPAINT; .quad 0; .quad s_flag_full_repaint; .quad 0
+    .quad s_env_watch_full_repaint
+    .quad s_key_full_repaint
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_INT
+    .quad s_def_50
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_FULL_REPAINT
+    .quad TC_O_FULL_REPAINT
+    .quad 0
+    .quad s_flag_full_repaint
+    .quad 0
     // TC_SET_STREAMER_MODE
-    .quad s_env_watch_streamer; .quad s_key_streamer_mode; .quad TC_SEC_WATCH; .quad P_BOOL
-    .quad s_def_false; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_STREAMER; .quad TC_SRC_ENV_WATCH_STREAMER_MODE
-    .quad TC_O_STREAMER_MODE; .quad 0; .quad s_flag_streamer; .quad 0
+    .quad s_env_watch_streamer
+    .quad s_key_streamer_mode
+    .quad TC_SEC_WATCH
+    .quad P_BOOL
+    .quad s_def_false
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_STREAMER
+    .quad TC_SRC_ENV_WATCH_STREAMER_MODE
+    .quad TC_O_STREAMER_MODE
+    .quad 0
+    .quad s_flag_streamer
+    .quad 0
     // TC_SET_MIN_REDRAW
-    .quad s_env_watch_min_redraw; .quad s_key_min_redraw; .quad TC_SEC_WATCH; .quad P_NONNEG_FLOAT
-    .quad s_def_0_25; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_MIN_REDRAW
-    .quad TC_O_MIN_REDRAW; .quad 0; .quad s_flag_min_redraw; .quad 0
+    .quad s_env_watch_min_redraw
+    .quad s_key_min_redraw
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_FLOAT
+    .quad s_def_0_25
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_MIN_REDRAW
+    .quad TC_O_MIN_REDRAW
+    .quad 0
+    .quad s_flag_min_redraw
+    .quad 0
     // TC_SET_SHOW_TIMING
-    .quad s_env_watch_show_timing; .quad s_key_show_timing; .quad TC_SEC_WATCH; .quad P_BOOL
-    .quad s_def_false; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_SHOW_TIMING
-    .quad TC_O_SHOW_TIMING; .quad 0; .quad s_flag_show_timing; .quad 0
+    .quad s_env_watch_show_timing
+    .quad s_key_show_timing
+    .quad TC_SEC_WATCH
+    .quad P_BOOL
+    .quad s_def_false
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_SHOW_TIMING
+    .quad TC_O_SHOW_TIMING
+    .quad 0
+    .quad s_flag_show_timing
+    .quad 0
     // TC_SET_TINT_FALLING
-    .quad s_env_watch_tint_falling; .quad s_key_tint_falling; .quad TC_SEC_WATCH; .quad P_BOOL
-    .quad s_def_true; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_TINT_FALLING
-    .quad TC_O_TINT_FALLING; .quad 0; .quad s_flag_tint_falling; .quad 0
+    .quad s_env_watch_tint_falling
+    .quad s_key_tint_falling
+    .quad TC_SEC_WATCH
+    .quad P_BOOL
+    .quad s_def_true
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_TINT_FALLING
+    .quad TC_O_TINT_FALLING
+    .quad 0
+    .quad s_flag_tint_falling
+    .quad 0
     // TC_SET_FADE_CURVE
-    .quad s_env_watch_fade_curve; .quad s_key_fade_curve; .quad TC_SEC_WATCH; .quad P_CURVE
-    .quad s_def_linear; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_FADE_CURVE
-    .quad TC_O_FADE_CURVE; .quad 0; .quad s_flag_fade_curve; .quad 0
+    .quad s_env_watch_fade_curve
+    .quad s_key_fade_curve
+    .quad TC_SEC_WATCH
+    .quad P_CURVE
+    .quad s_def_linear
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_FADE_CURVE
+    .quad TC_O_FADE_CURVE
+    .quad 0
+    .quad s_flag_fade_curve
+    .quad 0
     // TC_SET_FADE_K
-    .quad s_env_watch_fade_k; .quad s_key_fade_k; .quad TC_SEC_WATCH; .quad P_POS_FLOAT
-    .quad s_def_1_0; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_FADE_K
-    .quad TC_O_FADE_K; .quad 0; .quad s_flag_fade_k; .quad 0
+    .quad s_env_watch_fade_k
+    .quad s_key_fade_k
+    .quad TC_SEC_WATCH
+    .quad P_POS_FLOAT
+    .quad s_def_1_0
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_FADE_K
+    .quad TC_O_FADE_K
+    .quad 0
+    .quad s_flag_fade_k
+    .quad 0
     // TC_SET_HIGHLIGHT
-    .quad s_env_watch_highlight; .quad s_key_highlight; .quad TC_SEC_WATCH; .quad P_HIGHLIGHTS
-    .quad 0; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_HIGHLIGHT
-    .quad TC_O_HL_COUNT; .quad 0; .quad s_flag_highlight; .quad 0
+    .quad s_env_watch_highlight
+    .quad s_key_highlight
+    .quad TC_SEC_WATCH
+    .quad P_HIGHLIGHTS
+    .quad 0
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_HIGHLIGHT
+    .quad TC_O_HL_COUNT
+    .quad 0
+    .quad s_flag_highlight
+    .quad 0
     // TC_SET_REPLAY_STEPS
-    .quad s_env_watch_replay_steps; .quad s_key_replay_steps; .quad TC_SEC_WATCH; .quad P_NONNEG_INT
-    .quad s_def_200; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_WATCH_REPLAY_STEPS
-    .quad TC_O_REPLAY_STEPS; .quad 0; .quad s_flag_replay_steps; .quad 0
+    .quad s_env_watch_replay_steps
+    .quad s_key_replay_steps
+    .quad TC_SEC_WATCH
+    .quad P_NONNEG_INT
+    .quad s_def_200
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_WATCH_REPLAY_STEPS
+    .quad TC_O_REPLAY_STEPS
+    .quad 0
+    .quad s_flag_replay_steps
+    .quad 0
     // TC_SET_NOTIFY
-    .quad s_env_tail_notify; .quad s_key_notify; .quad TC_SEC_TAIL; .quad P_BOOL
-    .quad s_def_true; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_TAIL_NOTIFY
-    .quad TC_O_NOTIFY; .quad 0; .quad s_flag_notify; .quad 0
+    .quad s_env_tail_notify
+    .quad s_key_notify
+    .quad TC_SEC_TAIL
+    .quad P_BOOL
+    .quad s_def_true
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_TAIL_NOTIFY
+    .quad TC_O_NOTIFY
+    .quad 0
+    .quad s_flag_notify
+    .quad 0
     // TC_SET_MAX_EVENTS
-    .quad s_env_tail_max_events; .quad s_key_max_events; .quad TC_SEC_TAIL; .quad P_POS_INT
-    .quad s_def_4; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_TAIL_MAX_EVENTS
-    .quad TC_O_MAX_EVENTS; .quad 0; .quad s_flag_max_events; .quad 0
+    .quad s_env_tail_max_events
+    .quad s_key_max_events
+    .quad TC_SEC_TAIL
+    .quad P_POS_INT
+    .quad s_def_4
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_TAIL_MAX_EVENTS
+    .quad TC_O_MAX_EVENTS
+    .quad 0
+    .quad s_flag_max_events
+    .quad 0
     // TC_SET_SEED_LOOKBACK
-    .quad s_env_tail_seed_lookback; .quad s_key_seed_lookback; .quad TC_SEC_TAIL; .quad P_POS_INT
-    .quad s_def_30; .quad TC_SRC_DEFAULT_BUILTIN; .quad TC_SRC_CLI_WATCH; .quad TC_SRC_ENV_TAIL_SEED_LOOKBACK
-    .quad TC_O_SEED_LOOKBACK; .quad 0; .quad s_flag_seed_lookback; .quad 0
+    .quad s_env_tail_seed_lookback
+    .quad s_key_seed_lookback
+    .quad TC_SEC_TAIL
+    .quad P_POS_INT
+    .quad s_def_30
+    .quad TC_SRC_DEFAULT_BUILTIN
+    .quad TC_SRC_CLI_WATCH
+    .quad TC_SRC_ENV_TAIL_SEED_LOOKBACK
+    .quad TC_O_SEED_LOOKBACK
+    .quad 0
+    .quad s_flag_seed_lookback
+    .quad 0
     // TC_SET_BEGIN (window-start; resolved by tc_resolve_window)
-    .quad s_env_begin; .quad s_key_begin; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_BEGIN; .quad TC_SRC_ENV_BEGIN
-    .quad TC_O_BEGIN_RAW; .quad TC_O_BEGIN_RAW_SZ; .quad s_flag_begin; .quad 0
+    .quad s_env_begin
+    .quad s_key_begin
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_BEGIN
+    .quad TC_SRC_ENV_BEGIN
+    .quad TC_O_BEGIN_RAW
+    .quad TC_O_BEGIN_RAW_SZ
+    .quad s_flag_begin
+    .quad 0
     // TC_SET_SINCE
-    .quad s_env_since; .quad s_key_since; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_SINCE; .quad TC_SRC_ENV_SINCE
-    .quad TC_O_SINCE_RAW; .quad TC_O_SINCE_RAW_SZ; .quad s_flag_since; .quad 0
+    .quad s_env_since
+    .quad s_key_since
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_SINCE
+    .quad TC_SRC_ENV_SINCE
+    .quad TC_O_SINCE_RAW
+    .quad TC_O_SINCE_RAW_SZ
+    .quad s_flag_since
+    .quad 0
     // TC_SET_USERS (CLI only)
-    .quad 0; .quad 0; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_USERS; .quad TC_SRC_NONE
-    .quad TC_O_USERS; .quad 0; .quad s_flag_users; .quad 0
+    .quad 0
+    .quad 0
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_USERS
+    .quad TC_SRC_NONE
+    .quad TC_O_USERS
+    .quad 0
+    .quad s_flag_users
+    .quad 0
     // TC_SET_EXCLUDE (repeatable)
-    .quad s_env_exclude; .quad 0; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_NONE; .quad TC_SRC_CLI_EXCLUDE; .quad TC_SRC_ENV_EXCLUDE
-    .quad TC_O_EXCL_LIST; .quad 0; .quad s_flag_exclude; .quad 0
+    .quad s_env_exclude
+    .quad 0
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_NONE
+    .quad TC_SRC_CLI_EXCLUDE
+    .quad TC_SRC_ENV_EXCLUDE
+    .quad TC_O_EXCL_LIST
+    .quad 0
+    .quad s_flag_exclude
+    .quad 0
     // TC_SET_EXCLUDE_GROUP (repeatable)
-    .quad 0; .quad 0; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_NONE; .quad TC_SRC_CLI_EXCLUDE_GROUP; .quad TC_SRC_NONE
-    .quad TC_O_EXCL_GROUP_LIST; .quad 0; .quad s_flag_exclude_group; .quad 0
+    .quad 0
+    .quad 0
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_NONE
+    .quad TC_SRC_CLI_EXCLUDE_GROUP
+    .quad TC_SRC_NONE
+    .quad TC_O_EXCL_GROUP_LIST
+    .quad 0
+    .quad s_flag_exclude_group
+    .quad 0
     // TC_SET_EXCLUDE_BCAST
-    .quad s_env_exclude_bcast; .quad s_key_exclude_broadcaster; .quad TC_SEC_NONE; .quad P_BOOL
-    .quad s_def_false; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_EXCLUDE_BCAST; .quad TC_SRC_ENV_EXCLUDE_BCAST
-    .quad TC_O_EXCL_BCAST_VAL; .quad 0; .quad s_flag_exclude_bcast; .quad 0
+    .quad s_env_exclude_bcast
+    .quad s_key_exclude_broadcaster
+    .quad TC_SEC_NONE
+    .quad P_BOOL
+    .quad s_def_false
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_EXCLUDE_BCAST
+    .quad TC_SRC_ENV_EXCLUDE_BCAST
+    .quad TC_O_EXCL_BCAST_VAL
+    .quad 0
+    .quad s_flag_exclude_bcast
+    .quad 0
     // TC_SET_INCLUDE (repeatable)
-    .quad 0; .quad 0; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_NONE; .quad TC_SRC_CLI_INCLUDE; .quad TC_SRC_NONE
-    .quad TC_O_INCL_LIST; .quad 0; .quad s_flag_include; .quad 0
+    .quad 0
+    .quad 0
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_NONE
+    .quad TC_SRC_CLI_INCLUDE
+    .quad TC_SRC_NONE
+    .quad TC_O_INCL_LIST
+    .quad 0
+    .quad s_flag_include
+    .quad 0
     // TC_SET_CONFIG
-    .quad 0; .quad 0; .quad TC_SEC_NONE; .quad P_NONE
-    .quad 0; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_CONFIG; .quad TC_SRC_NONE
-    .quad TC_O_CONFIG_PATH; .quad TC_O_CONFIG_PATH_SZ; .quad s_flag_config; .quad 0
+    .quad 0
+    .quad 0
+    .quad TC_SEC_NONE
+    .quad P_NONE
+    .quad 0
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_CONFIG
+    .quad TC_SRC_NONE
+    .quad TC_O_CONFIG_PATH
+    .quad TC_O_CONFIG_PATH_SZ
+    .quad s_flag_config
+    .quad 0
     // TC_SET_COLOR (hand-written)
-    .quad 0; .quad 0; .quad TC_SEC_NONE; .quad P_CHOICES_COLOR
-    .quad s_def_auto; .quad TC_SRC_DEFAULT; .quad TC_SRC_CLI_COLOR; .quad TC_SRC_NONE
-    .quad TC_O_COLOR_MODE; .quad 0; .quad s_flag_color; .quad 0
+    .quad 0
+    .quad 0
+    .quad TC_SEC_NONE
+    .quad P_CHOICES_COLOR
+    .quad s_def_auto
+    .quad TC_SRC_DEFAULT
+    .quad TC_SRC_CLI_COLOR
+    .quad TC_SRC_NONE
+    .quad TC_O_COLOR_MODE
+    .quad 0
+    .quad s_flag_color
+    .quad 0
 
 s_env_channel:      .asciz "TWITCH_CHANNEL"
 s_env_users_policy: .asciz "TWITCH_USERS_POLICY"
