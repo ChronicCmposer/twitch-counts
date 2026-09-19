@@ -327,7 +327,9 @@ unr=$(printf '%s\n' "$out" | sed -n 's/^unreadable \(.*\)$/\1/p')
 files=$(printf '%s\n' "$out" | sed -n 's/^tally files=\([0-9]*\).*/\1/p')
 msg=$(printf '%s\n' "$out" | sed -n 's/^tally .*messages=\([0-9]*\).*/\1/p')
 ok=0
-[ "$unr" = "unrchan-2026-09-02.log cannot read" ] && [ "$files" = "2" ] && [ "$msg" = "1" ] && ok=1
+# open() on the directory succeeds and read() fails with EISDIR: the reason
+# is the Python's f"{type(exc).__name__}: {exc.strerror}"
+[ "$unr" = "unrchan-2026-09-02.log IsADirectoryError: Is a directory" ] && [ "$files" = "2" ] && [ "$msg" = "1" ] && ok=1
 [ "$ok" -eq 0 ] && echo "  detail: unr='$unr' files=$files msg=$msg"
 ok_or_fail "d6. unreadable log recorded" "$ok"
 
@@ -682,6 +684,71 @@ except SystemExit as e:
 else
     fail=$((fail + 1))
 fi
+
+# ============================================================================
+# (h) paths the Python resolves before it opens anything
+# ============================================================================
+echo "== h. logs_dir expansion and OSError texts =="
+
+# h1. logs_dir is os.path.expanduser()'d whatever its source: "~/x" with HOME
+# set is "$HOME/x", and the error shows the expanded path
+err=$("$BIN" -c chroniccmposer -d '~/nope' 2>&1 >/dev/null)
+ok=0
+[ "$err" = "error: logs directory not found: $HOME/nope" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: err='$err'"
+ok_or_fail "h1. -d '~/x' expands to \$HOME/x" "$ok"
+
+# h2. "~nosuchuser/x" stays as written (posixpath.expanduser leaves an
+# unknown user alone)
+err=$("$BIN" -c chroniccmposer -d '~tc_no_such_user_x/nope' 2>&1 >/dev/null)
+ok=0
+[ "$err" = "error: logs directory not found: ~tc_no_such_user_x/nope" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: err='$err'"
+ok_or_fail "h2. unknown ~user is left unexpanded" "$ok"
+
+# h3. a file where the logs directory should be is "not found" (isdir False)
+: > "$tmpdir/notadir"
+err=$("$BIN" -c chroniccmposer -d "$tmpdir/notadir" 2>&1 >/dev/null)
+ok=0
+[ "$err" = "error: logs directory not found: $tmpdir/notadir" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: err='$err'"
+ok_or_fail "h3. a plain file as logs_dir is 'not found'" "$ok"
+
+if [ "$(id -u)" != "0" ]; then
+    # h4. a logs directory that cannot be listed: main()'s OSError backstop,
+    # f"{type(exc).__name__}: {exc}" -> the PermissionError's str()
+    mkdir -p "$tmpdir/locked" && chmod 000 "$tmpdir/locked"
+    err=$("$BIN" -c chroniccmposer -d "$tmpdir/locked" 2>&1 >/dev/null)
+    ok=0
+    [ "$err" = "error: PermissionError: [Errno 13] Permission denied: '$tmpdir/locked'" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: err='$err'"
+    ok_or_fail "h4. unlistable logs_dir is the PermissionError backstop" "$ok"
+
+    # h5. the channel directory itself cannot be listed
+    mkdir -p "$channels/lockedch" && chmod 000 "$channels/lockedch"
+    err=$("$BIN" -c lockedch -d "$channels" 2>&1 >/dev/null)
+    ok=0
+    [ "$err" = "error: PermissionError: [Errno 13] Permission denied: '$channels/lockedch'" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: err='$err'"
+    ok_or_fail "h5. unlistable channel dir is the PermissionError backstop" "$ok"
+    chmod 700 "$tmpdir/locked" "$channels/lockedch"
+
+    # h6. an unreadable log file: skip() records "PermissionError: Permission denied"
+    mkdir -p "$channels/permch"
+    printf '[10:00:00] alice: one\n' > "$channels/permch/permch-2026-09-01.log"
+    printf '[10:00:00] bob: two\n' > "$channels/permch/permch-2026-09-02.log"
+    chmod 000 "$channels/permch/permch-2026-09-02.log"
+    out=$("$BIN" -c permch -d "$channels" -b 2026-09-01 -e 2026-09-02 2>"$tmpdir/e")
+    unr=$(printf '%s\n' "$out" | sed -n 's/^unreadable \(.*\)$/\1/p')
+    ok=0
+    [ "$unr" = "permch-2026-09-02.log PermissionError: Permission denied" ] && ok=1
+    [ "$ok" -eq 0 ] && echo "  detail: unr='$unr'"
+    ok_or_fail "h6. unreadable log reason is the OSError class + strerror" "$ok"
+    chmod 600 "$channels/permch/permch-2026-09-02.log"
+else
+    echo "  (h4-h6 skipped: running as root, permission checks do not apply)"
+fi
+
 
 # ============================================================================
 # (h) explicit missing -d

@@ -174,7 +174,7 @@ diff_run() {
         echo "FAIL[$name]: rc asm=$a_rc py=$p_rc"; FAIL=$((FAIL+1)); FAILED_TESTS+=("$name"); return
     fi
     local an pn
-    an=$(printf '%s' "$a_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/; s/\(cannot read\)/(PermissionError: Permission denied)/')
+    an=$(printf '%s' "$a_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
     pn=$(printf '%s' "$p_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
     # track whether this differential actually exercised a populated report
     # table (a "<name>   <count>" row) rather than comparing empty output.
@@ -261,7 +261,7 @@ json_diff() {
         fi
     fi
     local an pn
-    an=$(printf '%s' "$a_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/; s/\(cannot read\)/(PermissionError: Permission denied)/')
+    an=$(printf '%s' "$a_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
     pn=$(printf '%s' "$p_out" | sed -E 's/"generated_at": "[^"]*"/"generated_at": "X"/')
     if [ "$an" = "$pn" ]; then
         echo "PASS[$name]"; PASS=$((PASS+1))

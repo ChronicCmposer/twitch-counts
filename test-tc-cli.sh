@@ -348,5 +348,36 @@ fi
 
 # ---------------------------------------------------------------------------
 echo
+# ---------------------------------------------------------------------------
+# usage block: argparse packs one part per action into $COLUMNS - 2 columns
+# (shutil.get_terminal_size), continuation lines indented past "usage: <prog> ".
+# Compared with the Python run under the same program name, so the wrapping
+# has to agree at every width, including one too narrow for the prog line.
+USAGE_PY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/tc-cli-usage.XXXXXX")
+cp twitch-counts.py "$USAGE_PY_DIR/tc-cli-test"
+for W in 40 60 80 100 120 200; do
+    got=$(COLUMNS=$W "$BIN" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
+    want=$(COLUMNS=$W python3 "$USAGE_PY_DIR/tc-cli-test" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
+    if [ "$got" = "$want" ]; then ok; else
+        bad "usage-width-$W: usage block differs from argparse at COLUMNS=$W"
+        diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -6
+    fi
+done
+got=$(COLUMNS=" 90 " "$BIN" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
+want=$(COLUMNS=" 90 " python3 "$USAGE_PY_DIR/tc-cli-test" --color bogus 2>&1 | sed '/^tc-cli-test: error/,$d')
+if [ "$got" = "$want" ]; then ok; else bad "usage-width-int: COLUMNS=' 90 ' is int()-parsed like Python"; fi
+rm -rf "$USAGE_PY_DIR"
+
+# ---------------------------------------------------------------------------
+# resolve-time error texts (a value given on the command line reads
+# "--since: ...", with no "(from --since)")
+expect_contains "since-zero" "error: --since: duration must be greater than zero" -c x -S 0s -d /nonexistent
+expect_contains "since-zero-no-from" "error: --since: " -c x -S 0s -d /nonexistent
+expect_contains "since-junk-normalised" "unrecognized duration '3x'" -c x -S " 3X " -d /nonexistent
+expect_contains "begin-bad-week" "error: --begin: no week 60 in ISO year 2026 (weeks run 1-52, or 1-53 in long years)" -c x -b 2026-W60 -d /nonexistent
+expect_contains "show-first-unknown" "unknown column 'share' (choose from: count, live, live-share, offline, offline-share, unknown)" -c x --show share,first,last -d /nonexistent
+expect_begin "begin-padded" 20260917 -c x -b " 2026-09-17 " -d /nonexistent
+expect_contains "users-label-digits" "src=--users 12" -c x --users 12 -d /nonexistent
+
 echo "Summary: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] && [ "$DIFF_FAIL" -eq 0 ]

@@ -706,6 +706,58 @@ check "expiry: Python repainted the row plain after hold" "plain" "$(last_row "$
 reset_log
 
 # ---------------------------------------------------------------------------
+echo "== \$COLUMNS / \$LINES override the terminal (shutil.get_terminal_size) =="
+# The frame is clipped to $COLUMNS and the row budget follows $LINES before
+# the pty's own 30x100 is consulted: a 50-column, 12-line frame on a 100x30
+# pty, byte for byte against the Python.
+reset_log
+COLUMNS=50 LINES=12 run_pty "$DATA/cols_asm.out" 4 1.0 -1 "" "$BIN" "${BASE[@]}"
+COLUMNS=50 LINES=12 run_pty "$DATA/cols_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${BASE[@]}"
+strip_ansi "$DATA/cols_asm.out" > "$DATA/cols_asm.plain"
+strip_ansi "$DATA/cols_py.out" > "$DATA/cols_py.plain"
+first_frame "$DATA/cols_asm.plain" > "$DATA/cols_asm.frame"
+first_frame "$DATA/cols_py.plain" > "$DATA/cols_py.frame"
+if diff -u "$DATA/cols_py.frame" "$DATA/cols_asm.frame" > "$DATA/cols_frame.diff"; then
+    ok "\$COLUMNS=50 first frame matches Python byte-for-byte"
+else
+    bad "\$COLUMNS=50 first frame matches Python byte-for-byte"
+    sed 's/^/    /' "$DATA/cols_frame.diff" | head -20
+fi
+LONGEST=$(awk '{ if (length($0) > m) m = length($0) } END { print m+0 }' "$DATA/cols_asm.frame")
+if [ "$LONGEST" -le 50 ]; then
+    ok "\$COLUMNS=50 clips every line to 50 columns"
+else
+    bad "\$COLUMNS=50 clips every line to 50 columns (longest $LONGEST)"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== highlight patterns: Python's Unicode \\w \\s (?i) semantics =="
+# 'keysé': the rule word is followed by a Unicode letter, so Python's
+# (?<!\S)[^\w\s]*keys[^\w\s]*(?!\S) does not match -- the row rises green.
+# A byte-mode regex sees two non-word bytes after "keys" and matches red.
+cat > "$DATA/unicode.toml" <<'EOF'
+[tail]
+notify = false
+[watch]
+hold = 0
+fade_up = "#6fff6f"
+[[watch.highlight]]
+color = "#ff6f6f"
+match = ['(?i)(?<!\S)[^\w\s]*keys[^\w\s]*(?!\S)']
+EOF
+UBASE=( -c "$CH" -d "$LOGS" -w 0.2 --config "$DATA/unicode.toml" --no-cache --color always )
+reset_log
+run_pty "$DATA/uni_asm.out" 4 3.0 1.0 "[10:00:05] alice: keysé" "$BIN" "${UBASE[@]}"
+reset_log
+run_pty "$DATA/uni_py.out" 4 3.0 1.0 "[10:00:05] alice: keysé" "$PY" "$PYSCRIPT" "${UBASE[@]}"
+check "Unicode after a rule word: asm paints fade_up, not the rule" "111;255;111" "$(row_tints "$DATA/uni_asm.out" alice)"
+check "Unicode after a rule word: Python paints the same" "$(row_tints "$DATA/uni_py.out" alice)" "$(row_tints "$DATA/uni_asm.out" alice)"
+reset_log
+run_pty "$DATA/uni2_asm.out" 4 3.0 1.0 "[10:00:05] alice: KEYS" "$BIN" "${UBASE[@]}"
+check "ASCII case fold still matches the rule" "255;111;111" "$(row_tints "$DATA/uni2_asm.out" alice)"
+reset_log
+
+# ---------------------------------------------------------------------------
 echo
 echo "=========================================="
 echo "test-tc-watch.sh: $PASS passed, $FAIL failed"
