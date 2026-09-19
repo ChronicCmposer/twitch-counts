@@ -6796,26 +6796,25 @@ tc_parse_hex_colour:
     orr x24, x24, x24, lsr #4
     b .Lphx_pack
 .Lphx_six:
+    // int(digits[i:i + 2], 16): the first digit of each pair is the high
+    // nibble ("6f" is 0x6f, not 0xf6)
     ldrb w0, [x19]
     bl tc_hexval
-    mov x22, x0
+    lsl x22, x0, #4
     ldrb w0, [x19, #1]
     bl tc_hexval
-    lsl x0, x0, #4
     orr x22, x22, x0
     ldrb w0, [x19, #2]
     bl tc_hexval
-    mov x23, x0
+    lsl x23, x0, #4
     ldrb w0, [x19, #3]
     bl tc_hexval
-    lsl x0, x0, #4
     orr x23, x23, x0
     ldrb w0, [x19, #4]
     bl tc_hexval
-    mov x24, x0
+    lsl x24, x0, #4
     ldrb w0, [x19, #5]
     bl tc_hexval
-    lsl x0, x0, #4
     orr x24, x24, x0
 .Lphx_pack:
     lsl x22, x22, #16
