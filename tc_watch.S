@@ -2493,6 +2493,8 @@ watch_reader_refresh:
     ldr x0, [x9]
     cbz x0, .Lwrrf_join_free_done
     bl free
+    adrp x9, PAGE(tc_watch_join_old)   // free() clobbers x9: recompute
+    add x9, x9, LO12(tc_watch_join_old)
     str xzr, [x9]
 .Lwrrf_join_free_done:
     mov x24, x26
@@ -2532,6 +2534,7 @@ watch_reader_refresh:
     mov x0, x9
     bl malloc
     cbz x0, .Lwrrf_rem_oom
+    sub x9, x25, x26                   // malloc() clobbers x9: recompute
     mov x1, x24
     add x1, x1, x26
     mov x2, x9
@@ -3964,11 +3967,10 @@ watch_reader_window:
     // allocate a NEW WW array each build: the pointer identity is what the
     // fold uses to detect a content change (Python's window() returns a new
     // object on rebuild), so reusing the buffer here would hide appends.
-    ldr x9, [x19, #RD_WINDOW]
-    cbz x9, .Lwrw_build_new
-    mov x0, x9
-    bl free
-.Lwrw_build_new:
+    // The previous record is freed only AFTER the new one is allocated: an
+    // allocator that recycles a just-freed block of the same size (Darwin's
+    // does; musl's happened not to) would otherwise hand back the same
+    // address and the fold would see "unchanged" after an append.
     mov x9, #WW_MAX
     mov x0, #WW_SZ
     mul x0, x9, x0
@@ -3976,6 +3978,10 @@ watch_reader_window:
     bl malloc
     cbz x0, .Lwrw_oom
     mov x22, x0
+    ldr x0, [x19, #RD_WINDOW]
+    cbz x0, .Lwrw_build_zero
+    bl free
+.Lwrw_build_zero:
     mov x0, x22
     mov x1, #0
     mov x2, x23
@@ -4348,6 +4354,7 @@ watch_reader_day:
     mul x0, x9, x0
     bl malloc
     cbz x0, .Lwday_oom
+    mov x9, #WW_MAX                    // malloc() clobbers x9: recompute
     str x9, [x19, #RD_DAY_CAP]
 .Lwday_use:
     mov x20, x0                        // day buf
@@ -5055,7 +5062,9 @@ watch_gather_file:
     str x10, [x9]
     mov x11, x0                        // dm (x0 = counts below)
     ldr x0, [x11, #DM_COUNTS]
-    bl watch_win_add
+    str x11, [sp, #-16]!               // watch_win_add reaches realloc(),
+    bl watch_win_add                   // which clobbers x9-x17
+    ldr x11, [sp], #16
     ldr x9, [x11, #DM_EXIT]
     adrp x10, PAGE(tc_watch_g_enter)
     add x10, x10, LO12(tc_watch_g_enter)
@@ -5121,7 +5130,9 @@ watch_gather_file:
     bl watch_memo_put                  // x0 = DM ptr
     mov x11, x0
     ldr x0, [x11, #DM_COUNTS]
-    bl watch_win_add
+    str x11, [sp, #-16]!               // watch_win_add reaches realloc(),
+    bl watch_win_add                   // which clobbers x9-x17
+    ldr x11, [sp], #16
     ldr x9, [x11, #DM_EXIT]
     adrp x10, PAGE(tc_watch_g_enter)
     add x10, x10, LO12(tc_watch_g_enter)
@@ -5756,19 +5767,19 @@ watch_path_in_listing:
 .Lwpi_scan_done:
     add x23, x22, x10
     add x23, x23, #1                   // name ptr
-    mov x9, #0
+    mov x24, #0                        // index (callee-saved: strcmp clobbers x9)
 .Lwpi_loop:
-    cmp x9, x20
+    cmp x24, x20
     b.ge .Lwpi_no
     mov x10, #TC_L_ENTRY_SZ
-    mul x10, x9, x10
+    mul x10, x24, x10
     add x10, x21, x10
     add x10, x10, #TC_L_NAME
     mov x0, x23
     mov x1, x10
     bl strcmp
     cbz w0, .Lwpi_yes
-    add x9, x9, #1
+    add x24, x24, #1
     b .Lwpi_loop
 .Lwpi_yes:
     mov x0, #1
@@ -8348,20 +8359,28 @@ watch_choose:
     bl watch_ymd_sod_to_epoch
     mov x27, x0                        // day_start epoch
     ldr x28, [x26, #RD_MATCH_N]
-    ldr x9, [x26, #RD_MATCHES]
     mov x26, #0                        // match index
 .Lwch_m:
     cmp x26, x28
     b.ge .Lwch_rd_next
-    mov x10, #MT_SZ
-    mul x10, x26, x10
-    add x10, x9, x10
+    // record = rd->matches + index*MT_SZ, from callee-saved state only
+    // (strcmp below clobbers x9-x17, so nothing temporary survives it)
+    ldr x10, [x24, x25, lsl #3]        // rd
+    ldr x10, [x10, #RD_MATCHES]
+    mov x11, #MT_SZ
+    mul x11, x26, x11
+    add x10, x10, x11
     // login match?
     add x11, x10, #MT_LOGIN
     mov x0, x19
     mov x1, x11
     bl strcmp
     cbnz w0, .Lwch_m_next
+    ldr x10, [x24, x25, lsl #3]        // recompute the record after strcmp
+    ldr x10, [x10, #RD_MATCHES]
+    mov x11, #MT_SZ
+    mul x11, x26, x11
+    add x10, x10, x11
     // when = day_start + second
     ldr x11, [x10, #MT_SECOND]
     add x12, x27, x11
@@ -9142,20 +9161,25 @@ watch_prepare_frame:
     .p2align 2
 watch_free_plan:
     stp x29, x30, [sp, #-16]!
-    adrp x9, PAGE(tc_plan_reported)
-    add x9, x9, LO12(tc_plan_reported)
-    ldr x0, [x9]
+    stp x19, x20, [sp, #-16]!
+    // The slot addresses live in callee-saved registers: free() clobbers
+    // x9-x17 (musl's happened not to, libSystem's does), and the slot is
+    // cleared after the call.
+    adrp x19, PAGE(tc_plan_reported)
+    add x19, x19, LO12(tc_plan_reported)
+    ldr x0, [x19]
     cbz x0, .Lwfp2_reported_ok
     bl free
-    str xzr, [x9]
+    str xzr, [x19]
 .Lwfp2_reported_ok:
-    adrp x9, PAGE(tc_plan_excl_names)
-    add x9, x9, LO12(tc_plan_excl_names)
-    ldr x0, [x9]
+    adrp x19, PAGE(tc_plan_excl_names)
+    add x19, x19, LO12(tc_plan_excl_names)
+    ldr x0, [x19]
     cbz x0, .Lwfp2_excl_ok
     bl free
-    str xzr, [x9]
+    str xzr, [x19]
 .Lwfp2_excl_ok:
+    ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
 

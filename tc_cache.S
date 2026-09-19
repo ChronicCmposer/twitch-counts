@@ -1735,10 +1735,10 @@ snapshot_users:
     add x19, x19, LO12(tc_users)
     ldr x20, [x19, #TC_US_COUNT]    // n
     ldr x21, [x19, #TC_US_ENTRIES]  // entries
-    mov x0, x20
     mov x1, #24
-    mul x1, x0, x1
-    bl malloc
+    mul x0, x20, x1                 // malloc(n * 24): the product must be the
+    bl malloc                       // argument (it used to land in x1, so this
+                                    // allocated n bytes and overran the heap)
     cbz x0, .Lsu_none               // malloc fail -> no put (still parse)
     mov x22, x0                     // snap
     adrp x23, PAGE(tc_cache_snap)
