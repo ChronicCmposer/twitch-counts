@@ -176,6 +176,14 @@
     .globl exit
     .globl fopen
     .globl fclose
+    .globl tc_cat_cstr
+    .globl tc_streq
+    .globl tc_days_from_civil
+    .globl tc_civil_from_days
+    .globl tc_is_leap
+    .globl tc_days_in_month
+    .globl tc_ymd_sod_to_epoch
+    .globl tc_epoch_to_ymd_sod
 
     // Wave E highlight resolution ([[watch.highlight]]): the frozen
     // tc_config_get cannot return array-of-tables (toml_raw_in only sees
@@ -1242,19 +1250,6 @@ tc_build_not_allowed:
     ret
 
 // ----------------------------------------------------------------------------
-// tc_cat_cstr(x0=cursor, x1=s) -> x0 = cursor after the string
-// ----------------------------------------------------------------------------
-    .p2align 2
-tc_cat_cstr:
-    mov x2, x1
-.Lcc:
-    ldrb w3, [x2], #1
-    strb w3, [x0], #1
-    cbnz w3, .Lcc
-    sub x0, x0, #1
-    ret
-
-// ----------------------------------------------------------------------------
 // tc_append_list(x0=list off, x1=count off, x2=esz, x3=flag, x4=set, x5=value)
 // ----------------------------------------------------------------------------
     .p2align 2
@@ -1988,24 +1983,6 @@ tc_pp_long:
     bl tc_arg_missing_value
 .Lpl_ret:
     EPILOGUE 5
-    ret
-
-// ----------------------------------------------------------------------------
-// tc_streq(x0=a, x1=b) -> x0 = 1 if equal
-// ----------------------------------------------------------------------------
-    .p2align 2
-tc_streq:
-    mov x2, x0
-.Lse:
-    ldrb w3, [x2], #1
-    ldrb w4, [x1], #1
-    cmp w3, w4
-    b.ne .Lse_no
-    cbnz w3, .Lse
-    mov x0, #1
-    ret
-.Lse_no:
-    mov x0, #0
     ret
 
 // ----------------------------------------------------------------------------
@@ -4358,175 +4335,9 @@ tc_format_pad:
     ret
 
 // ============================================================================
-// Civil math (Howard Hinnant; ported from twitch-counts.S)
+// Civil math specific to the CLI (the shared calendar helpers live in
+// tc_util.S: tc_days_from_civil, tc_civil_from_days, tc_days_in_month, ...)
 // ============================================================================
-
-// tc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
-    .p2align 2
-tc_days_from_civil:
-    cmp x1, #2
-    b.gt .Ldfc_adj_done
-    sub x0, x0, #1
-.Ldfc_adj_done:
-    cmp x0, #0
-    b.ge .Ldfc_ypos
-    sub x3, x0, #399
-    b .Ldfc_era
-.Ldfc_ypos:
-    mov x3, x0
-.Ldfc_era:
-    mov x4, #400
-    sdiv x3, x3, x4
-    msub x5, x3, x4, x0
-    cmp x1, #2
-    b.gt .Ldfc_madj
-    add x6, x1, #9
-    b .Ldfc_doy
-.Ldfc_madj:
-    sub x6, x1, #3
-.Ldfc_doy:
-    mov x7, #153
-    mul x6, x6, x7
-    add x6, x6, #2
-    mov x7, #5
-    sdiv x6, x6, x7
-    add x6, x6, x2
-    sub x6, x6, #1
-    mov x7, #365
-    mul x7, x5, x7
-    add x7, x7, x6
-    mov x9, #4
-    sdiv x8, x5, x9
-    add x7, x7, x8
-    mov x9, #100
-    sdiv x8, x5, x9
-    sub x7, x7, x8
-    ldr x9, =146097
-    mul x9, x3, x9
-    add x7, x7, x9
-    ldr x9, =719468
-    sub x0, x7, x9
-    ret
-
-// tc_civil_from_days(x0=z) -> x0=y, x1=m, x2=d
-    .p2align 2
-    .global tc_civil_from_days
-    FUNC_TYPE(tc_civil_from_days)
-tc_civil_from_days:
-    ldr x3, =719468
-    add x3, x0, x3
-    cmp x3, #0
-    b.ge .Lcfd_zpos
-    ldr x9, =146096
-    sub x4, x3, x9
-    b .Lcfd_era
-.Lcfd_zpos:
-    mov x4, x3
-.Lcfd_era:
-    ldr x5, =146097
-    sdiv x4, x4, x5
-    msub x6, x4, x5, x3
-    ldr x7, =1460
-    sdiv x8, x6, x7
-    sub x8, x6, x8
-    ldr x7, =36524
-    sdiv x9, x6, x7
-    add x8, x8, x9
-    ldr x7, =146096
-    sdiv x9, x6, x7
-    sub x8, x8, x9
-    mov x7, #365
-    sdiv x8, x8, x7
-    mov x7, #400
-    mul x9, x4, x7
-    add x9, x8, x9
-    mov x7, #365
-    mul x10, x8, x7
-    sub x10, x6, x10
-    mov x7, #4
-    sdiv x11, x8, x7
-    sub x10, x10, x11
-    mov x7, #100
-    sdiv x11, x8, x7
-    add x10, x10, x11
-    mov x7, #5
-    mul x10, x10, x7
-    add x10, x10, #2
-    mov x7, #153
-    sdiv x10, x10, x7
-    mov x7, #153
-    mul x11, x10, x7
-    add x11, x11, #2
-    mov x7, #5
-    sdiv x11, x11, x7
-    mov x7, #365
-    mul x12, x8, x7
-    sub x12, x6, x12
-    mov x7, #4
-    sdiv x13, x8, x7
-    sub x12, x12, x13
-    mov x7, #100
-    sdiv x13, x8, x7
-    add x12, x12, x13
-    sub x12, x12, x11
-    add x2, x12, #1
-    cmp x10, #10
-    b.ge .Lcfd_mbig
-    add x1, x10, #3
-    b .Lcfd_mdone
-.Lcfd_mbig:
-    sub x1, x10, #9
-.Lcfd_mdone:
-    cmp x1, #2
-    b.gt .Lcfd_ret
-    add x9, x9, #1
-.Lcfd_ret:
-    mov x0, x9
-    ret
-
-// tc_is_leap(x0=y) -> x0 = 1/0
-    .p2align 2
-tc_is_leap:
-    mov x1, #4
-    sdiv x2, x0, x1
-    msub x2, x2, x1, x0
-    cbnz x2, .Lil_no
-    mov x1, #100
-    sdiv x2, x0, x1
-    msub x2, x2, x1, x0
-    cbnz x2, .Lil_yes
-    mov x1, #400
-    sdiv x2, x0, x1
-    msub x2, x2, x1, x0
-    cbnz x2, .Lil_no
-.Lil_yes:
-    mov x0, #1
-    ret
-.Lil_no:
-    mov x0, #0
-    ret
-
-// tc_days_in_month(x0=y, x1=m) -> x0 = days
-    .p2align 2
-tc_days_in_month:
-    PROLOGUE 5
-    cmp x1, #2
-    b.eq .Ldim_feb
-    LEA x2, month_days
-    sub x3, x1, #1
-    ldrb w0, [x2, x3]
-    EPILOGUE 5
-    ret
-.Ldim_feb:
-    bl tc_is_leap
-    cbnz x0, .Ldim_29
-    mov x0, #28
-    EPILOGUE 5
-    ret
-.Ldim_29:
-    mov x0, #29
-    EPILOGUE 5
-    ret
 
 // tc_weekday(x0=days) -> x0 = 1..7 (Monday=1)
     .p2align 2
@@ -4536,51 +4347,6 @@ tc_weekday:
     udiv x2, x0, x1
     msub x0, x2, x1, x0
     add x0, x0, #1
-    ret
-
-// tc_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds
-    .p2align 2
-tc_ymd_sod_to_epoch:
-    PROLOGUE 5
-    mov x19, x0                     // ymd (YYYYMMDD)
-    mov x20, x1                     // sod
-    mov x2, #10000
-    udiv x21, x19, x2               // year
-    mul x3, x21, x2
-    sub x4, x19, x3                 // month*100 + day
-    mov x2, #100
-    udiv x22, x4, x2                // month
-    msub x23, x22, x2, x4           // day
-    mov x0, x21
-    mov x1, x22
-    mov x2, x23
-    bl tc_days_from_civil           // x0 = days since epoch
-    ldr x3, =SECS_PER_DAY
-    mul x0, x0, x3
-    add x0, x0, x20
-    EPILOGUE 5
-    ret
-
-// tc_epoch_to_ymd_sod(x0=epoch) -> x0=ymd, x1=sod
-    .p2align 2
-tc_epoch_to_ymd_sod:
-    PROLOGUE 5
-    ldr x19, =SECS_PER_DAY
-    udiv x20, x0, x19
-    msub x5, x20, x19, x0
-    stp x5, xzr, [sp, #-16]!
-    mov x0, x20
-    bl tc_civil_from_days
-    mov x3, #10000
-    mul x0, x0, x3
-    mov x3, #100
-    mul x1, x1, x3
-    add x0, x0, x1
-    add x0, x0, x2
-    ldr x5, [sp]
-    add sp, sp, #16
-    EPILOGUE 5
-    mov x1, x5
     ret
 
 // tc_iso_week_monday(x0=y, x1=w) -> x0=ymd (Monday 00:00:00)
@@ -6238,6 +6004,26 @@ tc_metric_id:
     EPILOGUE 5
     ret
 
+
+// ----------------------------------------------------------------------------
+// tc_setting_src_str(x0=TC_SET_* id) -> x0 = the source string of that
+//   setting's provenance (tc_source_str of tc_opts.TC_O_SRC[id]).  Shared by
+//   the header rows (tc_render.S) and the JSON report (tc_json.S).
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_setting_src_str
+    FUNC_TYPE(tc_setting_src_str)
+tc_setting_src_str:
+    stp x19, x30, [sp, #-16]!
+    mov x19, x0
+    LEA x0, tc_opts
+    movz x2, #TC_O_SRC
+    add x0, x0, x2
+    ldr x0, [x0, x19, lsl #3]
+    bl tc_source_str
+    ldp x19, x30, [sp], #16
+    ret
+
 // ============================================================================
 // tc_source_str(x0=id) -> (x0=ptr, x1=len)
 // ============================================================================
@@ -6468,9 +6254,6 @@ s_comp_weeks:   .asciz "weeks"
 s_comp_periods: .asciz "periods"
 s_comp_users:   .asciz "users"
 s_comp_includes:.asciz "includes"
-
-month_days:
-    .byte 31,28,31,30,31,30,31,31,30,31,30,31
 
 // canonical option strings (indexed by val)
 s_canon_channel:    .asciz "-c/--channel"

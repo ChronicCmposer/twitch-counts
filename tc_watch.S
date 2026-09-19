@@ -148,6 +148,11 @@
     .globl pcre2_match_data_create_from_pattern_8
     .globl pcre2_match_data_free_8
     .globl pcre2_get_error_message_8
+    .globl tc_days_from_civil
+    .globl tc_ymd_sod_to_epoch
+    .globl tc_epoch_to_ymd_sod
+    .globl tc_days_in_month
+    .globl tc_fmt2
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -768,7 +773,7 @@ tc_watch_run:
     // palette_chooser(readers, highlights, datetime.now(), hold): a match
     // counts while it lies within [now - hold, now] by the wall clock
     bl watch_local_now               // x0 = ymd, x1 = sod
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     LEA x9, tc_watch_choose_wall
     str x0, [x9]
     LEA x9, tc_watch_hold
@@ -1344,109 +1349,6 @@ wc_catn:
     ret
 
 // ============================================================================
-// watch_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds (UTC).
-// ============================================================================
-    .p2align 2
-watch_ymd_sod_to_epoch:
-    PROLOGUE 3
-    mov x19, x0
-    mov x20, x1
-    mov x2, #10000
-    udiv x21, x19, x2                   // year
-    mul x3, x21, x2
-    sub x4, x19, x3
-    mov x2, #100
-    udiv x22, x4, x2                    // month
-    msub x23, x22, x2, x4               // day
-    mov x0, x21
-    mov x1, x22
-    mov x2, x23
-    bl watch_days_from_civil
-    ldr x3, =SECS_PER_DAY
-    mul x0, x0, x3
-    add x0, x0, x20
-    EPILOGUE 3
-    ret
-
-// ============================================================================
-// watch_epoch_to_ymd_sod(x0=epoch) -> x0=ymd, x1=sod (UTC).
-// ============================================================================
-    .p2align 2
-watch_epoch_to_ymd_sod:
-    PROLOGUE 2
-    ldr x19, =SECS_PER_DAY
-    udiv x20, x0, x19
-    msub x21, x20, x19, x0             // sod
-    mov x0, x20
-    bl tc_civil_from_days               // x0=y, x1=m, x2=d
-    mov x3, #10000
-    mul x0, x0, x3
-    mov x3, #100
-    mul x1, x1, x3
-    add x0, x0, x1
-    add x0, x0, x2
-    mov x1, x21
-    EPILOGUE 2
-    ret
-
-// ============================================================================
-// watch_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
-//   (Howard Hinnant; identical to tc_core's local helper).
-// ============================================================================
-    .p2align 2
-watch_days_from_civil:
-    // Howard Hinnant's days_from_civil: y -= m <= 2; era = (y>=0?y:y-399)/400;
-    // yoe = y - era*400; doy = (153*(m + (m>2?-3:9)) + 2)/5 + d - 1;
-    // doe = yoe*365 + yoe/4 - yoe/100 + doy;
-    // return era*146097 + doe - 719468
-    cmp x1, #2
-    b.gt .Lwdfc_adj_done
-    sub x0, x0, #1
-.Lwdfc_adj_done:
-    cmp x0, #0
-    b.ge .Lwdfc_ypos
-    sub x3, x0, #399
-    b .Lwdfc_era
-.Lwdfc_ypos:
-    mov x3, x0
-.Lwdfc_era:
-    mov x4, #400
-    sdiv x5, x3, x4                    // era
-    msub x6, x5, x4, x3                // yoe
-    // mp = month + (month > 2 ? -3 : 9)
-    cmp x1, #2
-    b.gt .Lwdfc_mp_big
-    add x7, x1, #9
-    b .Lwdfc_doy
-.Lwdfc_mp_big:
-    sub x7, x1, #3
-.Lwdfc_doy:
-    mov x8, #153
-    mul x7, x7, x8
-    add x7, x7, #2
-    mov x8, #5
-    sdiv x7, x7, x8                    // (153*mp + 2) / 5
-    add x7, x7, x2
-    sub x7, x7, #1                     // doy = ... + d - 1
-    // doe = yoe*365 + yoe/4 - yoe/100 + doy
-    mov x9, #4
-    sdiv x11, x6, x9                   // yoe/4
-    mov x9, #365
-    mul x10, x6, x9
-    add x10, x10, x11                  // yoe*365 + yoe/4
-    mov x9, #100
-    sdiv x11, x6, x9
-    sub x10, x10, x11                  // - yoe/100
-    add x10, x10, x7                   // + doy  -> doe
-    ldr x12, =146097
-    mul x13, x5, x12
-    add x10, x10, x13
-    ldr x13, =719468
-    sub x10, x10, x13
-    mov x0, x10
-    ret
-
-// ============================================================================
 // watch_build_dirpath — tc_watch_dirpath = logs_dir + "/" + channel_name.
 // ============================================================================
     .p2align 2
@@ -1735,7 +1637,7 @@ watch_parse_log_filename:
     b.lt .Lwpf_fail
     mov x0, x21
     mov x1, x22
-    bl watch_days_in_month             // x0 = days
+    bl tc_days_in_month             // x0 = days
     cmp x23, x0
     b.gt .Lwpf_fail
     mov x9, #10000
@@ -1748,41 +1650,6 @@ watch_parse_log_filename:
 .Lwpf_fail:
     mov x0, #0
     EPILOGUE 3
-    ret
-
-// ============================================================================
-// watch_days_in_month(x0=y, x1=m) -> x0 = days in the month (proleptic Greg).
-// ============================================================================
-    .p2align 2
-watch_days_in_month:
-    PROLOGUE 0
-    // month_days table
-    LEA x10, watch_month_days
-    sub x11, x1, #1
-    ldrb w12, [x10, x11]
-    // February leap
-    cmp x1, #2
-    b.ne .Lwdim_out
-    // leap year: y%4==0 and (y%100!=0 or y%400==0)
-    mov x13, #4
-    sdiv x14, x0, x13
-    msub x14, x14, x13, x0
-    cbnz x14, .Lwdim_out
-    mov x13, #100
-    sdiv x14, x0, x13
-    msub x14, x14, x13, x0
-    cbz x14, .Lwdim_c400
-    add x12, x12, #1
-    b .Lwdim_out
-.Lwdim_c400:
-    mov x13, #400
-    sdiv x14, x0, x13
-    msub x14, x14, x13, x0
-    cbnz x14, .Lwdim_out
-    add x12, x12, #1
-.Lwdim_out:
-    mov x0, x12
-    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1827,12 +1694,12 @@ watch_init_window:
     LEA x9, tc_window
     ldr x0, [x9, #TC_W_BEGIN_YMD]
     ldr x1, [x9, #TC_W_BEGIN_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x20, x0
     LEA x9, tc_window
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     sub x0, x0, x20
     LEA x9, tc_watch_win_width
     str x0, [x9]
@@ -1875,11 +1742,11 @@ watch_init_window:
     LEA x19, tc_window
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x20, x0
     ldr x0, [x19, #TC_W_END_YMD]
     ldr x1, [x19, #TC_W_END_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     sub x0, x0, x20
     LEA x9, tc_watch_win_width
     str x0, [x9]
@@ -1916,11 +1783,11 @@ watch_roll_window:
     ldr x22, [x19, #TC_W_END_SOD]
     mov x0, x21
     mov x1, x22
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     LEA x9, tc_watch_win_width
     ldr x20, [x9]
     sub x0, x0, x20
-    bl watch_epoch_to_ymd_sod         // x0=ymd, x1=sod
+    bl tc_epoch_to_ymd_sod         // x0=ymd, x1=sod
     LEA x19, tc_window
     str x0, [x19, #TC_W_BEGIN_YMD]
     str x1, [x19, #TC_W_BEGIN_SOD]
@@ -1928,11 +1795,8 @@ watch_roll_window:
     EPILOGUE 2
     ret
 
-// month_days table (rodata lives with the other strings)
     RODATA
     .p2align 2
-watch_month_days:
-    .byte 31,28,31,30,31,30,31,31,30,31,30,31
 s_no_logs_pre:      .asciz "no log files found in "
     .text
 
@@ -2777,15 +2641,15 @@ watch_seek_window:
     msub x25, x24, x9, x10             // s
     mov x0, x22
     mov x1, x23
-    bl watch_fmt2
+    bl tc_fmt2
     mov w1, #':'
     strb w1, [x0], #1
     mov x1, x24
-    bl watch_fmt2
+    bl tc_fmt2
     mov w1, #':'
     strb w1, [x0], #1
     mov x1, x25
-    bl watch_fmt2
+    bl tc_fmt2
     mov w1, #0
     strb w1, [x0]
     // start = line_at_or_after(text, want)
@@ -2911,18 +2775,6 @@ watch_seek_window:
     mov x0, #0
     mov x1, #-1
     EPILOGUE 5
-    ret
-
-// watch_fmt2(dst, x1=0..99) -> dst+2 zero-padded
-    .p2align 2
-watch_fmt2:
-    mov x2, #10
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    add x4, x4, #'0'
-    strb w4, [x0], #1
     ret
 
 // watch_line_at_or_after(text, len, want) -> x0 = offset of the first line
@@ -3744,7 +3596,7 @@ watch_bucket_bounds:
     mov x21, x2                        // end epoch
     mov x0, x19
     mov x1, #0
-    bl watch_ymd_sod_to_epoch          // day_start
+    bl tc_ymd_sod_to_epoch          // day_start
     mov x22, x0
     // lo
     cmp x20, x22
@@ -4663,11 +4515,11 @@ watch_gather:
     LEA x19, tc_window
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x20, x0
     ldr x0, [x19, #TC_W_END_YMD]
     ldr x1, [x19, #TC_W_END_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x21, x0
     ldr x22, [x19, #TC_W_BEGIN_YMD]
     ldr x23, [x19, #TC_W_END_YMD]
@@ -4741,7 +4593,7 @@ watch_gather_file:
     // bounds + whole_day
     mov x0, x21
     mov x1, #0
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x22, x0                        // day_start
     LEA x9, tc_watch_g_begin
     ldr x10, [x9]                      // begin_epoch
@@ -5758,7 +5610,7 @@ watch_size_users:
     // end epoch
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x19, x0                        // end_epoch
     LEA x9, tc_opts
     ldr x20, [x9, #TC_O_USERS]         // requested
@@ -5884,7 +5736,7 @@ watch_size_users:
     LEA x9, tc_watch_win_width
     str x1, [x9]
     sub x0, x19, x1
-    bl watch_epoch_to_ymd_sod
+    bl tc_epoch_to_ymd_sod
     LEA x9, tc_window
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
@@ -5909,9 +5761,9 @@ watch_reported_width:
     LEA x20, tc_window
     ldr x0, [x20, #TC_W_END_YMD]
     ldr x1, [x20, #TC_W_END_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     sub x0, x0, x19
-    bl watch_epoch_to_ymd_sod
+    bl tc_epoch_to_ymd_sod
     str x0, [x20, #TC_W_BEGIN_YMD]
     str x1, [x20, #TC_W_BEGIN_SOD]
     bl watch_count_tick
@@ -6991,13 +6843,13 @@ watch_launch_tints:
     LEA x9, tc_window
     ldr x0, [x9, #TC_W_BEGIN_YMD]
     ldr x1, [x9, #TC_W_BEGIN_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x20, x0                        // begin_epoch
 
     LEA x9, tc_window
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x21, x0                        // end_epoch
 
     LEA x9, tc_window
@@ -7678,7 +7530,7 @@ watch_choose:
     // day epoch
     ldr x0, [x26, #RD_FDATE]
     mov x1, #0
-    bl watch_ymd_sod_to_epoch
+    bl tc_ymd_sod_to_epoch
     mov x27, x0                        // day_start epoch
     ldr x28, [x26, #RD_MATCH_N]
     mov x26, #0                        // match index

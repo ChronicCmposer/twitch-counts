@@ -126,6 +126,12 @@
     .globl tc_cache_day
     .globl tc_cache_put_day
     .globl tc_cache_discard_day
+    .globl tc_cat_cstr
+    .globl tc_days_from_civil
+    .globl tc_ymd_sod_to_epoch
+    .globl tc_epoch_to_ymd_sod
+    .globl tc_days_in_month
+    .globl tc_report_fail
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -190,7 +196,6 @@ s_too_large:        .asciz "file too large"
 s_oom:              .asciz "out of memory"
 lit_is_live:        .asciz "is live!"
 lit_is_offline:     .asciz "is now offline."
-month_days:         .byte 31,28,31,30,31,30,31,31,30,31,30,31
 
     .text
 
@@ -480,7 +485,7 @@ tc_resolve_channel:
     LEA x0, tc_core_scratch
     LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
     bl tc_oserror_text
-    bl .Lrc_emit_fail
+    bl tc_report_fail
 
 .Lrc_dir_notfound:
     // logs_dir unset (empty string): the resolved setting has no value at
@@ -498,7 +503,7 @@ tc_resolve_channel:
     bl tc_platform_default_logs_dir    // x0 = length, 0 = no default
     cbnz x0, .Lrc_dir_defaulted
     LEA x0, s_logs_dir_unsupported
-    bl .Lrc_emit_fail
+    bl tc_report_fail
 .Lrc_dir_defaulted:
     // start over with the default in place (expanduser + isdir + opendir)
     EPILOGUE 5
@@ -517,24 +522,7 @@ tc_resolve_channel:
     mov w1, #0
     strb w1, [x0]
     LEA x0, tc_core_scratch
-    bl .Lrc_emit_fail
-
-// ----------------------------------------------------------------------------
-// .Lrc_emit_fail(x0=message) — report_failure: "error: <msg>" on stderr in
-// text mode, {"error": "<msg>"} on stderr in --json mode; exit 1 either way.
-// ----------------------------------------------------------------------------
-    .p2align 2
-.Lrc_emit_fail:
-    PROLOGUE 0
-    mov x1, x0
-    LEA x0, tc_opts
-    ldr x0, [x0, #TC_O_FLAGS]
-    tst x0, #TC_F_JSON
-    mov x0, x1
-    b.eq .Lrc_emit_fail_text
-    bl tc_json_err
-.Lrc_emit_fail_text:
-    bl tc_fail
+    bl tc_report_fail
 
 .Lrc_no_channel:
     // "no logs for channel '<ch>' in <dir>\navailable: <join|(none)>"
@@ -679,7 +667,7 @@ tc_build_listing:
     LEA x0, tc_core_scratch
     LEA x1, tc_core_dirpath
     bl tc_oserror_text                 // x0 = the NUL-terminated text
-    bl .Lrc_emit_fail                  // text or {"error": ...}, exit 1
+    bl tc_report_fail                  // text or {"error": ...}, exit 1
 
 .Lbl_oom:
     LEA x0, s_oom
@@ -789,7 +777,7 @@ parse_log_filename:
     mov x1, x7
     stp x3, x7, [sp, #-16]!
     stp x8, x30, [sp, #-16]!
-    bl days_in_month
+    bl tc_days_in_month
     ldp x8, x30, [sp], #16
     ldp x3, x7, [sp], #16
     cmp x8, x0
@@ -807,38 +795,6 @@ parse_log_filename:
 .Lplf_fail:
     mov x0, #0
     EPILOGUE 3
-    ret
-
-// ============================================================================
-// days_in_month(x0=y, x1=m) -> x0 = days in that month.
-// ============================================================================
-    .p2align 2
-days_in_month:
-    sub x1, x1, #1
-    LEA x2, month_days
-    ldrb w0, [x2, x1]
-    cmp x1, #1                         // February
-    b.ne .Ldim_out
-    mov x3, x0
-    mov x4, #4
-    sdiv x5, x3, x4
-    msub x6, x5, x4, x3
-    cbnz x6, .Ldim_out                 // y%4 != 0
-    mov x4, #100
-    sdiv x5, x3, x4
-    msub x6, x5, x4, x3
-    cbz x6, .Ldim_c400                 // y%100 == 0
-    mov w0, #29
-    b .Ldim_out
-.Ldim_c400:
-    mov x4, #400
-    sdiv x5, x3, x4
-    msub x6, x5, x4, x3
-    cbz x6, .Ldim_leap
-    b .Ldim_out
-.Ldim_leap:
-    mov w0, #29
-.Ldim_out:
     ret
 
 // ============================================================================
@@ -2791,22 +2747,6 @@ tc_ascii_casecmp:
     ret
 
 // ============================================================================
-// tc_cat_cstr(x0=cursor, x1=s) -> x0 = the position of the terminating NUL
-//   (callers overwrite it with the next character to append).
-// ============================================================================
-    .p2align 2
-tc_cat_cstr:
-    mov x2, #0
-.Lcc_loop:
-    ldrb w3, [x1, x2]
-    strb w3, [x0, x2]
-    add x2, x2, #1
-    cbnz w3, .Lcc_loop
-    add x0, x0, x2
-    sub x0, x0, #1
-    ret
-
-// ============================================================================
 // tc_copy_str(x0=dst, x1=src) — NUL-terminated string copy.
 // ============================================================================
     .p2align 2
@@ -2831,102 +2771,6 @@ tc_memzero_own:
     sub x1, x1, #1
     b .Lmz
 .Lmz_done:
-    ret
-
-// ============================================================================
-// tc_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds (UTC).
-// ============================================================================
-    .p2align 2
-tc_ymd_sod_to_epoch:
-    PROLOGUE 5
-    mov x19, x0
-    mov x20, x1
-    mov x2, #10000
-    udiv x21, x19, x2                   // year
-    mul x3, x21, x2
-    sub x4, x19, x3                     // month*100 + day
-    mov x2, #100
-    udiv x22, x4, x2                    // month
-    msub x23, x22, x2, x4               // day
-    mov x0, x21
-    mov x1, x22
-    mov x2, x23
-    bl tc_days_from_civil               // x0 = days since epoch
-    ldr x3, =SECS_PER_DAY
-    mul x0, x0, x3
-    add x0, x0, x20
-    EPILOGUE 5
-    ret
-
-// ============================================================================
-// tc_epoch_to_ymd_sod(x0=epoch) -> x0 = ymd, x1 = sod (UTC).
-// ============================================================================
-    .p2align 2
-tc_epoch_to_ymd_sod:
-    PROLOGUE 5
-    ldr x19, =SECS_PER_DAY
-    udiv x20, x0, x19
-    msub x21, x20, x19, x0             // sod (callee-saved: survives the call)
-    mov x0, x20
-    bl tc_civil_from_days               // x0=y, x1=m, x2=d
-    mov x3, #10000
-    mul x0, x0, x3
-    mov x3, #100
-    mul x1, x1, x3
-    add x0, x0, x1
-    add x0, x0, x2
-    mov x1, x21
-    EPILOGUE 5
-    ret
-
-// ============================================================================
-// tc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
-//   (Howard Hinnant; identical to tc_cli's local helper).
-// ============================================================================
-    .p2align 2
-tc_days_from_civil:
-    cmp x1, #2
-    b.gt .Ldfc_adj_done
-    sub x0, x0, #1
-.Ldfc_adj_done:
-    cmp x0, #0
-    b.ge .Ldfc_ypos
-    sub x3, x0, #399
-    b .Ldfc_era
-.Ldfc_ypos:
-    mov x3, x0
-.Ldfc_era:
-    mov x4, #400
-    sdiv x3, x3, x4
-    msub x5, x3, x4, x0
-    cmp x1, #2
-    b.gt .Ldfc_madj
-    add x6, x1, #9
-    b .Ldfc_doy
-.Ldfc_madj:
-    sub x6, x1, #3
-.Ldfc_doy:
-    mov x7, #153
-    mul x6, x6, x7
-    add x6, x6, #2
-    mov x7, #5
-    sdiv x6, x6, x7
-    add x6, x6, x2
-    sub x6, x6, #1
-    mov x7, #365
-    mul x7, x5, x7
-    add x7, x7, x6
-    mov x9, #4
-    sdiv x8, x5, x9
-    add x7, x7, x8
-    mov x9, #100
-    sdiv x8, x5, x9
-    sub x7, x7, x8
-    ldr x9, =146097
-    mul x9, x3, x9
-    add x7, x7, x9
-    ldr x9, =719468
-    sub x0, x7, x9
     ret
 
 // ============================================================================

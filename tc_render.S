@@ -91,6 +91,9 @@
     .globl tc_cache_status
     .globl tc_json_emit
     .globl tc_json_err
+    .globl tc_fmt2
+    .globl tc_fmt4
+    .globl tc_setting_src_str
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -642,40 +645,6 @@ fmt_u64_commas:
     EPILOGUE 0
     ret
 
-// fmt2(dst, w1=0..99) -> dst+2 zero-padded
-    .p2align 2
-fmt2:
-    mov x2, #10
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    add x4, x4, #'0'
-    strb w4, [x0], #1
-    ret
-
-// fmt4(dst, x1=0..9999) -> dst+4
-    .p2align 2
-fmt4:
-    mov x2, #1000
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    mov x2, #100
-    udiv x3, x4, x2
-    msub x5, x3, x2, x4
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    mov x2, #10
-    udiv x3, x5, x2
-    msub x6, x3, x2, x5
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    add x6, x6, #'0'
-    strb w6, [x0], #1
-    ret
-
 // fmt_datetime(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
     .p2align 2
 fmt_datetime:
@@ -689,7 +658,7 @@ fmt_datetime:
     udiv x6, x20, x2
     mov x0, x19
     mov x1, x6
-    bl fmt4
+    bl tc_fmt4
     mov w7, #'-'
     strb w7, [x0], #1
     mov x2, #100
@@ -698,20 +667,20 @@ fmt_datetime:
     udiv x9, x6, x8
     msub x9, x9, x8, x6
     mov w1, w9
-    bl fmt2
+    bl tc_fmt2
     mov w7, #'-'
     strb w7, [x0], #1
     mov x2, #100
     udiv x6, x20, x2
     msub x6, x6, x2, x20
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     strb w22, [x0], #1
     mov x1, x21
     mov x2, #3600
     udiv x6, x21, x2
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
     mov x2, #3600
@@ -720,7 +689,7 @@ fmt_datetime:
     mov x2, #60
     udiv x6, x9, x2
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
     mov x2, #3600
@@ -730,7 +699,7 @@ fmt_datetime:
     udiv x6, x9, x2
     msub x6, x6, x2, x9
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     EPILOGUE 2
     ret
 
@@ -742,7 +711,7 @@ fmt_hhmm:
     mov x2, #3600
     udiv x3, x19, x2
     mov w1, w3
-    bl fmt2                            // hour
+    bl tc_fmt2                            // hour
     mov w3, #':'
     strb w3, [x0], #1
     mov x2, #3600
@@ -751,7 +720,7 @@ fmt_hhmm:
     mov x2, #60
     udiv x4, x4, x2
     mov w1, w4
-    bl fmt2                            // minute
+    bl tc_fmt2                            // minute
     EPILOGUE 1
     ret
 
@@ -768,14 +737,14 @@ fmt_mmdd_hhmm:
     udiv x5, x3, x4
     msub x5, x5, x4, x3
     mov w1, w5
-    bl fmt2                            // month
+    bl tc_fmt2                            // month
     mov w3, #'-'
     strb w3, [x0], #1
     mov x2, #100
     udiv x3, x20, x2
     msub x3, x3, x2, x20
     mov w1, w3
-    bl fmt2                            // day
+    bl tc_fmt2                            // day
     mov w3, #' '
     strb w3, [x0], #1
     mov x1, x21
@@ -792,7 +761,7 @@ fmt_ymd:
     mov x2, #10000
     udiv x3, x20, x2
     mov w1, w3
-    bl fmt4                            // year
+    bl tc_fmt4                            // year
     mov w3, #'-'
     strb w3, [x0], #1
     mov x2, #100
@@ -801,14 +770,14 @@ fmt_ymd:
     udiv x5, x3, x4
     msub x5, x5, x4, x3
     mov w1, w5
-    bl fmt2                            // month
+    bl tc_fmt2                            // month
     mov w3, #'-'
     strb w3, [x0], #1
     mov x2, #100
     udiv x3, x20, x2
     msub x3, x3, x2, x20
     mov w1, w3
-    bl fmt2                            // day
+    bl tc_fmt2                            // day
     EPILOGUE 1
     ret
 
@@ -945,19 +914,6 @@ hdr_add:
     add x5, x5, #1
     str x5, [x4]
 .Lha_done:
-    ret
-
-// src_str(set_id) -> x0 = source string ptr (tc_source_str result)
-    .p2align 2
-src_str:
-    stp x19, x30, [sp, #-16]!
-    mov x19, x0
-    LEA x0, tc_opts
-    movz x2, #TC_O_SRC
-    add x0, x0, x2
-    ldr x0, [x0, x19, lsl #3]
-    bl tc_source_str
-    ldp x19, x30, [sp], #16
     ret
 
 // ============================================================================
@@ -1612,7 +1568,7 @@ build_header_rows:
     bl tc_channel_name
     mov x20, x0
     mov x0, #TC_SET_CHANNEL
-    bl src_str
+    bl tc_setting_src_str
     mov x21, x0
     mov x0, x19
     mov x1, x20
@@ -1632,7 +1588,7 @@ build_header_rows:
     bl str_cat
     bl arena_set_end
     mov x0, #TC_SET_LOGS_DIR
-    bl src_str
+    bl tc_setting_src_str
     mov x22, x0
     mov x0, x19
     mov x1, x21
@@ -1690,7 +1646,7 @@ build_header_rows:
     add x0, x0, #1
     bl arena_set_end
     mov x0, #TC_SET_END
-    bl src_str
+    bl tc_setting_src_str
     mov x24, x0
     mov x0, x19
     mov x1, x23
@@ -1727,7 +1683,7 @@ build_header_rows:
     add x0, x0, #1
     bl arena_set_end
     mov x0, #TC_SET_MIN_COUNT
-    bl src_str
+    bl tc_setting_src_str
     mov x24, x0
     mov x0, x19
     mov x1, x22
@@ -1765,7 +1721,7 @@ build_header_rows:
     bl arena_get
     mov x25, x0
     mov x0, #TC_SET_USERS_POLICY
-    bl src_str
+    bl tc_setting_src_str
     mov x1, x0
     mov x0, x25
     bl str_cat
@@ -1867,7 +1823,7 @@ build_header_rows:
     mov x22, x0                       // source start
     cbz x25, .Lbhr_state_nofilter
     mov x0, #TC_SET_STATE
-    bl src_str
+    bl tc_setting_src_str
     mov x1, x0
     mov x0, x22
     bl str_cat
@@ -2094,7 +2050,7 @@ build_header_rows:
     LEA x21, metric_names
     ldr x21, [x21, x20, lsl #3]
     mov x0, #TC_SET_SORT
-    bl src_str
+    bl tc_setting_src_str
     mov x22, x0
     // compact "by <name>"
     bl arena_get
@@ -2214,7 +2170,7 @@ build_header_rows:
     b .Lbhr_config
 .Lbhr_sf_add:
     mov x0, #TC_SET_SHARE_FLOOR
-    bl src_str
+    bl tc_setting_src_str
     mov x25, x0
     mov x0, x19
     mov x1, x24

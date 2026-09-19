@@ -169,6 +169,7 @@
     .globl tc_opts
     .globl tc_tally
     .globl tc_users
+    .globl tc_cat_cstr
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -1893,15 +1894,15 @@ cache_fail_sqlite:
     LEA x0, tc_cache_problem_buf
     mov x24, x0
     mov x1, x19
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_failed
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x1, x22
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_colon_space
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x1, x23
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x9, tc_cache_problem
     LEA x10, tc_cache_problem_buf
     str x10, [x9]
@@ -1930,15 +1931,15 @@ cache_fail_errno:
     LEA x0, tc_cache_problem_buf
     mov x21, x0
     mov x1, x19
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_failed
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_type_oserr
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_colon_space
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x1, x20
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x9, tc_cache_problem
     LEA x10, tc_cache_problem_buf
     str x10, [x9]
@@ -1967,21 +1968,6 @@ sqlite_type_name:
     ret
 .Lstn_mem:
     LEA x0, s_type_memerr
-    ret
-
-// ============================================================================
-// cat_cstr(x0=cursor, x1=s) -> x0 = position of the NUL (callers overwrite)
-// ============================================================================
-    .p2align 2
-cat_cstr:
-    mov x2, #0
-.Lcc_loop:
-    ldrb w3, [x1, x2]
-    strb w3, [x0, x2]
-    add x2, x2, #1
-    cbnz w3, .Lcc_loop
-    add x0, x0, x2
-    sub x0, x0, #1
     ret
 
 // ============================================================================

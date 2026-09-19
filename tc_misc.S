@@ -949,6 +949,8 @@ misc_cfg_exclusions:
     // absent "exclude" is empty exclusions (Python: raw = config.get("exclude");
     // if raw is None: return empty)
     .globl toml_key_exists
+    .globl tc_streq
+    .globl tc_days_from_civil
     mov x0, x19
     LEA x1, s_key_exclude
     bl toml_key_exists
@@ -1018,7 +1020,7 @@ misc_cfg_exclusions:
     cbz x0, .Lce_always_validate
     mov x22, x0                         // key
     LEA x1, s_key_always
-    bl misc_streq
+    bl tc_streq
     cbnz x0, .Lce_always_key
     // a normal group: value must be an array
     mov x0, x20
@@ -2138,15 +2140,6 @@ misc_casecmp:
     EPILOGUE 0
     ret
 
-// misc_streq(x0=a, x1=b) -> x0 = 1 when equal.
-misc_streq:
-    PROLOGUE 0
-    bl strcmp
-    cmp x0, #0
-    cset x0, eq
-    EPILOGUE 0
-    ret
-
 // misc_fmt_dec_pad(x0=dst, x1=value, x2=width) -> x0 = cursor past the
 //   zero-padded decimal digits (value < 10^width).
 misc_fmt_dec_pad:
@@ -2247,55 +2240,6 @@ misc_print_line:
 // Python's datetime for years 1..9999).
 // ============================================================================
 
-// misc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01.
-misc_days_from_civil:
-    PROLOGUE 5
-    mov x19, x0                         // y
-    mov x20, x1                         // m
-    mov x21, x2                         // d
-    mov x22, x19                        // z = y
-    cmp x20, #2
-    b.gt .Ldc_z_ok
-    sub x22, x22, #1                    // z -= (m <= 2)
-.Ldc_z_ok:
-    cmp x22, #0
-    b.ge .Ldc_era
-    sub x22, x22, #399
-.Ldc_era:
-    mov x23, #400
-    sdiv x24, x22, x23                  // era
-    msub x25, x24, x23, x22             // yoe
-    cmp x20, #2
-    b.gt .Ldc_mp
-    add x26, x20, #9
-    b .Ldc_doy
-.Ldc_mp:
-    sub x26, x20, #3
-.Ldc_doy:
-    mov x27, #153
-    mul x27, x27, x26
-    add x27, x27, #2
-    mov x28, #5
-    sdiv x27, x27, x28
-    add x27, x27, x21
-    sub x27, x27, #1                    // doy
-    mov x28, #365
-    mul x0, x25, x28
-    mov x28, #4
-    sdiv x1, x25, x28
-    add x0, x0, x1
-    mov x28, #100
-    sdiv x1, x25, x28
-    sub x0, x0, x1
-    add x0, x0, x27                     // doe
-    ldr x28, =146097
-    mul x1, x24, x28
-    add x0, x0, x1
-    ldr x28, =719468
-    sub x0, x0, x28
-    EPILOGUE 5
-    ret
-
 // misc_ymd_to_days(x0=ymd) -> x0 = days since 1970-01-01.
 misc_ymd_to_days:
     PROLOGUE 1
@@ -2309,7 +2253,7 @@ misc_ymd_to_days:
     msub x2, x2, x0, x19                // d = ymd % 100
     mov x0, x1
     mov x1, x3
-    bl misc_days_from_civil
+    bl tc_days_from_civil
     EPILOGUE 1
     ret
 
@@ -2351,7 +2295,7 @@ misc_iso_week:
     mov x0, x23
     mov x1, #1
     mov x2, #4
-    bl misc_days_from_civil
+    bl tc_days_from_civil
     mov x24, x0                         // jan4
     // jw = ((jan4 + 3) mod 7) + 1
     add x0, x24, #3

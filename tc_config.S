@@ -270,9 +270,9 @@ tc_aliases_apply:
     b.ne .Laa_have_channel
     LEA x0, tc_cfg_scratch
     LEA x1, s_no_channel_pre
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Laa_have_channel:
@@ -304,7 +304,7 @@ tc_aliases_apply:
     mov x24, x0                     // alias key ptr
     mov x0, x21
     mov x1, x24
-    bl streq
+    bl tc_streq
     cbz x0, .Laa_key_next
     // ---- match: rewrite channel + compose the alias source ----------------
     mov x0, x20
@@ -334,11 +334,11 @@ tc_aliases_apply:
     mov x2, x25
     bl cat_n
     LEA x1, s_alias_arrow
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x1, x24
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_squote
-    bl cat_cstr
+    bl tc_cat_cstr
     // provenance: the channel source becomes the dynamic alias string
     LEA x0, tc_opts
     mov x2, #TC_O_SRC
@@ -429,7 +429,7 @@ tc_build_exclusions:
     LEA x20, tc_cfg_scratch
     mov x0, x20
     LEA x1, s_noexcl_prefix
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0                     // end ptr
     mov x22, #0                     // wrote_any
     tst x19, #TC_F_EXCL_GIVEN
@@ -440,7 +440,7 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_exclude
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lbe_nx_group:
@@ -452,7 +452,7 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_exclude_group
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lbe_nx_bcast:
@@ -464,7 +464,7 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_exclude_bcast
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lbe_nx_include:
@@ -476,7 +476,7 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_flag_include
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, #1
 .Lbe_nx_done:
     cbz x22, .Lbe_ok
@@ -511,17 +511,17 @@ tc_build_exclusions:
     LEA x24, tc_cfg_scratch
     mov x0, x24
     LEA x1, s_unknown_group_pre
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
     mov x1, #32
     mul x1, x22, x1
     add x1, x21, x1
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
     LEA x1, s_defined_groups
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
     LEA x1, tc_cfg_scratch2
@@ -564,14 +564,14 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_src_excl_always
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0
     mov x2, #16
     mul x2, x24, x2
     ldr x25, [x23, x2]              // name ptr
     mov x0, x21
     mov x1, x25
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x0, x24
     bl excl_src_buf_slot
     bl tc_strlen
@@ -620,13 +620,13 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_src_excl_group
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0
     mov x0, x21
     mov x1, #32
     mul x1, x24, x1
     add x1, x23, x1
-    bl cat_cstr
+    bl tc_cat_cstr
     add x0, x24, #EX_GROUP_MAX
     bl excl_src_buf_slot
     bl tc_strlen
@@ -770,13 +770,13 @@ tc_build_exclusions:
     mov x21, x0
     mov x0, x21
     LEA x1, s_minus_include
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x21, x0
     mov x0, x21
     mov x1, x25
     bl cat_u64
     LEA x1, s_rparen
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x0, #200
     bl excl_src_buf_slot
     bl tc_strlen
@@ -933,6 +933,8 @@ tc_config_reload:
     .globl tc_shorten_path
     .globl tc_default_config_path
     .globl tc_platform_default_logs_dir
+    .globl tc_cat_cstr
+    .globl tc_streq
 
 // ============================================================================
 // Internal helpers
@@ -1146,11 +1148,11 @@ config_do_load:
 .Ldl_aliases_bad:
     LEA x0, tc_cfg_scratch
     LEA x1, s_aliases_bad_pre
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_aliases_bad_suf
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Ldl_watch:
@@ -1195,9 +1197,9 @@ config_do_load:
     cbz x0, .Ldl_notfile_ok
     LEA x0, tc_cfg_scratch
     LEA x1, s_config_not_found
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_path
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Ldl_notfile_ok:
@@ -1217,13 +1219,13 @@ config_do_load:
 .Ldl_parse_err:
     LEA x0, tc_cfg_scratch
     LEA x1, s_could_not_read
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_path
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_colon_space
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_errbuf
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Ldl_oom:
@@ -1262,13 +1264,13 @@ section_must_be_table_check:
     mov x1, #'['
     strb w1, [x0], #1
     mov x1, x19
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_sect_mid
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_sect_suf
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lsm_ok:
@@ -1290,15 +1292,15 @@ aliases_scalar_ok:
     b.eq .Las_quote
     LEA x1, s_false
     mov x0, x19
-    bl streq
+    bl tc_streq
     cbnz x0, .Las_yes
     LEA x1, s_zero
     mov x0, x19
-    bl streq
+    bl tc_streq
     cbnz x0, .Las_yes
     LEA x1, s_zero_float
     mov x0, x19
-    bl streq
+    bl tc_streq
     cbnz x0, .Las_yes
     b .Las_no
 .Las_quote:
@@ -1333,7 +1335,7 @@ cfg_errno_message:
     LEA x22, tc_cfg_scratch2
     mov x0, x22
     LEA x1, s_errno_lb
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     mov x1, x20
@@ -1341,37 +1343,37 @@ cfg_errno_message:
     mov x22, x0
     mov x0, x22
     LEA x1, s_errno_rb
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     mov x1, x21
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     LEA x1, s_colon_space
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     LEA x1, s_squote
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     LEA x1, tc_cfg_path
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
     LEA x1, s_squote
-    bl cat_cstr
+    bl tc_cat_cstr
     // "could not read config <path>: " + the above
     LEA x0, tc_cfg_scratch
     LEA x1, s_could_not_read
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_path
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_colon_space
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_scratch2
-    bl cat_cstr
+    bl tc_cat_cstr
     EPILOGUE 2
     ret
 
@@ -1514,7 +1516,7 @@ build_groups:
     mov x25, x0                     // group name ptr
     LEA x0, s_key_always
     mov x1, x25
-    bl streq
+    bl tc_streq
     cbnz x0, .Lbg_key_next          // "always" handled below
     mov x0, x22
     mov x1, x25
@@ -1543,21 +1545,21 @@ build_groups:
     LEA x26, tc_cfg_scratch
     mov x0, x26
     LEA x1, s_excl_member_pre
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
     mov x1, x25
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
     LEA x1, s_excl_member_mid
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, s_excl_member_suf
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_key_next:
@@ -1623,19 +1625,19 @@ build_groups:
     LEA x26, tc_cfg_scratch
     mov x0, x26
     LEA x1, s_always_unknown_pre
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, s_always_unknown_mid
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     mov x1, x25
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, s_defined_groups
-    bl cat_cstr
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, tc_cfg_scratch2
     bl sort_groups_join
@@ -1647,21 +1649,21 @@ build_groups:
 .Lbg_always_bad:
     LEA x0, tc_cfg_scratch
     LEA x1, s_always_bad
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_always_bad_suf
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_bad_shape:
     LEA x0, tc_cfg_scratch
     LEA x1, s_exclude_shape
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, tc_cfg_where
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x1, s_exclude_shape_suf
-    bl cat_cstr
+    bl tc_cat_cstr
     LEA x0, tc_cfg_scratch
     bl tc_fail
 .Lbg_done:
@@ -1980,7 +1982,7 @@ group_index_of:
     mov x4, x0
     mov x0, x1
     mov x1, x19
-    bl streq
+    bl tc_streq
     cbnz x0, .Lgio_yes
     mov x0, x4
     add x0, x0, #1
@@ -2088,16 +2090,16 @@ sort_groups_join:
     b.ge .Lsgj_done
     cbz x22, .Lsgj_join_name
     LEA x1, s_comma_space
-    bl cat_cstr
+    bl tc_cat_cstr
 .Lsgj_join_name:
     ldr x1, [x21, x22, lsl #3]
-    bl cat_cstr
+    bl tc_cat_cstr
     add x22, x22, #1
     b .Lsgj_join_loop
 .Lsgj_none:
     mov x0, x19
     LEA x1, s_none_defined
-    bl cat_cstr
+    bl tc_cat_cstr
 .Lsgj_done:
     EPILOGUE 3
     ret
@@ -2476,20 +2478,9 @@ cat_comma_if:
     PROLOGUE 0
     cbz x1, .Lcci_done
     LEA x1, s_comma_space
-    bl cat_cstr
+    bl tc_cat_cstr
 .Lcci_done:
     EPILOGUE 0
-    ret
-
-// ----------------------------------------------------------------------------
-// cat_cstr(x0=dst, x1=src) -> x0 = end (points at the NUL)
-// ----------------------------------------------------------------------------
-    .p2align 2
-cat_cstr:
-    ldrb w2, [x1], #1
-    strb w2, [x0], #1
-    cbnz w2, cat_cstr
-    sub x0, x0, #1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2562,22 +2553,6 @@ copy_n_nul:
 .Lcnn_z:
     mov w3, #0
     strb w3, [x0]
-    ret
-
-// ----------------------------------------------------------------------------
-// streq(x0=a, x1=b) -> x0 = 0/1
-// ----------------------------------------------------------------------------
-    .p2align 2
-streq:
-    ldrb w2, [x0], #1
-    ldrb w3, [x1], #1
-    cmp w2, w3
-    b.ne .Lse_no
-    cbnz w2, streq
-    mov x0, #1
-    ret
-.Lse_no:
-    mov x0, #0
     ret
 
 // ----------------------------------------------------------------------------

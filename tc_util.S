@@ -24,6 +24,16 @@
 //    tc_platform_default_logs_dir(x0=dst, x1=cap)      -> x0 = len, 0 = no default
 //      (fixed-arity wrappers for the variadic libc calls; see below and
 //      tc_platform.h — modules never call snprintf/ioctl directly)
+//    tc_cat_cstr(x0=cursor, x1=s)  -> x0 = position of the copied NUL
+//    tc_streq(x0=a, x1=b)          -> x0 = 1/0
+//    tc_fmt2(x0=dst, x1=v) / tc_fmt4  -> x0 = dst+2 / dst+4 (zero-padded digits)
+//    tc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
+//    tc_civil_from_days(x0=days)   -> x0=y, x1=m, x2=d
+//    tc_is_leap(x0=y)              -> x0 = 1/0
+//    tc_days_in_month(x0=y, x1=m)  -> x0 = 28..31
+//    tc_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds
+//    tc_epoch_to_ymd_sod(x0=epoch) -> x0 = ymd, x1 = sod
+//      (these ten clobber only their outputs; see the block at the end)
 //
 //  AAPCS64 notes (the rules every later phase must follow)
 //  -------------------------------------------------------
@@ -711,6 +721,382 @@ ts_winsize_field:
     RODATA
 ts_s_columns:         .asciz "COLUMNS"
 ts_s_lines:           .asciz "LINES"
+    .text
+
+
+// ============================================================================
+// Shared helpers that several modules used to carry private copies of.
+// Every routine below clobbers ONLY its outputs (x0, plus x1/x2 where the
+// contract names them): whatever a caller holds in the other caller-saved
+// registers survives the call.  That is stricter than AAPCS64 on purpose --
+// the former copies differed in what they scratched, and the callers were
+// written against the copy they had.
+// ============================================================================
+    .text
+
+// ----------------------------------------------------------------------------
+// tc_cat_cstr(x0=cursor, x1=s) -> x0 = the position of the terminating NUL
+//   (the string is copied NUL and all; callers overwrite the NUL with the
+//   next thing they append).
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_cat_cstr
+    FUNC_TYPE(tc_cat_cstr)
+tc_cat_cstr:
+    stp x2, x3, [sp, #-16]!
+    mov x2, #0
+.Lcc_loop:
+    ldrb w3, [x1, x2]
+    strb w3, [x0, x2]
+    add x2, x2, #1
+    cbnz w3, .Lcc_loop
+    add x0, x0, x2
+    sub x0, x0, #1
+    ldp x2, x3, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_streq(x0=a, x1=b) -> x0 = 1 when the strings are equal, else 0
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_streq
+    FUNC_TYPE(tc_streq)
+tc_streq:
+    stp x2, x3, [sp, #-16]!
+    stp x4, x5, [sp, #-16]!
+    mov x2, x0
+    mov x3, x1
+.Lse_loop:
+    ldrb w4, [x2], #1
+    ldrb w5, [x3], #1
+    cmp w4, w5
+    b.ne .Lse_no
+    cbnz w4, .Lse_loop
+    mov x0, #1
+    b .Lse_ret
+.Lse_no:
+    mov x0, #0
+.Lse_ret:
+    ldp x4, x5, [sp], #16
+    ldp x2, x3, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_fmt2(x0=dst, x1=0..99)   -> x0 = dst+2   two zero-padded digits, no NUL
+// tc_fmt4(x0=dst, x1=0..9999) -> x0 = dst+4   four zero-padded digits, no NUL
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_fmt2
+    FUNC_TYPE(tc_fmt2)
+tc_fmt2:
+    stp x2, x3, [sp, #-16]!
+    stp x4, x5, [sp, #-16]!
+    mov x2, #10
+    udiv x3, x1, x2
+    msub x4, x3, x2, x1
+    add x3, x3, #'0'
+    strb w3, [x0], #1
+    add x4, x4, #'0'
+    strb w4, [x0], #1
+    ldp x4, x5, [sp], #16
+    ldp x2, x3, [sp], #16
+    ret
+
+    .p2align 2
+    .global tc_fmt4
+    FUNC_TYPE(tc_fmt4)
+tc_fmt4:
+    stp x2, x3, [sp, #-16]!
+    stp x4, x5, [sp, #-16]!
+    stp x6, x7, [sp, #-16]!
+    mov x2, #1000
+    udiv x3, x1, x2
+    msub x4, x3, x2, x1
+    add x3, x3, #'0'
+    strb w3, [x0], #1
+    mov x2, #100
+    udiv x3, x4, x2
+    msub x5, x3, x2, x4
+    add x3, x3, #'0'
+    strb w3, [x0], #1
+    mov x2, #10
+    udiv x3, x5, x2
+    msub x6, x3, x2, x5
+    add x3, x3, #'0'
+    strb w3, [x0], #1
+    add x6, x6, #'0'
+    strb w6, [x0], #1
+    ldp x6, x7, [sp], #16
+    ldp x4, x5, [sp], #16
+    ldp x2, x3, [sp], #16
+    ret
+
+// ============================================================================
+// Calendar arithmetic -- proleptic Gregorian, Howard Hinnant's algorithms,
+// verified against Python's datetime for years 1..9999.  ymd is the packed
+// YYYYMMDD integer the contract structures use; sod is seconds of day.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// tc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
+//   y -= m <= 2; era = (y >= 0 ? y : y-399) / 400; yoe = y - era*400;
+//   doy = (153*(m + (m > 2 ? -3 : 9)) + 2)/5 + d - 1;
+//   doe = yoe*365 + yoe/4 - yoe/100 + doy; result = era*146097 + doe - 719468
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_days_from_civil
+    FUNC_TYPE(tc_days_from_civil)
+tc_days_from_civil:
+    stp x3, x4, [sp, #-16]!
+    stp x5, x6, [sp, #-16]!
+    stp x7, x8, [sp, #-16]!
+    stp x9, x10, [sp, #-16]!
+    mov x10, x0                     // y (x0 is rebuilt at the end)
+    cmp x1, #2
+    b.gt .Ldfc_adj_done
+    sub x10, x10, #1
+.Ldfc_adj_done:
+    cmp x10, #0
+    b.ge .Ldfc_ypos
+    sub x3, x10, #399
+    b .Ldfc_era
+.Ldfc_ypos:
+    mov x3, x10
+.Ldfc_era:
+    mov x4, #400
+    sdiv x3, x3, x4                 // era
+    msub x5, x3, x4, x10            // yoe
+    cmp x1, #2
+    b.gt .Ldfc_madj
+    add x6, x1, #9
+    b .Ldfc_doy
+.Ldfc_madj:
+    sub x6, x1, #3
+.Ldfc_doy:
+    mov x7, #153
+    mul x6, x6, x7
+    add x6, x6, #2
+    mov x7, #5
+    sdiv x6, x6, x7
+    add x6, x6, x2
+    sub x6, x6, #1                  // doy
+    mov x7, #365
+    mul x7, x5, x7
+    add x7, x7, x6
+    mov x9, #4
+    sdiv x8, x5, x9
+    add x7, x7, x8
+    mov x9, #100
+    sdiv x8, x5, x9
+    sub x7, x7, x8                  // doe
+    ldr x9, =146097
+    mul x9, x3, x9
+    add x7, x7, x9
+    ldr x9, =719468
+    sub x0, x7, x9
+    ldp x9, x10, [sp], #16
+    ldp x7, x8, [sp], #16
+    ldp x5, x6, [sp], #16
+    ldp x3, x4, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_civil_from_days(x0=days since 1970-01-01) -> x0 = y, x1 = m, x2 = d
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_civil_from_days
+    FUNC_TYPE(tc_civil_from_days)
+tc_civil_from_days:
+    stp x3, x4, [sp, #-16]!
+    stp x5, x6, [sp, #-16]!
+    stp x7, x8, [sp, #-16]!
+    stp x9, x10, [sp, #-16]!
+    stp x11, x12, [sp, #-16]!
+    stp x13, x14, [sp, #-16]!
+    ldr x3, =719468
+    add x3, x0, x3                  // z
+    cmp x3, #0
+    b.ge .Lcfd_zpos
+    ldr x9, =146096
+    sub x4, x3, x9
+    b .Lcfd_era
+.Lcfd_zpos:
+    mov x4, x3
+.Lcfd_era:
+    ldr x5, =146097
+    sdiv x4, x4, x5                 // era
+    msub x6, x4, x5, x3             // doe
+    ldr x7, =1460
+    sdiv x8, x6, x7
+    sub x8, x6, x8
+    ldr x7, =36524
+    sdiv x9, x6, x7
+    add x8, x8, x9
+    ldr x7, =146096
+    sdiv x9, x6, x7
+    sub x8, x8, x9
+    mov x7, #365
+    sdiv x8, x8, x7                 // yoe
+    mov x7, #400
+    mul x9, x4, x7
+    add x9, x8, x9                  // y (before the Jan/Feb fix-up)
+    mov x7, #365
+    mul x10, x8, x7
+    sub x10, x6, x10
+    mov x7, #4
+    sdiv x11, x8, x7
+    sub x10, x10, x11
+    mov x7, #100
+    sdiv x11, x8, x7
+    add x10, x10, x11               // doy
+    mov x7, #5
+    mul x10, x10, x7
+    add x10, x10, #2
+    mov x7, #153
+    sdiv x10, x10, x7               // mp
+    mov x7, #153
+    mul x11, x10, x7
+    add x11, x11, #2
+    mov x7, #5
+    sdiv x11, x11, x7
+    mov x7, #365
+    mul x12, x8, x7
+    sub x12, x6, x12
+    mov x7, #4
+    sdiv x13, x8, x7
+    sub x12, x12, x13
+    mov x7, #100
+    sdiv x13, x8, x7
+    add x12, x12, x13
+    sub x12, x12, x11
+    add x2, x12, #1                 // d
+    cmp x10, #10
+    b.ge .Lcfd_mbig
+    add x1, x10, #3
+    b .Lcfd_mdone
+.Lcfd_mbig:
+    sub x1, x10, #9
+.Lcfd_mdone:                        // m
+    cmp x1, #2
+    b.gt .Lcfd_ret
+    add x9, x9, #1
+.Lcfd_ret:
+    mov x0, x9
+    ldp x13, x14, [sp], #16
+    ldp x11, x12, [sp], #16
+    ldp x9, x10, [sp], #16
+    ldp x7, x8, [sp], #16
+    ldp x5, x6, [sp], #16
+    ldp x3, x4, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_is_leap(x0=y) -> x0 = 1 for a leap year, else 0
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_is_leap
+    FUNC_TYPE(tc_is_leap)
+tc_is_leap:
+    stp x1, x2, [sp, #-16]!
+    mov x1, #4
+    sdiv x2, x0, x1
+    msub x2, x2, x1, x0
+    cbnz x2, .Lil_no
+    mov x1, #100
+    sdiv x2, x0, x1
+    msub x2, x2, x1, x0
+    cbnz x2, .Lil_yes
+    mov x1, #400
+    sdiv x2, x0, x1
+    msub x2, x2, x1, x0
+    cbnz x2, .Lil_no
+.Lil_yes:
+    mov x0, #1
+    b .Lil_ret
+.Lil_no:
+    mov x0, #0
+.Lil_ret:
+    ldp x1, x2, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_days_in_month(x0=y, x1=m 1..12) -> x0 = days in that month
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_days_in_month
+    FUNC_TYPE(tc_days_in_month)
+tc_days_in_month:
+    PROLOGUE 0
+    stp x2, x3, [sp, #-16]!
+    cmp x1, #2
+    b.eq .Ldim_feb
+    LEA x2, tc_month_days
+    sub x3, x1, #1
+    ldrb w0, [x2, x3]
+    b .Ldim_ret
+.Ldim_feb:
+    bl tc_is_leap
+    add x0, x0, #28                 // 28 + leap
+.Ldim_ret:
+    ldp x2, x3, [sp], #16
+    EPILOGUE 0
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds (UTC)
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_ymd_sod_to_epoch
+    FUNC_TYPE(tc_ymd_sod_to_epoch)
+tc_ymd_sod_to_epoch:
+    PROLOGUE 0
+    stp x1, x2, [sp, #-16]!
+    stp x3, x4, [sp, #-16]!
+    mov x4, x1                      // sod
+    mov x3, #10000
+    udiv x1, x0, x3                 // year
+    msub x2, x1, x3, x0             // month*100 + day
+    mov x0, x1
+    mov x3, #100
+    udiv x1, x2, x3                 // month
+    msub x2, x1, x3, x2             // day
+    bl tc_days_from_civil           // x0 = days since the epoch
+    ldr x3, =SECS_PER_DAY
+    mul x0, x0, x3
+    add x0, x0, x4
+    ldp x3, x4, [sp], #16
+    ldp x1, x2, [sp], #16
+    EPILOGUE 0
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_epoch_to_ymd_sod(x0=epoch seconds) -> x0 = ymd, x1 = sod (UTC)
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_epoch_to_ymd_sod
+    FUNC_TYPE(tc_epoch_to_ymd_sod)
+tc_epoch_to_ymd_sod:
+    PROLOGUE 0
+    stp x2, x3, [sp, #-16]!
+    stp x4, x5, [sp, #-16]!
+    ldr x2, =SECS_PER_DAY
+    udiv x3, x0, x2                 // days
+    msub x4, x3, x2, x0             // sod
+    mov x0, x3
+    bl tc_civil_from_days           // x0=y, x1=m, x2=d
+    mov x3, #10000
+    mul x0, x0, x3
+    mov x3, #100
+    madd x0, x1, x3, x0
+    add x0, x0, x2                  // ymd
+    mov x1, x4
+    ldp x4, x5, [sp], #16
+    ldp x2, x3, [sp], #16
+    EPILOGUE 0
+    ret
+
+    RODATA
+tc_month_days:  .byte 31,28,31,30,31,30,31,31,30,31,30,31
     .text
 
     .end

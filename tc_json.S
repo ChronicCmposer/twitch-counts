@@ -39,6 +39,9 @@
     .globl tc_source_str
     .globl tc_channel_name
     .globl tc_fail
+    .globl tc_fmt2
+    .globl tc_fmt4
+    .globl tc_setting_src_str
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -442,43 +445,9 @@ json_now_iso:
     ret
 
 // ============================================================================
-// Local number/date formatting (duplicated from tc_render.S: the helpers there
-// are module-private).  fmt4/fmt2/fmt_dt write digits only, no NUL.
+// Local date formatting on top of tc_fmt2/tc_fmt4 (tc_util.S); digits only,
+// no NUL.
 // ============================================================================
-
-// fmt2(dst, w1=0..99) -> dst+2 zero-padded
-    .p2align 2
-fmt2:
-    mov x2, #10
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    add x4, x4, #'0'
-    strb w4, [x0], #1
-    ret
-
-// fmt4(dst, x1=0..9999) -> dst+4
-    .p2align 2
-fmt4:
-    mov x2, #1000
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    mov x2, #100
-    udiv x3, x4, x2
-    msub x5, x3, x2, x4
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    mov x2, #10
-    udiv x3, x5, x2
-    msub x6, x3, x2, x5
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    add x6, x6, #'0'
-    strb w6, [x0], #1
-    ret
 
 // json_fmt_dt(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
     .p2align 2
@@ -493,7 +462,7 @@ json_fmt_dt:
     udiv x6, x20, x2
     mov x0, x19
     mov x1, x6
-    bl fmt4
+    bl tc_fmt4
     mov w7, #'-'
     strb w7, [x0], #1
     mov x2, #100
@@ -502,20 +471,20 @@ json_fmt_dt:
     udiv x9, x6, x8
     msub x9, x9, x8, x6
     mov w1, w9
-    bl fmt2
+    bl tc_fmt2
     mov w7, #'-'
     strb w7, [x0], #1
     mov x2, #100
     udiv x6, x20, x2
     msub x6, x6, x2, x20
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     strb w22, [x0], #1
     mov x1, x21
     mov x2, #3600
     udiv x6, x21, x2
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
     mov x2, #3600
@@ -524,7 +493,7 @@ json_fmt_dt:
     mov x2, #60
     udiv x6, x9, x2
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
     mov x2, #3600
@@ -534,7 +503,7 @@ json_fmt_dt:
     udiv x6, x9, x2
     msub x6, x6, x2, x9
     mov w1, w6
-    bl fmt2
+    bl tc_fmt2
     EPILOGUE 2
     ret
 
@@ -769,21 +738,6 @@ emit_excluded_array:
     EPILOGUE 2
     ret
 
-// ============================================================================
-// src_str(set_id) -> x0 = source string ptr
-// ============================================================================
-    .p2align 2
-src_str:
-    stp x19, x30, [sp, #-16]!
-    mov x19, x0
-    LEA x0, tc_opts
-    movz x2, #TC_O_SRC
-    add x0, x0, x2
-    ldr x0, [x0, x19, lsl #3]
-    bl tc_source_str
-    ldp x19, x30, [sp], #16
-    ret
-
 // src_entry(key, set_id) — emit `      "key": <source of set_id>,\n`
     .p2align 2
 src_entry:
@@ -798,7 +752,7 @@ src_entry:
     LEA x0, s_j_colon
     bl jputs
     mov x0, x20
-    bl src_str
+    bl tc_setting_src_str
     bl jquoted
     LEA x0, s_j_comma_nl
     bl jputs
