@@ -5433,16 +5433,8 @@ tc_strip_copy:
     mov x20, x1
 .Lsc_lead:
     ldrb w0, [x20]
-    cmp w0, #' '
-    b.eq .Lsc_lead_next
-    cmp w0, #'\t'
-    b.eq .Lsc_lead_next
-    cmp w0, #'\n'
-    b.eq .Lsc_lead_next
-    cmp w0, #'\r'
-    b.eq .Lsc_lead_next
-    b .Lsc_copy
-.Lsc_lead_next:
+    bl tc_is_space
+    cbz w0, .Lsc_copy
     add x20, x20, #1
     b .Lsc_lead
 .Lsc_copy:
@@ -5451,21 +5443,18 @@ tc_strip_copy:
     ldrb w0, [x20], #1
     strb w0, [x21], #1
     cbnz w0, .Lsc_loop
-    // trim trailing whitespace
-    sub x21, x21, #1
+    // trim trailing whitespace: x21 is one past the NUL; back up over every
+    // whitespace byte and terminate after the last kept one (str.strip())
+    sub x21, x21, #1                // -> the NUL
 .Lsc_trail:
     cmp x21, x19
-    b.le .Lsc_done
+    b.le .Lsc_done                  // nothing left
+    ldrb w0, [x21, #-1]
+    bl tc_is_space
+    cbz w0, .Lsc_done
     sub x21, x21, #1
-    ldrb w0, [x21]
-    cmp w0, #' '
-    b.eq .Lsc_trail
-    cmp w0, #'\t'
-    b.eq .Lsc_trail
-    cmp w0, #'\n'
-    b.eq .Lsc_trail
-    cmp w0, #'\r'
-    b.eq .Lsc_trail
+    strb wzr, [x21]
+    b .Lsc_trail
 .Lsc_done:
     mov x0, x19
     ldp x27, x28, [sp], #16
@@ -5474,6 +5463,25 @@ tc_strip_copy:
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_is_space(w0=byte) -> w0 = 1 for the ASCII whitespace str.strip() drops
+//   (space, \t, \n, \r, \v, \f), else 0.  Clobbers nothing else.
+// ----------------------------------------------------------------------------
+    .p2align 2
+tc_is_space:
+    cmp w0, #' '
+    b.eq .Lisp_yes
+    cmp w0, #'\t'
+    b.lt .Lisp_no                   // below \t (9): not whitespace
+    cmp w0, #'\r'
+    b.le .Lisp_yes                  // \t \n \v \f \r (9..13)
+.Lisp_no:
+    mov w0, #0
+    ret
+.Lisp_yes:
+    mov w0, #1
     ret
 
 // ----------------------------------------------------------------------------
