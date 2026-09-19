@@ -1,10 +1,10 @@
 // ============================================================================
-// tc_config_stub.S — PRIVATE test stub of the Phase 3 hooks (never shipped).
+// tc_config_stub.S — test stub of the tc_config.S hooks (never shipped).
 // ============================================================================
 //
-//  This is MY OWN private stub for Phase 4 testing only; the real Phase 3
-//  implementation is tc_config.S (untouched).  It satisfies the symbols
-//  tc_cli.o and tc_core.o reference during the tc-core-test link:
+//  A stand-in for tc_config.S in the tc-cli-test and tc-core-test drivers
+//  (the Makefile links it there instead of tc_config.o).  It satisfies the
+//  symbols tc_cli.o and tc_core.o reference:
 //
 //    tc_env_get / tc_config_get   -> always not-found
 //    tc_aliases_apply             -> no-op
@@ -12,7 +12,7 @@
 //       exclusion tests: the raw --exclude list (TC_O_EXCL_LIST, split on
 //       commas/whitespace) and --exclude-broadcaster (TC_O_EXCL_BCAST_VAL
 //       vs the lowercased resolved channel).  This mirrors what the real
-//       Phase 3 set would contain for CLI-only exclusions.
+//       tc_config.S set would contain for CLI-only exclusions.
 //
 //  The exclusion compare is case-insensitive (the logins stored by the
 //  counting pass are already lowercase; the option tokens are lowercased

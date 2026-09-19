@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# test-tc-render.sh — Phase 5 harness for tc_render.S + tc_json.S.
+# test-tc-render.sh — harness for tc_render.S + tc_json.S.
 #
 #   Compares the AArch64 renderer byte-for-byte against the Python reference
 #   (twitch-counts.py) across the flag matrix, plus a handful of structural

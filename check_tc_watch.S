@@ -1,5 +1,5 @@
 // ============================================================================
-// check_tc_watch.S — Phase 7 test driver for tc_watch.S (watch mode).
+// check_tc_watch.S — test driver for tc_watch.S (watch mode).
 // ============================================================================
 //
 //  main(): tc_cli_parse -> tc_build_exclusions -> tc_cache_open ->
@@ -11,10 +11,10 @@
 //  flag anyway for parity with report_failure(args, "interrupted",
 //  code=130, announce=False).
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Linking:    musl-gcc -static with tc_watch.o tc_render.o tc_json.o
-//              tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o toml.o
-//              sqlite3.o libpcre2-8.a
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile (build/<os>/tc-watch-test).
 // ============================================================================
 
 #include "tc_platform.h"

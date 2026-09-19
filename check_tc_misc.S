@@ -1,12 +1,11 @@
 // ============================================================================
-// check_tc_misc.S — Phase 8 driver for tc_misc.S (twitch-counts-full).
+// check_tc_misc.S — test driver for tc_misc.S (twitch-counts-full).
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static -o tc-misc-test check_tc_misc.o tc_misc.o
-//              tc_core.o tc_cli.o tc_config.o tc_util.o
-//              third_party/tomlc99/toml.o
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile (build/<os>/tc-misc-test).
 //
 //  Behavior
 //  --------
@@ -18,7 +17,7 @@
 //        --complete KIND        -> tc_misc_complete(TC_O_COMPLETE_KIND)
 //    and returns the entry point's code (0 for all three).
 //
-//  This is the shape Wave E's main() must take in tc_main.S.
+//  This is the shape main() takes in tc_main.S.
 // ============================================================================
 
 #include "tc_platform.h"
@@ -56,7 +55,7 @@ main:
     b.ne .Lmain_fish
     tst x1, #TC_F_COMPLETE_GIVEN
     b.ne .Lmain_complete
-    // none of the misc actions: return 0 (a plain run is Wave E's job)
+    // none of the misc actions: return 0 (a plain run is tc_main.S's job)
     mov w0, #0
     b .Lmain_out
 .Lmain_manual:

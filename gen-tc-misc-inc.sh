@@ -1,7 +1,7 @@
 #!/bin/sh
 # ============================================================================
 # gen-tc-misc-inc.sh — regenerate tc_manual.inc and tc_fish.inc from
-# twitch-counts.py (Phase 8, tc_misc.S).
+# twitch-counts.py (tc_misc.S).
 #
 #   tc_manual.inc: the --manual body — the module docstring with the
 #       {{ENVIRONMENT}} placeholder replaced by environment_manual(), plus
@@ -11,12 +11,12 @@
 #       command="twitch-counts") plus print()'s trailing newline.
 #
 # Both are byte-exact snapshots of the Python module's own output, embedded
-# as .rodata so the assembly never has to re-derive argparse text.  Wave E
-# should wire a regeneration rule into the Makefile (tc_misc.o depends on
-# these two .inc files; this script is the recipe) so the embedded text can
-# never drift from the Python module.
+# as .rodata so the assembly never has to re-derive argparse text.  The
+# blobs are COMMITTED sources: the Makefile's `gen-inc` target runs this
+# script on request only, never as a build step, because the text depends
+# on the machine the Python runs on (default paths).
 #
-# Usage:  ./gen-tc-misc-inc.sh
+# Usage:  ./gen-tc-misc-inc.sh   (or: make gen-inc)
 # ============================================================================
 set -eu
 cd "$(dirname "$0")"

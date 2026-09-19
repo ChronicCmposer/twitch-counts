@@ -1,5 +1,5 @@
 // ============================================================================
-// check_tc_cache.S — Phase 6 test driver (main() + dump).
+// check_tc_cache.S — test driver for tc_cache.S (main() + dump).
 // ============================================================================
 //
 //  main(argc, argv): tc_cli_parse(argc, argv) -> tc_build_exclusions() ->

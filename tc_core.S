@@ -1,13 +1,14 @@
 // ============================================================================
 // tc_core.S — channel resolution, log listing, window completion, counting
-//             and --users sizing for twitch-counts-full (Phase 4)
+//             and --users sizing for twitch-counts-full
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static (musl libc + crt1.o)
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile (build/<os>/twitch-counts-full and the drivers)
 //
-//  What this module owns (the frozen contract is tc_layout.inc, READ-ONLY)
+//  What this module owns (the shared contract is tc_layout.inc)
 //  ----------------------------------------------------------------------
 //    * channel resolution:  the logs dir is listed (opendir/readdir), the
 //      directory names are sorted, and the channel is matched
@@ -27,11 +28,10 @@
 //      producing (width, found) into TC_W_USERS_WIDTH / TC_W_USERS_FOUND and
 //      begin = end - width.
 //
-//  Deviation notes (documented for later phases)
-//  ---------------------------------------------
-//    * Unreadable log files are recorded with the reason "cannot read" or
-//      "file too large" (the Python uses exception strings like
-//      "PermissionError: ..."; the differential normalizes these).
+//  Deviation notes
+//  ---------------
+//    * Unreadable log files are recorded with the Python's OSError text
+//      ("<ExcClass>: <strerror>", tc_errno_reason) or with "file too large".
 //    * A 1 GiB sanity cap on a single log file ("file too large").  The
 //      Python has no cap; a cap this large is not reachable by real logs.
 //    * CRLF line endings are NOT special-cased: a marker line ending in \r
@@ -48,17 +48,18 @@
 //    tc_count_column(x0=index)     -> x0 = the count-column for a user-table
 //                                  entry: the sum of the states matching the
 //                                  resolved state filter (all three when
-//                                  unfiltered).  Phase 5 needs this for the
+//                                  unfiltered).  tc_render.S needs this for the
 //                                  ranking; it is an addition beyond the
-//                                  frozen symbol list, documented here.
+//                                  contract's symbol list, documented here.
 //    tc_user_state(x0=index, x1=TC_ST_*) -> x0 = that state's count for the
-//                                  entry.  Addition (Phase 5 columns).
+//                                  entry.  Addition (render columns).
 //
-//  Phase 5/6 notes (what the contract does NOT say but this module relies on)
+//  Notes for tc_render.S / tc_cache.S (what the contract does NOT say but
+//  this module relies on)
 //  -------------------------------------------------------------------------
 //    * tc_users entries include EXCLUDED users, with their counts intact.
 //      The exclusion subtraction is applied to the TALLY only (states,
-//      excluded_states, messages).  Phase 5 must skip excluded entries when
+//      excluded_states, messages).  tc_render.S must skip excluded entries when
 //      ranking/rendering (call tc_excl_contains(login, len) on each entry)
 //      and can compute the "excluded appeared" information by walking the
 //      table exactly as the reference did.
@@ -70,7 +71,7 @@
 //      the contract structures are heap pointers that the owner (this
 //      module, once per run) frees or reuses.
 //
-//  Phase 6 cache integration (this file is the ONLY place the cache hooks
+//  Cache integration (this file is the ONLY place the cache hooks
 //  live; tc_cache.S provides the SQLite rollup)
 //  -------------------------------------------------------------------------
 //    * core_count_final's loop calls tc_cache_day(fpath, lo, hi, enter_state,
@@ -92,7 +93,7 @@
 //      cache module can reuse the exact table logic; core_process_message passes
 //      the tc_users base.
 //    * One-shot runs open/close the cache around tc_count_run (the driver's
-//      main).  Watch mode (Wave D/E) opens once per session and keeps the
+//      main).  Watch mode (tc_watch.S) opens once per session and keeps the
 //      connection; core_count_final uses whatever tc_cache.S has open.
 // ============================================================================
 
@@ -122,7 +123,7 @@
     .globl tc_fail
     .globl tc_civil_from_days
     .globl tc_excl_contains
-    // Phase 6: rollup-cache hooks (implemented in tc_cache.S)
+    // rollup-cache hooks (implemented in tc_cache.S)
     .globl tc_cache_day
     .globl tc_cache_put_day
     .globl tc_cache_discard_day
@@ -152,7 +153,7 @@
     .equ CF_FRAME_SZ,     48
 
 // ============================================================================
-// .bss — private scratch (NOT part of the frozen contract; the contract
+// .bss — private scratch (not part of the shared contract; the contract
 // structures tc_opts/tc_window/tc_users/tc_tally/tc_listing live in tc_cli.S)
 // ============================================================================
     .bss
@@ -191,7 +192,6 @@ s_no_files_pre:     .asciz "no log files found in "
 s_cant_open_dir:    .asciz "cannot open channel directory: "
 s_begin_paren:      .asciz "begin ("
 s_is_after_end:     .asciz ") is after end ("
-s_cannot_read:      .asciz "cannot read"
 s_too_large:        .asciz "file too large"
 s_oom:              .asciz "out of memory"
 lit_is_live:        .asciz "is live!"
@@ -200,7 +200,7 @@ lit_is_offline:     .asciz "is now offline."
     .text
 
 // ============================================================================
-// tc_count_run — the Phase 4 entry point.
+// tc_count_run — the counting entry point.
 //   Reads the resolved tc_opts + tc_window, then:
 //     resolve channel -> build listing -> complete window -> count.
 //   Errors (ConfigError-equivalents) go through tc_fail: "error: ..." + exit 1.
@@ -221,7 +221,7 @@ tc_count_run:
 // ============================================================================
 // tc_channel_name() -> x0 = pointer to the resolved channel directory name
 //   (the real on-disk name found by the case-insensitive match; what the
-//   Python calls context.channel_name).  Addition for Phase 5's channel
+//   Python calls context.channel_name).  Addition for tc_render.S's channel
 //   header row, documented here.
 // ============================================================================
     .p2align 2
@@ -234,7 +234,7 @@ tc_channel_name:
 // ============================================================================
 // tc_count_column(x0=user index) -> x0 = the count-column for the entry:
 //   the sum of the states matching the resolved state filter (TC_W_STATE_FILTER),
-//   or all three states when unfiltered.  Exported for Phase 5.
+//   or all three states when unfiltered.  Exported for tc_render.S.
 // ============================================================================
     .p2align 2
     .global tc_count_column
@@ -342,7 +342,7 @@ core_eff_threshold:
 // ============================================================================
 // tc_resolve_channel — find the channel directory (case-insensitive) and
 //   build core_dirpath = <logs_dir>/<real name>; exits on error.
-//   Phase 6: exported so tc_cache_open can resolve the channel before it
+//   Exported so tc_cache_open can resolve the channel before it
 //   captures the channel name (the counting pass would otherwise resolve it
 //   too late for the open-time purge).  Idempotent: calling it again from
 //   tc_count_run re-reads the directory with identical results.
@@ -1159,7 +1159,7 @@ core_count_final:
     ldr x1, [sp, #CF_ENTRY]
     add x1, x1, #TC_L_NAME
     bl tc_cat_cstr
-    // ---- Phase 6: rollup-cache hook ----
+    // ---- rollup-cache hook ----
     // A whole-day file inside the range may come from the rollup.  The cache
     // module stats the path and returns 0 = parse normally, 1 = reused (x1 =
     // cached exit_state; counts already applied to tc_users + totals), 2 =
@@ -1195,7 +1195,7 @@ core_count_final:
     ldr x11, [x26, #TC_T_PARSED]
     add x11, x11, #1
     str x11, [x26, #TC_T_PARSED]
-    // ---- Phase 6: write the whole day to the rollup (no-op unless the
+    // ---- write the whole day to the rollup (no-op unless the
     // cache module stashed this file's snapshot) ----
     LEA x9, core_cur_state
     ldr x0, [x9]
@@ -1204,7 +1204,7 @@ core_count_final:
 .Lcf_unreadable:
     mov x9, x0                          // status
     stp x9, x1, [sp, #-16]!             // save status + buf across the call
-    bl tc_cache_discard_day             // Phase 6: drop any pending stash
+    bl tc_cache_discard_day             // drop any pending stash
     ldp x9, x1, [sp], #16
     str x1, [sp, #CF_BUF]               // buf (may be 0)
     cmp x9, #1
@@ -1232,7 +1232,7 @@ core_count_final:
     str xzr, [x9]
     b .Lcf_next
 .Lcf_free:
-    bl tc_cache_discard_day             // Phase 6: no-newline days never write
+    bl tc_cache_discard_day             // no-newline days never write
     ldr x9, [sp, #CF_BUF]
     cbz x9, .Lcf_next
     mov x0, x9
@@ -1241,7 +1241,7 @@ core_count_final:
     add x27, x27, #1
     b .Lcf_loop
 .Lcf_cached:
-    // Phase 6: the day came from the rollup.  x1 = cached exit_state; the
+    // the day came from the rollup.  x1 = cached exit_state; the
     // cache module already applied the counts to tc_users + the totals.
     ldr x11, [x26, #TC_T_REUSED]
     add x11, x11, #1
@@ -1250,7 +1250,7 @@ core_count_final:
     str x1, [x9]
     b .Lcf_next
 .Lcf_cache_unreadable:
-    // Phase 6: stat failed inside the cache hook (errno captured there);
+    // stat failed inside the cache hook (errno captured there);
     // record + reset state, exactly like Python's skip().
     LEA x0, core_reason
     bl tc_errno_reason
@@ -2399,7 +2399,7 @@ core_is_lower_login_char:
 
 // ============================================================================
 // tc_find_user(x0=login, x1=len, x2=table_base) -> x0 = index, or -1.
-//   Phase 6: the base is passed in x2 (tc_users for the counting pass, a
+//   The base is passed in x2 (tc_users for the counting pass, a
 //   caller's table for the cache module).  Exported for tc_cache.S.
 // ============================================================================
     .p2align 2
@@ -2439,7 +2439,7 @@ tc_find_user:
 
 // ============================================================================
 // tc_add_user(x0=login, x1=len, x2=table_base) -> x0 = index (grows the entry
-//   array).  Phase 6: the base is passed in x2.  Exported for tc_cache.S.
+//   array).  The base is passed in x2.  Exported for tc_cache.S.
 // ============================================================================
     .p2align 2
     .global tc_add_user
@@ -2459,7 +2459,7 @@ tc_add_user:
 .Lau_new:
     mov x0, #USERS_INIT
 .Lau_alloc:
-    // Wave E fix: the new capacity is held in x23 (callee-saved) across the
+    // Fix: the new capacity is held in x23 (callee-saved) across the
     // realloc() call, NOT x6 — realloc clobbers caller-saved registers, so
     // the old code stored a garbage capacity and the user table stopped
     // growing (a run with >54 distinct users overflowed the entries array

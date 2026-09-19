@@ -1,16 +1,16 @@
 // ============================================================================
-// tc_layout.inc — FROZEN CONTRACT for twitch-counts-full
+// tc_layout.inc — the shared data contract for twitch-counts-full
 // ============================================================================
 //
-//  This file is READ-ONLY for every phase after Wave A (Phase 2).  It defines
-//  the byte layout of the shared .bss data structures and the exact calling
-//  contract of every exported symbol.  If a later phase needs a new field it
-//  must append at the END of the relevant structure and bump its *_SIZE, or
-//  (better) reuse what is here: the offsets below were chosen so that every
-//  setting in the Python SETTINGS table has a home.
+//  This file defines the byte layout of the shared .bss data structures and
+//  the calling contract of every exported symbol; every module includes it.
+//  Its offsets and ids are what the modules and the test drivers compile
+//  against, so a change here rebuilds everything: add new fields at the END
+//  of a structure and bump its *_SIZE, never renumber an id.  The offsets
+//  were chosen so that every setting in the Python SETTINGS table has a home.
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Linking:    musl-gcc -static (musl libc + crt1.o)
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
 //
 //  Data model: all offsets are byte offsets from the base of their structure;
 //  all u64 fields are naturally 8-byte aligned (sizes are rounded up so the
@@ -42,7 +42,7 @@
 //      convert, or the resolved window is inconsistent): print
 //      "error: <message>" to stderr and exit 1.  The message text matches the
 //      Python's ConfigError strings ("<flag> (from <source>): <detail>").
-//    * Runtime errors in later phases: "error: <message>" + exit 1.
+//    * Runtime errors: "error: <message>" + exit 1.
 //    * <prog> is basename(argv[0]) (normalized for differential testing by
 //      copying the binary to a file named like the Python invocation).
 //    * --help / -h prints the full help to stdout and exits 0.
@@ -54,7 +54,7 @@
 
 // ----------------------------------------------------------------------------
 // Setting ids — index the provenance array (tc_opts + TC_O_SRC + id*8).
-// Frozen numbering: later phases must not renumber.
+// Frozen numbering: never renumber.
 // ----------------------------------------------------------------------------
     .equ TC_SET_CHANNEL,             0
     .equ TC_SET_USERS_POLICY,        1
@@ -156,12 +156,12 @@
 // Window-start kinds (tc_opts + TC_O_WIN_KIND)
     .equ TC_WIN_BEGIN,    0           // an explicit --begin-style start
     .equ TC_WIN_SINCE,    1           // derived: end - duration
-    .equ TC_WIN_USERS,    2           // --users bisection (Phase 4 sizes it)
-    .equ TC_WIN_EARLIEST, 3           // default: earliest log file (Phase 4)
+    .equ TC_WIN_USERS,    2           // --users bisection (tc_core.S sizes it)
+    .equ TC_WIN_EARLIEST, 3           // default: earliest log file (tc_core.S)
 
 // Sentinel for "--watch without a value": resolve interval from config.
 // Stored as the double -1.0 in TC_O_INTERVAL when the flag was present with
-// no number (Python's WATCH_FROM_CONFIG).  Phase 3 resolves it.
+// no number (Python's WATCH_FROM_CONFIG).  tc_config.S resolves it.
     .equ TC_WATCH_FROM_CONFIG_BITS, 0xBFF0000000000000   // double -1.0
 
 // ----------------------------------------------------------------------------
@@ -257,7 +257,7 @@
     .equ TC_SRC_DYN_SINCE,            80   // "<since src> <raw> before end"
     .equ TC_SRC_DYN_USERS,            81   // "--users <N>"
     .equ TC_SRC_DYN_ALIAS,            82   // "<src> -> alias '<key>'"
-    // exclusion-layer sources (Phase 3 fills tc_excl_sources with these)
+    // exclusion-layer sources (tc_config.S fills tc_excl_sources with these)
     .equ TC_SRC_EXCL_CONFIG,          83   // "config exclude"
     .equ TC_SRC_EXCL_ALWAYS,          84   // "config always:<name>" (dynamic)
     .equ TC_SRC_EXCL_GROUP,           85   // "--exclude-group <name>" (dynamic)
@@ -324,7 +324,7 @@
     .equ TC_O_HEADER_MODE,     1360       // 8   TC_HDR_*
     .equ TC_O_COLOR_MODE,      1368       // 8   TC_COLOR_*
     .equ TC_O_COMPLETE_KIND,   1376       // 8   TC_COMPLETE_*
-    .equ TC_O_CONFIG_LOADED,   1384       // 8   0/1 (Phase 3 sets when config read)
+    .equ TC_O_CONFIG_LOADED,   1384       // 8   0/1 (tc_config.S sets when the config is read)
     .equ TC_O_EXCL_BCAST_VAL,  1392       // 8   0/1 resolved exclude-broadcaster
     // ---- merged metric columns (BY_STATE first, then --show, deduped) ------
     .equ TC_O_COLUMNS,         1400       // 48  6 x u64 TC_M_*
@@ -386,7 +386,7 @@
     .equ TC_O_WIN_SRC,         (1664 + TC_O_HL_ARR_SZ + TC_O_SRC_SZ)  // 128
     .equ TC_O_WIN_SRC_SZ,      128        // TC_SRC_DYN_SINCE / _DYN_USERS
     .equ TC_O_CHAN_SRC,        (TC_O_WIN_SRC + TC_O_WIN_SRC_SZ)       // 128
-    .equ TC_O_CHAN_SRC_SZ,     128        // TC_SRC_DYN_ALIAS (Phase 3 writes)
+    .equ TC_O_CHAN_SRC_SZ,     128        // TC_SRC_DYN_ALIAS (tc_config.S writes)
     .equ TC_O_COLUMNS_SRC_BUF, (TC_O_CHAN_SRC + TC_O_CHAN_SRC_SZ)     // 64
     .equ TC_O_COLUMNS_SRC_BUF_SZ, 64
     // ---- raw repeatable CLI lists ------------------------------------------
@@ -406,9 +406,9 @@
 // ----------------------------------------------------------------------------
 // tc_window — the resolved time range (symbol `tc_window` in .bss).
 // tc_cli_parse fills everything except the earliest-log-file begin (kind 3)
-// and the --users sizing (kind 2), which Phase 4 completes.
+// and the --users sizing (kind 2), which tc_core.S completes.
 // ----------------------------------------------------------------------------
-    .equ TC_W_BEGIN_YMD,    0          // 8  begin as YYYYMMDD u64 (0 until Phase 4)
+    .equ TC_W_BEGIN_YMD,    0          // 8  begin as YYYYMMDD u64 (0 until tc_core.S completes it)
     .equ TC_W_BEGIN_SOD,    8          // 8  seconds-of-day
     .equ TC_W_END_YMD,      16         // 8  end as YYYYMMDD u64
     .equ TC_W_END_SOD,      24         // 8  seconds-of-day
@@ -417,13 +417,14 @@
     .equ TC_W_THRESHOLD,    48         // 8  min_count (resolved)
     .equ TC_W_STATE_FILTER, 56         // 8  TC_ST_* (resolved)
     .equ TC_W_BEGIN_ROLLS,  64         // 8  1 when begin slides with end (since/users)
-    .equ TC_W_USERS_WIDTH,  72         // 8  sized width seconds (Phase 4)
+    .equ TC_W_USERS_WIDTH,  72         // 8  sized width seconds (tc_core.S)
     .equ TC_W_USERS_REQ,    80         // 8  requested N
     .equ TC_W_USERS_FOUND,  88         // 8  found N
     .equ TC_WIN_SIZE,       96
 
 // ----------------------------------------------------------------------------
-// tc_excl_set — the merged exclusion set (Phase 3 builds, Phases 4/5 read).
+// tc_excl_set — the merged exclusion set (tc_config.S builds; tc_core.S and
+// tc_render.S read).
 // ----------------------------------------------------------------------------
     .equ TC_EX_COUNT,       0          // 8  number of entries
     .equ TC_EX_ENTRIES,     8          // TC_EX_MAX x {login[26], source_idx u64}
@@ -440,7 +441,7 @@
     .equ TC_EX_SRC_BUF_SZ,   (TC_EX_MAX * 64)             // dynamic strings
 
 // ----------------------------------------------------------------------------
-// tc_users — the user table (Phase 4 owns: allocates, fills, serves lookups).
+// tc_users — the user table (tc_core.S owns: allocates, fills, serves lookups).
 // Entry: {login[26], live u64, offline u64, unknown u64} = 50 bytes.
 // ----------------------------------------------------------------------------
     .equ TC_US_CAP,         0          // 8  allocated capacity
@@ -454,7 +455,7 @@
     .equ TC_US_ENTRY_SZ,    50
 
 // ----------------------------------------------------------------------------
-// tc_tally — counting-pass results (Phase 4 fills, Phases 5/6 read).
+// tc_tally — counting-pass results (tc_core.S fills; tc_render.S/tc_cache.S read).
 // ----------------------------------------------------------------------------
     .equ TC_T_USERS_PTR,     0         // 8  pointer to tc_users header
     .equ TC_T_FILES,         8         // 8  log files read
@@ -473,7 +474,7 @@
     .equ TC_TALLY_SIZE,      (96 + TC_T_UNR_MAX * TC_T_UNR_ENTRY_SZ)
 
 // ----------------------------------------------------------------------------
-// tc_listing — dated log files (Phase 4 fills, sorted ascending).
+// tc_listing — dated log files (tc_core.S fills, sorted ascending).
 // Entry: {ymd u64, name[64]}.
 // ----------------------------------------------------------------------------
     .equ TC_L_COUNT,        0          // 8
@@ -505,7 +506,7 @@
 //   tc_prog_name()                        -> x0 = basename(argv[0]) pointer
 //   tc_print_help()                       prints help to stdout, exit 0
 //   tc_civil_from_days(x0=z)              -> x0=y, x1=m, x2=d (port of the
-//       Python/reference civil math; exported for Phase 4+ formatters)
+//       Python/reference civil math; exported for the formatters)
 //   tc_parse_datetime(x0=s, x1=eod)       -> (x0=ymd, x1=sod, x2=ok 0/1)
 //       DATETIME_FORMATS + ISO weeks + fromisoformat week subset.
 //   tc_parse_duration(x0=s)               -> (x0=seconds, x1=status)
@@ -522,8 +523,8 @@
 //   tc_parse_hex_colour(x0=s)             -> (x0=r<<16|g<<8|b, x1=ok)
 //   (all "ok" = 1 on success; callers print the argparse message themselves)
 //
-// tc_config.S  (Phase 3 provides the real implementations; this file is the
-//   Wave-A stub so the phase-2 test binary links)
+// tc_config.S  (tc_config_stub.S stands in for it in the CLI-only and
+//   core-only test drivers)
 //   tc_env_get(x0=name)                   -> (x0=found 0/1, x1=value_ptr)
 //       value_ptr is a NUL-terminated string.  Unset OR empty ("" ) -> 0,
 //       mirroring Python's `os.environ.get(n) not in (None, "")`.
@@ -535,12 +536,11 @@
 //   tc_aliases_apply()                    -> 0
 //       Rewrites tc_opts+TC_O_CHANNEL and fills TC_O_CHAN_SRC when the
 //       resolved channel matches a [aliases] key ("<src> -> alias '<key>'").
-//       No-op stub now; Phase 3 implements.
 //   tc_excl_contains(x0=ptr, x1=len)      -> x0 = 1 if the login is in
-//       tc_excl_set (lowercased compare), else 0.  Phase 3 implements.
+//       tc_excl_set (lowercased compare), else 0.
 //
 // tc_main.S
-//   main()                                bringup smoke until Wave E.
+//   main()                                dispatch (see its header comment).
 //
 // ============================================================================
 

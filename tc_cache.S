@@ -1,12 +1,14 @@
 // ============================================================================
-// tc_cache.S — the SQLite rollup cache for twitch-counts-full (Phase 6)
+// tc_cache.S — the SQLite rollup cache for twitch-counts-full
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static — musl libc + third_party/sqlite3/sqlite3.o
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    the Makefile links every driver and the binary; this module
+//              needs the vendored sqlite3.o.
 //
-//  What this module owns (the frozen contract is tc_layout.inc, READ-ONLY)
+//  What this module owns (the shared contract is tc_layout.inc)
 //  ----------------------------------------------------------------------
 //    * the day-level rollup cache: a SQLite database holding per-day,
 //      per-login, per-state message counts plus the file identity that made
@@ -17,7 +19,7 @@
 //      (or $HOME/.cache/twitch-counts/rollup.db).  No HOME -> no default ->
 //      cache disabled, NOT an error (the Python leaves a literal "~/.cache"
 //      path in that case; this port treats it as "no default location").
-//    * open/close lifecycle for one-shot runs; the watch loop (Wave D/E)
+//    * open/close lifecycle for one-shot runs; the watch loop (tc_watch.S)
 //      opens once and keeps the connection for the session.
 //
 //  Exported (all .global, AAPCS64; x19-x28 preserved by every helper)
@@ -34,7 +36,7 @@
 //                               x3=problem_ptr|0, x4=rebuilt_reason_ptr|0,
 //                               x5=path_ptr|0)
 //        reused/parsed are read from tc_tally (TC_T_REUSED / TC_T_PARSED) so
-//        the header row and the tally always agree.  Phase 5's header row
+//        the header row and the tally always agree.  tc_render.S's header row
 //        consumes this.
 //    tc_cache_day(x0=fpath, x1=lo, x2=hi, x3=enter_state, x4=ymd)
 //        -> x0 = 0 parse normally, 1 reused (x1 = cached exit_state), 2 stat
@@ -53,7 +55,7 @@
 //                                open database (used by test-tc-cache.sh when
 //                                no sqlite3 CLI is present).
 //
-//  Calling contract with tc_core.S (Phase 6 integration)
+//  Calling contract with tc_core.S
 //  ----------------------------------------------------
 //    core_count_final's loop calls tc_cache_day(fpath, lo, hi, enter_state, ymd)
 //    before reading the file.  enter_state is the live/offline/unknown state
@@ -199,7 +201,7 @@
     .equ FNV_PRIME,            0x100000001b3
 
 // ----------------------------------------------------------------------------
-// .bss — private state (NOT part of the frozen contract)
+// .bss — private state (not part of the shared contract)
 // ----------------------------------------------------------------------------
     .bss
     .p2align 4

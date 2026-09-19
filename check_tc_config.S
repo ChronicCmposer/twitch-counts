@@ -1,5 +1,5 @@
 // ============================================================================
-// check_tc_config.S — Phase-3 test driver for the config/env/exclusion hooks.
+// check_tc_config.S — test driver for the config/env/exclusion hooks.
 //   main() calls tc_cli_parse(argc, argv), then tc_build_exclusions(), then
 //   prints a stable dump: resolved values + source labels, the resolved config
 //   path + loaded flag, and the merged exclusion set (one login per line with

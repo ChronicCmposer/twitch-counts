@@ -1,5 +1,5 @@
 // ============================================================================
-// check_tc_core.S — Phase 4 test driver (main() + dump).
+// check_tc_core.S — test driver for tc_core.S (main() + dump).
 // ============================================================================
 //
 //  main(argc, argv): tc_cli_parse(argc, argv) -> tc_count_run() -> dump.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# test-tc-watch.sh — Phase 7 harness for tc_watch.S (watch mode).
+# test-tc-watch.sh — harness for tc_watch.S (watch mode).
 #
 #   Exercises the watch entry point through a pty (watch repaints in place,
 #   so every interactive test runs under a pseudo-terminal):

@@ -1,11 +1,12 @@
 // ============================================================================
-// tc_watch.S — watch mode for twitch-counts-full (Phase 7, Wave D)
+// tc_watch.S — watch mode for twitch-counts-full
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-a), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static — musl libc + toml.o + sqlite3.o +
-//              libpcre2-8.a (highlight-rule patterns)
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile; needs toml.o, sqlite3.o and libpcre2-8.a
+//              (highlight-rule patterns).
 //
 //  Byte-for-byte port of the Python reference's watch mode:
 //    resolve_watch / resolve_tail (3247-3323), color_enabled / fade_color /
@@ -46,7 +47,7 @@
 //    * tc_watch_seed_*: the stream-state seed memo keyed
 //      (begin_ymd, earlier_last_ymd, size, mtime_ns).
 //
-//  Render integration (Phase 7 additions to tc_render.S, additive)
+//  Render integration (additions to tc_render.S)
 //  ----------------------------------------------------------------
 //    tc_render_text is called with frame capture armed (tc_frame_begin) plus
 //    the pinned login column (tc_frame_set_pin) and the row tint hook
@@ -60,7 +61,7 @@
 //  -------------------------------------------------
 //    * [[watch.highlight]] rules were NOT parsed by the CLI when this phase
 //      shipped (P_HIGHLIGHTS unimplemented), so TC_O_HL_COUNT was 0 and
-//      highlights were inert; Wave E's tc_cli.S fills the contract fields
+//      highlights were inert; tc_cli.S now fills the contract fields
 //      (cli_resolve_highlights) and this machinery is live.  The pcre2 compile
 //      + matching machinery carries the rules the contract can hold.
 //    * The stream-state seed scans the day-before files directly (the Python
@@ -268,7 +269,7 @@
     .equ RD_OK_NONE,     0               // nothing appended
     .equ RD_ERR,         -1              // open/read failed
 
-    // value parsers (mirror tc_cli.S's P_* ids; tc_cli.S is frozen)
+    // value parsers (mirror tc_cli.S's P_* ids)
     .equ P_POS_INT,      1
     .equ P_NONNEG_INT,   2
     .equ P_NONNEG_FLOAT, 3
@@ -282,7 +283,7 @@
     .equ ROW_COUNT,      32
 
 // ----------------------------------------------------------------------------
-// .bss — watch-session state (private; not part of the frozen contract)
+// .bss — watch-session state (private; not part of the shared contract)
 // ----------------------------------------------------------------------------
     .bss
     .p2align 4

@@ -1,10 +1,11 @@
 // ============================================================================
-// tc_cli.S — the full CLI for twitch-counts-full (Wave A, Phase 2)
+// tc_cli.S — the full CLI for twitch-counts-full
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static (musl libc + crt1.o)
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile (build/<os>/twitch-counts-full and the drivers)
 //
 //  What this module owns
 //  ---------------------
@@ -16,13 +17,13 @@
 //    * the window resolution (end, begin/since/users, begin>end check),
 //      mirroring resolve_window_start()/resolve_context();
 //    * the value parsers every later phase reuses;
-//    * the frozen source-string table served by tc_source_str().
+//    * the source-string table served by tc_source_str().
 //
-//  The contract this module writes to is tc_layout.inc (READ-ONLY for all
-//  later phases).  tc_env_get/tc_config_get/tc_aliases_apply are stubbed in
-//  tc_config.S until Phase 3.
+//  The contract this module writes to is tc_layout.inc.  tc_env_get /
+//  tc_config_get / tc_aliases_apply are implemented in tc_config.S (the
+//  CLI-only driver links tc_config_stub.S instead).
 //
-//  Error/exit conventions (frozen, see tc_layout.inc)
+//  Error/exit conventions (see tc_layout.inc)
 //  --------------------------------------------------
 //    * argparse-equivalent PARSE errors  -> usage block + "<prog>: error:
 //      <msg>" on stderr, exit 2.
@@ -186,7 +187,7 @@
     .globl tc_ymd_sod_to_epoch
     .globl tc_epoch_to_ymd_sod
 
-    // Wave E highlight resolution ([[watch.highlight]]): the frozen
+    // Highlight resolution ([[watch.highlight]]): the contract
     // tc_config_get cannot return array-of-tables (toml_raw_in only sees
     // kvals), so cli_resolve_highlights re-reads the config TOML directly via
     // tomlc99 and validates patterns with pcre2, the pattern tc_misc.S
@@ -217,7 +218,7 @@ tc_tally:           .skip TC_TALLY_SIZE
     .global tc_listing
 tc_listing:         .skip TC_L_HEADER_SZ
 
-    // private scratch (NOT part of the frozen contract)
+    // private scratch (not part of the shared contract)
     .p2align 4
 cli_opt_argv:        .skip 8 * OPT_MAX
 cli_extras:          .skip 8 * OPT_MAX
@@ -3382,7 +3383,7 @@ cli_choose_columns:
 // cli_resolve_highlights — fill TC_O_HL_COUNT / TC_O_HL_ARR from the config's
 //   [[watch.highlight]] rules (Python resolve_settings + parse_highlights).
 //
-//   The frozen tc_config_get cannot return array-of-tables (toml_raw_in only
+//   tc_config_get cannot return array-of-tables (toml_raw_in only
 //   sees kvals), so this function re-reads the config TOML directly via
 //   tomlc99, the pattern tc_misc.S established; the entry points are .weak so
 //   the no-toml test driver (tc-cli-test) still links, and this path is only
@@ -3401,7 +3402,7 @@ cli_choose_columns:
 //
 //   Documented deviations (the layout caps):
 //     * TC_HL_MAX (8) rules / TC_HL_PAT_MAX (8) patterns per rule are the
-//       frozen caps; beyond them the config fails with a new message
+//       fixed caps; beyond them the config fails with a new message
 //       ("too many highlight rules (max 32)" / "rule {i}: too many patterns
 //       (max 64)") and patterns longer than 255 bytes fail with "rule {i}:
 //       pattern too long (max 63 characters)".  Python has no such limits.
@@ -3525,7 +3526,7 @@ cli_resolve_highlights:
     bl toml_table_at
     mov x25, x0                         // the rule table
     str x25, [sp]                       // stash it (the pattern loop reuses x25)
-    // the rule's slot in the frozen contract array
+    // the rule's slot in the contract array
     LEA_OFF x28, tc_opts, TC_O_HL_ARR
     mov x0, #TC_HL_RULE_SZ
     mul x0, x24, x0
@@ -3626,7 +3627,7 @@ cli_resolve_highlights:
     add x0, x9, x10                     // pattern slot
     add x0, x0, x2
     strb wzr, [x0]                      // NUL-terminate the slot
-    // compile-validate from the slot (the slot is the frozen contract text)
+    // compile-validate from the slot (the slot is the contract text)
     LEA x9, tc_hl_patterns
     mov x10, #TC_HL_PAT_MAX
     mul x10, x24, x10                   // rule index (x24)
@@ -7322,14 +7323,14 @@ s_key_notify:       .asciz "notify"
 s_key_max_events:   .asciz "max_events"
 s_key_seed_lookback:.asciz "seed_lookback"
     s_key_exclude_broadcaster: .asciz "exclude_broadcaster"
-    // Wave E: [[watch.highlight]] rule keys and the section key
+    // [[watch.highlight]] rule keys and the section key
     s_key_watch:       .asciz "watch"
     s_key_color:       .asciz "color"
     s_key_match:       .asciz "match"
     s_key_curve:       .asciz "curve"
     s_key_k:           .asciz "k"
     s_mode_r:          .asciz "r"
-    // Wave E: parse_highlights error text (byte-exact vs the Python)
+    // parse_highlights error text (byte-exact vs the Python)
     s_hl_must_be_list: .asciz "must be a list of tables"
     s_hl_expected_table: .asciz "expected a table with `color` and `match`"
     s_hl_needs_both:   .asciz "needs both `color` and `match`"
@@ -7338,7 +7339,7 @@ s_key_seed_lookback:.asciz "seed_lookback"
     s_hl_rule_mid:     .asciz ": "
     s_hl_bad_regex_mid:.asciz "' is not a valid regex ("
     s_hl_bad_regex_post:.asciz ")"
-    // Wave E: layout-cap errors (the frozen contract caps these; Python has
+    // layout-cap errors (the contract caps these; Python has
     // no limits, so these texts are additions, documented in the Deviations)
     s_hl_too_many_rules: .asciz "too many highlight rules (max 32)"
     s_hl_too_many_pats:  .asciz "too many patterns (max 64)"

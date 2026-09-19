@@ -1,5 +1,5 @@
 // ============================================================================
-// check_tc_render.S — Phase 5 test driver for tc_render.S + tc_json.S.
+// check_tc_render.S — test driver for tc_render.S + tc_json.S.
 // ============================================================================
 //
 //  main(): tc_cli_parse -> tc_build_exclusions -> tc_count_run ->

@@ -1,26 +1,28 @@
 // ============================================================================
-// tc_config.S — config & environment hooks for twitch-counts-full (Phase 3).
+// tc_config.S — config & environment hooks for twitch-counts-full
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static — musl libc + third_party/tomlc99/toml.o
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    the Makefile links every driver and the binary; this module
+//              needs the vendored toml.o.
 //
-//  This module implements the four frozen hooks tc_cli.S calls during layered
+//  This module implements the four contract hooks tc_cli.S calls during layered
 //  resolution (the calling contract is in tc_layout.inc) plus the exclusion-set
-//  builder and the config memo API the later phases need.  It is a byte-for-byte
+//  builder and the config memo API the other modules need.  It is a byte-for-byte
 //  port of the Python reference's load_config_layer / config_identity /
 //  load_config / resolve / build_inputs (aliases) / build_exclusions /
 //  config_exclusions / exclusion_layers / shorten_path / environment handling.
 //
 //  Exported (all .global, AAPCS64; x19-x28 preserved)
 //  --------------------------------------------------
-//    [frozen contract]
+//    [contract hooks]
 //    tc_env_get(x0=name)                  -> (x0=found 0/1, x1=value_ptr)
 //    tc_config_get(x0=key, x1=section_id) -> (x0=found, x1=value_ptr, x2=src)
 //    tc_aliases_apply()                   -> 0   (may tc_fail)
 //    tc_excl_contains(x0=ptr, x1=len)     -> x0 = 0/1
-//    [additive hooks, documented for Phases 4-7]
+//    [additive hooks]
 //    tc_build_exclusions()                -> 0   (may tc_fail; fills
 //                                                  tc_excl_set/tc_excl_sources)
 //    tc_config_identity() -> (x0=path or 0, x1=size, x2=mtime_ns)
@@ -39,9 +41,9 @@
 //    raise "[watch] in <path> must be a table" (path shorten_path'd), checked
 //    at load time in the same relative order the Python resolves them.
 //
-//  Notes for later phases
+//  Notes for the callers
 //  ---------------------
-//    * The exclusion set is NOT built by tc_cli_parse (that file is frozen).
+//    * The exclusion set is NOT built by tc_cli_parse.
 //      The orchestrator must call tc_build_exclusions() after tc_cli_parse
 //      (and after every config reload under --watch).  tc_aliases_apply is
 //      already called by tc_cli_parse; it rewrites TC_O_CHANNEL and the
@@ -59,7 +61,7 @@
 //      "permanently missing", matching the Python's ("none",) / (path,None,None)
 //      cache keys.
 //
-//  Residual diffs vs the Python (see the Phase-3 report)
+//  Residual diffs vs the Python
 //  -----------------------------------------------------
 //    * TOML syntax-error text comes from tomlc99 ("line N: ...") not tomllib
 //      ("Invalid ... (at line 1, column N)").  The "could not read config
@@ -147,7 +149,7 @@ cfg_excl_tmp_cur:    .skip 8
     .text
 
 // ============================================================================
-// Exported hooks — frozen contract
+// Exported hooks — the contract in tc_layout.inc
 // ============================================================================
 
 // ----------------------------------------------------------------------------
@@ -391,7 +393,7 @@ tc_excl_contains:
     ret
 
 // ============================================================================
-// Additive hooks — documented for Phases 4-7
+// Additive hooks
 // ============================================================================
 
 // ----------------------------------------------------------------------------

@@ -1,11 +1,12 @@
 // ============================================================================
 // tc_render.S — ranking, provenance header, table and footer for
-//               twitch-counts-full (Phase 5)
+//               twitch-counts-full
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static — musl libc + crt1.o
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile (build/<os>/twitch-counts-full and the drivers)
 //
 //  Byte-for-byte port of the Python reference's presentation half:
 //    rank_users / choose_columns / render_choose_limit / plan_presentation
@@ -15,7 +16,7 @@
 //    results_table / footer_lines (4872-4947), render_text (4950-4985).
 //
 //  Exported (all .global, AAPCS64, x19-x28 preserved):
-//    tc_render_report()    -> 0   the Wave E entry: plan, then emit JSON or
+//    tc_render_report()    -> 0   the entry: plan, then emit JSON or
 //                                 text exactly like run_report().
 //    tc_plan_presentation()-> 0   fill the plan (ranking, columns, header
 //                                 rows, limit); may exit 1 on the degenerate
@@ -24,7 +25,7 @@
 //    tc_report_fail(x0=msg)      "error: <msg>" stderr + exit 1, or the JSON
 //                                 {"error": <msg>} shape under --json.
 //
-//  Frame-capture additions (Phase 7, watch mode; all default OFF so the
+//  Frame-capture additions (watch mode; all default OFF so the
 //  one-shot renderers are byte-identical):
 //    tc_frame_begin(x0=lines, x1=max)  -> 0  arm line capture.  `lines` is an
 //                                 array of `max` pointers to writable line
@@ -46,11 +47,11 @@
 //    tc_frame_count (u64 .bss)  number of lines captured by the last
 //                                 tc_render_text call while armed.
 //
-//  Reads (frozen, READ-ONLY): tc_opts / tc_window / tc_users / tc_tally /
+//  Reads (never writes): tc_opts / tc_window / tc_users / tc_tally /
 //    tc_listing, tc_excl_set / tc_excl_sources / tc_excl_src_count,
 //    tc_channel_name / tc_count_column / tc_user_state (tc_core.S),
 //    tc_source_str (tc_cli.S), tc_shorten_path (tc_config.S),
-//    tc_cache_status (Phase 5 stub / Phase 6 real module).
+//    tc_cache_status (tc_cache.S).
 //
 //  Notes
 //  -----
@@ -446,7 +447,7 @@ render_line_blank:
     ret
 
 // ============================================================================
-// Frame-capture API (Phase 7, watch mode)
+// Frame-capture API (watch mode)
 // ============================================================================
     .p2align 2
     .global tc_frame_begin
@@ -498,7 +499,7 @@ tc_frame_set_tint:
     ret
 
 // ============================================================================
-// render_pin_cell(dst, src, width) -> dst after the login cell (Phase 7).
+// render_pin_cell(dst, src, width) -> dst after the login cell (watch mode).
 //   With tc_frame_pin_width > 0 and strlen(src) > width, writes width-1 bytes
 //   of src then U+2026 (no padding: the ellipsis is one visible column).  In
 //   the unclipped case copies src and pads to `width` exactly like the
@@ -1403,7 +1404,7 @@ render_plan_exclusions:
     cbnz x23, .Lpex_join_sep
     b .Lpex_join_src
 .Lpex_join_sep:
-    // Wave E fix: render_str_cat copies the source's trailing NUL, so the ", "
+    // Fix: render_str_cat copies the source's trailing NUL, so the ", "
     // separator NUL-terminated the joined source early and every source after
     // the first was truncated out of the header (observed: an exclude line
     // rendered as "[--exclude, ]" instead of
@@ -2656,7 +2657,7 @@ tc_render_text:
     PROLOGUE 2
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_HEADER_MODE]
-    // Wave E fix: --header none used to jump straight to the table, skipping
+    // Fix: --header none used to jump straight to the table, skipping
     // the empty-report check, so an empty range with --header none rendered an
     // empty table instead of Python's "No users met the threshold (...)".
     // Fall through to the shared empty check (which renders nothing more for
@@ -3172,7 +3173,7 @@ render_table:
     cbz x26, .Lrt_pin
     bl render_others_widths
 .Lrt_pin:
-    // Phase 7: a pinned login column is fixed, not merely capped: the clip in
+    // Watch mode: a pinned login column is fixed, not merely capped: the clip in
     // render_pin_cell already bounded every login at `pin` characters, so widths[0]
     // is set to the pin exactly (Python: widths[0] = pinned).
     LEA x25, tc_frame_pin_width
@@ -3452,7 +3453,7 @@ render_emit_table_row:
 .Letr_done:
     mov w1, #0
     strb w1, [x22]
-    // Phase 7: a tint hook (watch mode) wraps each displayed row's text.
+    // A tint hook (watch mode) wraps each displayed row's text.
     LEA x9, tc_frame_tint_fn
     ldr x9, [x9]
     cbz x9, .Letr_puts
@@ -3841,7 +3842,7 @@ render_emit_excluded_line:
     ret
 
 // ============================================================================
-// tc_render_report — the Wave E entry: plan, then emit JSON or text.
+// tc_render_report — plan, then emit JSON or text.
 // ============================================================================
     .p2align 2
     .global tc_render_report

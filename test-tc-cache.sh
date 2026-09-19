@@ -1,5 +1,5 @@
 #!/bin/sh
-# test-tc-cache.sh — Phase 6 test driver for tc_cache.S (twitch-counts-full).
+# test-tc-cache.sh — harness for tc_cache.S (twitch-counts-full).
 #
 # Builds a synthetic Chatterino log tree in a mktemp dir and checks the SQLite
 # rollup cache end to end:

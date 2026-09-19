@@ -1,5 +1,5 @@
 #!/bin/sh
-# test-tc-misc.sh — Phase 8 test driver for tc_misc.S (twitch-counts-full).
+# test-tc-misc.sh — harness for tc_misc.S (twitch-counts-full).
 #
 # Builds a synthetic Chatterino log tree (logs inside the last 7 days so the
 # --complete users window catches them) and checks:
@@ -14,7 +14,7 @@
 #
 # The binary under test is $BUILD/tc-misc-test (check_tc_misc.o + tc_misc.o +
 # tc_core.o + tc_cli.o + tc_config.o + tc_util.o + tc_cache.o + toml.o +
-# sqlite3.o + libpcre2-8), linked with the Phase-8 commands.  The Makefile
+# sqlite3.o + libpcre2-8).  The Makefile
 # owns the link (`make drivers`, or `make drivers twitch-counts-full` for
 # the full product); this script only runs the result.  BUILD defaults to
 # build/<os> (build/darwin on macOS, build/linux on Linux) unless TC_BUILD

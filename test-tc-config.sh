@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# test-tc-config.sh — Phase-3 harness for the config/env/exclusion hooks.
+# test-tc-config.sh — harness for the config/env/exclusion hooks.
 #
 # Uses the prebuilt config driver at $BUILD/tc-config-test (BUILD defaults
 # to build/<os>, e.g. build/darwin or build/linux; override with TC_BUILD,

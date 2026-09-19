@@ -1,5 +1,5 @@
 #!/bin/sh
-# test-tc-core.sh — Phase 4 test driver for tc_core.S (twitch-counts-full).
+# test-tc-core.sh — harness for tc_core.S (twitch-counts-full).
 #
 # Builds a synthetic Chatterino log tree in a mktemp dir and checks:
 #   (a) channel resolution: case-insensitive match + exact error strings
@@ -16,8 +16,8 @@
 #       is a hard requirement of this harness, checked once at the top.
 #
 # The binary under test is $BUILD/tc-core-test (check_tc_core.o + tc_core.o +
-# tc_cli.o + tc_util.o + tc_config_stub.o + toml.o), linked with the exact
-# commands the Phase-4 spec allows.  tc_config.o (Phase 3) is NEVER linked.
+# tc_cli.o + tc_util.o + tc_config_stub.o + toml.o); tc_config.o is NEVER
+# linked into it.
 # It is built ahead of time by `make drivers` (this script never builds
 # anything itself); BUILD defaults to build/<os> under this script's own
 # directory, using the same `uname -s | tr A-Z a-z` rule as the Makefile,

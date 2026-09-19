@@ -2,17 +2,12 @@
 // tc_main.S — main() for twitch-counts-full (the FULL port of twitch-counts.py)
 // ============================================================================
 //
-//  Target:     AArch64 (ARMv8-a), little-endian, Linux
-//  Assembler:  GNU as (GAS)
-//  Linking:    musl-gcc -static — musl libc + crt1.o (startfile) + vendored
-//              third_party/tomlc99/toml.o, third_party/sqlite3/sqlite3.o,
-//              third_party/pcre2/install/lib/libpcre2-8.a:
-//
-//    third_party/musl/bin/musl-gcc -static -o twitch-counts-full \
-//        tc_util.o tc_main.o tc_cli.o tc_config.o tc_core.o tc_cache.o \
-//        tc_render.o tc_json.o tc_misc.o tc_watch.o \
-//        third_party/tomlc99/toml.o third_party/sqlite3/sqlite3.o \
-//        third_party/pcre2/install/lib/libpcre2-8.a
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
+//  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
+//  Linking:    by the Makefile: the ten tc_*.o modules plus the vendored
+//              toml.o, sqlite3.o and libpcre2-8.a from build/<os>/ (static
+//              against musl on Linux, dynamic against libSystem on macOS).
 //
 //  Behavior — main() dispatch (Python main(), twitch-counts.py 3996-4028)
 //  ------------------------------------------------------------------
@@ -94,7 +89,7 @@
 //                 tc_eputs, tc_putu64, tc_fail(msg) noreturn -> exit 1.
 //    tc_cli.S     the ENTIRE flag surface + layered resolution (CLI -> env
 //                 -> config -> default) + the window + the value parsers +
-//                 tc_source_str/tc_prog_name.  Wave E also resolves
+//                 tc_source_str/tc_prog_name.  It also resolves
 //                 [[watch.highlight]] into TC_O_HL_* (see Deviations).
 //    tc_config.S  config load (tomlc99), env lookups, aliases, the merged
 //                 exclusion set (tc_build_exclusions), config identity/
@@ -103,7 +98,7 @@
 //                 counting pass into tc_users/tc_tally, --users bisection.
 //    tc_cache.S   the SQLite rollup cache (open/close/status + per-file
 //                 hooks called from inside tc_count_run).
-//    tc_render.S  ranking, provenance header, table, footer; the Wave E
+//    tc_render.S  ranking, provenance header, table, footer; the
 //                 entry tc_render_report() (plan then JSON or text);
 //                 tc_report_fail for the "error: ..."/{"error": ...} shape.
 //    tc_json.S    the self-describing JSON report (tc_json_emit / tc_json_err).
@@ -121,7 +116,7 @@
 //      * Python's `aliases = config.get("aliases") or {}` treats a FALSY
 //        aliases value as absent; this port accepts "false"/"0"/"0.0" and
 //        empty strings/arrays and rejects other non-table values.
-//      * Logins longer than 25 characters are truncated to the frozen
+//      * Logins longer than 25 characters are truncated to the contract's
 //        26-byte entry; the Python keeps them whole.
 //      * The exclusion set caps at TC_EX_MAX (512) and fails loudly
 //        ("too many excluded logins (max 512)") instead of silently keeping
@@ -142,7 +137,7 @@
 //      * A channel dir that cannot be opened after resolution prints
 //        "error: cannot open channel directory: <dir>" (the Python would
 //        surface the raw OSError).
-//      * Wave E fixed a latent memory-corruption bug in tc_add_user: the new
+//      * A fixed latent memory-corruption bug in tc_add_user: the new
 //        table capacity was held in x6 (caller-saved) across the realloc()
 //        call, which clobbered it, so the capacity field stored garbage.
 //        A log with >54 distinct users then stopped growing the entries
@@ -164,7 +159,7 @@
 //      * Share sorts rank by 1000x fixed-point keys (floor(1000*state/total))
 //        instead of Python's float comparison; ties break by login, so the
 //        order is total and differential-stable.
-//      * Wave E fixed TWO latent bugs exposed by the final differential:
+//      * TWO latent bugs exposed by the final differential were fixed:
 //        (1) the exclusion-source join used render_str_cat for the ", " separator,
 //        which copies the separator's trailing NUL and truncated every source
 //        after the first out of the header (an exclude line rendered as
@@ -184,14 +179,14 @@
 //        exit 1 at a prompt (run_completion reports on stderr and returns 0).
 //      * Completion environment lookups use libc getenv() directly (never
 //        tc_env_get, which would load the config and could fail loudly).
-//      * The --emit-fish-completions text is a frozen snapshot (tc_fish.inc)
+//      * The --emit-fish-completions text is a committed snapshot (tc_fish.inc)
 //        generated at build time with the generator's environment; Python
 //        evaluates DEFAULT_CONFIG_PATH at runtime (XDG_CONFIG_HOME or
 //        expanduser("~/.config")), so the --config line's "default:" path in
 //        the fish text can differ when the runtime environment differs.
 //    tc_watch.S:
-//      * Wave D shipped with [[watch.highlight]] inert (the CLI never parsed
-//        it).  Wave E resolves the rules into TC_O_HL_* at CLI time
+//      * Watch mode first shipped with [[watch.highlight]] inert (the CLI
+//        never parsed it).  tc_cli.S resolves the rules into TC_O_HL_* at CLI time
 //        (cli_resolve_highlights) and the pcre2 machinery is live.  Making it
 //        live exposed ONE latent bug in the previously-dead compile path:
 //        pcre2_match_data_create_from_pattern_8(code, gcontext) needs x1 =
@@ -211,17 +206,18 @@
 //        not re-applied to the rolling window.
 //      * The per-second buckets are a sorted array (binary-search insert)
 //        rather than a dict + bisect list; identical semantics.
-//    tc_cli.S (Wave E highlight resolution, parse_highlights):
+//    tc_cli.S (highlight resolution, parse_highlights):
 //      * [[watch.highlight]] is read directly from the config TOML via
-//        tomlc99 (the frozen tc_config_get cannot return array-of-tables).
+//        tomlc99 (tc_config_get cannot return array-of-tables).
 //      * Pattern validation uses pcre2, so the invalid-regex text carries
 //        pcre2's message ("missing closing parenthesis") where Python re
 //        says "unterminated subpattern at position 0".
-//      * The frozen contract caps the rules: TC_HL_MAX (8) rules, 8 patterns
-//        per rule, 63-byte pattern strings.  Beyond a cap the config fails
-//        with a NEW message ("too many highlight rules (max 8)" / "rule {i}:
-//        too many patterns (max 8)" / "rule {i}: pattern too long (max 63
-//        characters)"); Python has no such limits.
+//      * The contract caps the rules: TC_HL_MAX (32) rules, TC_HL_PAT_MAX
+//        (64) patterns per rule, TC_HL_PAT_SZ-1 (255) byte pattern strings.
+//        Beyond a cap the config fails with a NEW message ("too many
+//        highlight rules (max 32)" / "rule {i}: too many patterns (max 64)"
+//        / "rule {i}: pattern too long (max 255 characters)"); Python has no
+//        such limits.
 //      * A colour that is not a string and not a 3-int array fails with a
 //        fixed message ("color must be a string or a 3-integer array")
 //        instead of Python's repr-based text.
