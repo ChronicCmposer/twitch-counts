@@ -3875,8 +3875,8 @@ tc_choose_columns:
 //   Documented deviations (the layout caps):
 //     * TC_HL_MAX (8) rules / TC_HL_PAT_MAX (8) patterns per rule are the
 //       frozen caps; beyond them the config fails with a new message
-//       ("too many highlight rules (max 8)" / "rule {i}: too many patterns
-//       (max 8)") and patterns longer than 63 bytes fail with "rule {i}:
+//       ("too many highlight rules (max 32)" / "rule {i}: too many patterns
+//       (max 64)") and patterns longer than 255 bytes fail with "rule {i}:
 //       pattern too long (max 63 characters)".  Python has no such limits.
 //     * Pattern validation uses pcre2, so the ({exc}) text is pcre2's message
 //       ("missing closing parenthesis") rather than Python re's
@@ -3893,6 +3893,8 @@ tc_choose_columns:
     .bss
     .p2align 3
 tc_hl_errbuf:   .skip TC_HL_ERRBUF_SZ  // toml_parse_file error buffer
+    .global tc_hl_patterns
+tc_hl_patterns: .skip TC_HL_MAX * TC_HL_PAT_MAX * TC_HL_PAT_SZ  // rule i, pattern j: (i*TC_HL_PAT_MAX + j)*TC_HL_PAT_SZ
 tc_hl_dst:      .skip 8                // toml_rtos result slot (char *)
 tc_hl_errcode:  .skip 8                // pcre2_compile_8 error code
 tc_hl_erroff:   .skip 8                // pcre2_compile_8 error offset
@@ -4103,32 +4105,48 @@ tc_resolve_highlights:
     // x25 = pattern text, x27 = pattern count, x21 = pattern index
     mov x0, x25
     bl tc_strlen
-    cmp x0, #63
+    cmp x0, #(TC_HL_PAT_SZ - 1)
     b.gt .Lrh_pat_long
     mov x2, x0                          // len
-    add x0, x28, #TC_HL_PATTERNS
-    mov x1, #64
-    mul x1, x21, x1
-    add x0, x0, x1                      // dst slot
+    adrp x9, PAGE(tc_hl_patterns)
+    add x9, x9, LO12(tc_hl_patterns)
+    mov x10, #TC_HL_PAT_MAX
+    mul x10, x24, x10                   // rule index (x24)
+    add x10, x10, x21                   // + pattern index (x21)
+    mov x11, #TC_HL_PAT_SZ
+    mul x10, x10, x11
+    add x0, x9, x10                     // pattern slot
     mov x1, x25
     bl tc_copy_n
-    add x0, x28, #TC_HL_PATTERNS
-    mov x1, #64
-    mul x1, x21, x1
-    add x0, x0, x1
+    adrp x9, PAGE(tc_hl_patterns)
+    add x9, x9, LO12(tc_hl_patterns)
+    mov x10, #TC_HL_PAT_MAX
+    mul x10, x24, x10                   // rule index (x24)
+    add x10, x10, x21                   // + pattern index (x21)
+    mov x11, #TC_HL_PAT_SZ
+    mul x10, x10, x11
+    add x0, x9, x10                     // pattern slot
     add x0, x0, x2
     strb wzr, [x0]                      // NUL-terminate the slot
     // compile-validate from the slot (the slot is the frozen contract text)
-    add x0, x28, #TC_HL_PATTERNS
-    mov x1, #64
-    mul x1, x21, x1
-    add x0, x0, x1
+    adrp x9, PAGE(tc_hl_patterns)
+    add x9, x9, LO12(tc_hl_patterns)
+    mov x10, #TC_HL_PAT_MAX
+    mul x10, x24, x10                   // rule index (x24)
+    add x10, x10, x21                   // + pattern index (x21)
+    mov x11, #TC_HL_PAT_SZ
+    mul x10, x10, x11
+    add x0, x9, x10                     // pattern slot
     bl tc_strlen
     mov x1, x0
-    add x0, x28, #TC_HL_PATTERNS
-    mov x2, #64
-    mul x2, x21, x2
-    add x0, x0, x2
+    adrp x9, PAGE(tc_hl_patterns)
+    add x9, x9, LO12(tc_hl_patterns)
+    mov x10, #TC_HL_PAT_MAX
+    mul x10, x24, x10                   // rule index (x24)
+    add x10, x10, x21                   // + pattern index (x21)
+    mov x11, #TC_HL_PAT_SZ
+    mul x10, x10, x11
+    add x0, x9, x10                     // pattern slot
     mov w2, #0
     adrp x3, PAGE(tc_hl_errcode)
     add x3, x3, LO12(tc_hl_errcode)
@@ -8510,9 +8528,9 @@ s_key_seed_lookback:.asciz "seed_lookback"
     s_hl_bad_regex_post:.asciz ")"
     // Wave E: layout-cap errors (the frozen contract caps these; Python has
     // no limits, so these texts are additions, documented in the Deviations)
-    s_hl_too_many_rules: .asciz "too many highlight rules (max 8)"
-    s_hl_too_many_pats:  .asciz "too many patterns (max 8)"
-    s_hl_pat_long:       .asciz "pattern too long (max 63 characters)"
+    s_hl_too_many_rules: .asciz "too many highlight rules (max 32)"
+    s_hl_too_many_pats:  .asciz "too many patterns (max 64)"
+    s_hl_pat_long:       .asciz "pattern too long (max 255 characters)"
     s_hl_color_bad:      .asciz "color must be a string or a 3-integer array"
     .p2align 3
 tc_hl_dbl_neg1:   .double -1.0

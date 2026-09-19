@@ -7270,15 +7270,13 @@ watch_compile_patterns:
 .Lwcp_pat:
     cmp x23, x22
     b.ge .Lwcp_rule_next
-    adrp x9, PAGE(tc_opts)
-    add x9, x9, LO12(tc_opts)
-    add x9, x9, #TC_O_HL_ARR
-    mov x10, #TC_HL_RULE_SZ
-    mul x10, x21, x10
-    add x9, x9, x10
-    add x9, x9, #TC_HL_PATTERNS
-    mov x10, #64
-    mul x10, x23, x10
+    adrp x9, PAGE(tc_hl_patterns)
+    add x9, x9, LO12(tc_hl_patterns)
+    mov x10, #TC_HL_PAT_MAX
+    mul x10, x21, x10                  // rule index
+    add x10, x10, x23                  // + pattern index
+    mov x11, #TC_HL_PAT_SZ
+    mul x10, x10, x11
     add x24, x9, x10                   // pattern string
     // pcre2_compile_8(pattern, len, 0, &errcode, &erroffset, 0)
     mov x0, x24

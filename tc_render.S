@@ -2206,6 +2206,8 @@ build_header_rows:
 .Lbhr_excl_preview_done:
     cmp x20, #3
     b.le .Lbhr_excl_val_done
+    sub x0, x0, #1                    // overwrite the trailing NUL (str_cat
+                                      // returns the cursor past it)
     adrp x1, PAGE(s_comma_more)
     add x1, x1, LO12(s_comma_more)
     bl str_cat
@@ -2627,6 +2629,8 @@ build_header_rows:
 .Lbhr_unr_preview_done:
     cmp x20, #2
     b.le .Lbhr_unr_reason
+    sub x0, x0, #1                    // overwrite the trailing NUL (str_cat
+                                      // returns the cursor past it)
     adrp x1, PAGE(s_comma_more)
     add x1, x1, LO12(s_comma_more)
     bl str_cat

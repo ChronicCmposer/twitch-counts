@@ -354,14 +354,23 @@
     // ---- [[watch.highlight]] rules -----------------------------------------
     .equ TC_O_HL_COUNT,        1648       // 8   number of rules (<= TC_HL_MAX)
     .equ TC_O_HL_ARR,          1656       // TC_HL_MAX x TC_HL_RULE_SZ
-    .equ TC_HL_MAX,            8          // max rules
+    // The Python has no limits here; these are the fixed-array capacities
+    // (a config beyond them fails loudly, never silently truncates).
+    // Every tc_opts offset after the array is an expression of
+    // TC_O_HL_ARR_SZ, so they can be raised freely.
+    .equ TC_HL_MAX,            32         // max rules
     .equ TC_HL_RGB,            0          //   12  3 x u32
     .equ TC_HL_CURVE,          12         //   8   TC_CURVE_* (-1 = inherit)
     .equ TC_HL_K,              20         //   8   double (-1.0 = inherit)
     .equ TC_HL_PAT_COUNT,      28         //   8
-    .equ TC_HL_PATTERNS,       36         //   TC_HL_PAT_MAX x 64
-    .equ TC_HL_PAT_MAX,        8
-    .equ TC_HL_RULE_SZ,        (36 + TC_HL_PAT_MAX*64)   // 548
+    .equ TC_HL_RULE_SZ,        40         //   (36 rounded up to 8)
+    // The pattern texts are NOT in the rule record (they would push every
+    // later tc_opts field past the reach of a load/store immediate).  They
+    // live in tc_hl_patterns (tc_cli.S, .global), TC_HL_MAX x TC_HL_PAT_MAX
+    // slots of TC_HL_PAT_SZ bytes: pattern j of rule i is at
+    //   tc_hl_patterns + (i * TC_HL_PAT_MAX + j) * TC_HL_PAT_SZ
+    .equ TC_HL_PAT_MAX,        64         //   max patterns per rule
+    .equ TC_HL_PAT_SZ,         256        //   one pattern slot (NUL included)
     .equ TC_O_HL_ARR_SZ,       (TC_HL_MAX * TC_HL_RULE_SZ)
     // ---- flags + provenance ------------------------------------------------
     .equ TC_O_FLAGS,           (1656 + TC_O_HL_ARR_SZ)   // 8  bitmask
