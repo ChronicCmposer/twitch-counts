@@ -41,14 +41,12 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "FAIL: python3 not found on PATH (needed to run the oracle, twitch-counts.py)" >&2
     exit 2
 fi
-tc_require_python_tomllib
 PY="$TC_HERE/twitch-counts.py"
 [ -f "$PY" ] || { echo "FAIL: oracle not found: $PY" >&2; exit 2; }
 
 # --- driver: built ahead of time by `make drivers`, never here -------------
 tc_build_dir
-BIN=$(tc_driver tc-core-test)
-
+BIN=$(tc_driver tc-core-test) || exit 2
 tmpdir=$(tc_sandbox tc-core-test)
 
 # Sandbox HOME/XDG so the driver and the python3 oracle can never reach the
@@ -56,6 +54,7 @@ tmpdir=$(tc_sandbox tc-core-test)
 home_sandbox="$tmpdir/home"
 tc_isolate_home "$tmpdir"
 mkdir -p "$home_sandbox/.config" "$home_sandbox/.cache"
+tc_require_python_tomllib          # the first python3 call runs isolated
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer" "$channels/sizer" "$channels/unkchan" \

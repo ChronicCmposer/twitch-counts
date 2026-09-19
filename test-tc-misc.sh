@@ -46,13 +46,11 @@ set -u
 . "$(dirname "$0")/tc-test-lib.sh"
 tc_here
 
-tc_require_python_tomllib
 PY="python3 $TC_HERE/twitch-counts.py"
 
 # --- driver under test --------------------------------------------------------
 tc_build_dir
-BIN=$(tc_driver tc-misc-test)
-
+BIN=$(tc_driver tc-misc-test) || exit 2
 tmpdir=$(tc_sandbox tc-misc-test)
 
 # --- isolation: never touch the real HOME's config/cache ---------------------
@@ -61,6 +59,7 @@ XDG_CONFIG_HOME="$HOME/.config"
 XDG_CACHE_HOME="$tmpdir/cache"
 export HOME XDG_CONFIG_HOME XDG_CACHE_HOME
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+tc_require_python_tomllib          # the first python3 call runs isolated
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer" "$channels/OtherChan" "$channels/EMPTYDIR"

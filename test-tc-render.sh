@@ -40,8 +40,7 @@ tc_here
 # driver + oracle resolution (no builds happen here — see `make drivers`)
 # ---------------------------------------------------------------------------
 tc_build_dir
-BIN=$(tc_driver tc-render-test)
-
+BIN=$(tc_driver tc-render-test) || exit 2
 PYSCRIPT="$TC_HERE/twitch-counts.py"
 if [ ! -f "$PYSCRIPT" ]; then
     echo "FAIL: oracle script not found: $PYSCRIPT"
@@ -51,7 +50,6 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "FAIL: python3 not found on PATH"
     exit 2
 fi
-tc_require_python_tomllib
 
 # ---------------------------------------------------------------------------
 # isolation: exported once, before any oracle/driver call — never touch the
@@ -62,6 +60,7 @@ WORKDIR=$(tc_sandbox tc-render-test)
 DATA="$WORKDIR/data"
 tc_isolate_home "$WORKDIR"
 mkdir -p "$DATA"
+tc_require_python_tomllib          # the first python3 call runs isolated
 
 LOGS="$DATA/Logs/Twitch/Channels"
 CH=chroniccmposer

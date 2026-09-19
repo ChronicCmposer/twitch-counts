@@ -15,8 +15,11 @@
 #                                 directory) and set TC_HERE to it.
 #     tc_build_dir                set BUILD: $TC_BUILD when the Makefile
 #                                 exports it, else build/<os>; always absolute.
-#     tc_driver NAME              print "$BUILD/NAME"; exit 2 with a FAIL line
-#                                 when it is missing or not executable.
+#     tc_driver NAME              print "$BUILD/NAME", or print a FAIL line and
+#                                 fail when it is missing or not executable.
+#                                 It runs in a command substitution, so the
+#                                 caller must propagate the failure:
+#                                     BIN=$(tc_driver tc-core-test) || exit 2
 #     tc_require_python_tomllib   exit 2 unless python3 on PATH is >= 3.11
 #                                 (has tomllib) -- the oracle requirement.
 #     tc_sandbox PREFIX           mktemp -d under $TMPDIR (or /tmp), removed
@@ -65,11 +68,11 @@ tc_build_dir() {
     esac
 }
 
-tc_driver() { # tc_driver <name> -> prints the path, or exits 2
+tc_driver() { # BIN=$(tc_driver <name>) || exit 2
     [ -n "${BUILD:-}" ] || tc_build_dir
     if [ ! -x "$BUILD/$1" ]; then
         echo "FAIL: $BUILD/$1 not found or not executable -- run: make drivers" >&2
-        exit 2
+        return 2
     fi
     printf '%s\n' "$BUILD/$1"
 }

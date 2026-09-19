@@ -47,9 +47,8 @@ tc_here
 
 tc_build_dir
 
-BIN=$(tc_driver tc-cache-test)
-BUMP_BIN=$(tc_driver tc-cache-bump-test)
-
+BIN=$(tc_driver tc-cache-test) || exit 2
+BUMP_BIN=$(tc_driver tc-cache-bump-test) || exit 2
 TC_PY="$TC_HERE/twitch-counts.py"
 tc_require_python_tomllib
 

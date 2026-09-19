@@ -43,8 +43,7 @@ set -u
 tc_here
 
 tc_build_dir
-BIN=$(tc_driver tc-watch-test)
-
+BIN=$(tc_driver tc-watch-test) || exit 2
 # ---------------------------------------------------------------------------
 # isolation: a per-run tmp root, with HOME/XDG pointed inside it so nothing
 # below -- including the tomllib probe just after this block -- can reach

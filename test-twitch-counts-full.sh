@@ -32,17 +32,10 @@ set -u
 tc_here
 
 # ---------------------------------------------------------------------------
-# python3 >= 3.11 (needed for the --json / json.tool check; tomllib is the
-# version probe every harness in this tree uses).
-# ---------------------------------------------------------------------------
-tc_require_python_tomllib
-
-# ---------------------------------------------------------------------------
 # resolve the driver: $BUILD/twitch-counts-full, no in-script build.
 # ---------------------------------------------------------------------------
 tc_build_dir
-BIN=$(tc_driver twitch-counts-full)
-
+BIN=$(tc_driver twitch-counts-full) || exit 2
 tmpdir=$(tc_sandbox tc-full-test)
 
 channels="$tmpdir/Logs/Twitch/Channels"
@@ -71,6 +64,7 @@ EOF
 export HOME="$tmpdir/home"
 export XDG_CONFIG_HOME="$tmpdir/xdg-config"
 export XDG_CACHE_HOME="$tmpdir/xdg-cache"
+tc_require_python_tomllib          # the first python3 call runs isolated
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
 
 # --- Check 1: --manual -------------------------------------------------------

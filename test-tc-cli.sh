@@ -31,8 +31,7 @@ set -u
 tc_here
 
 tc_build_dir
-BIN=$(tc_driver tc-cli-test)
-
+BIN=$(tc_driver tc-cli-test) || exit 2
 # Isolated HOME/XDG so no oracle or driver call can ever reach the user's
 # real config or 355 MB rollup cache. Isolated once, before any python3 or
 # $BIN invocation in this script (including the version check right below),

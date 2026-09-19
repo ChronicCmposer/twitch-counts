@@ -84,9 +84,7 @@ expect_driver() {
     fi
 }
 
-BIN=$(tc_driver tc-config-test)
-
-tc_require_python_tomllib
+BIN=$(tc_driver tc-config-test) || exit 2
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -105,6 +103,7 @@ TMP=$(tc_sandbox tc-config-test)
 export HOME="$TMP/home"
 export XDG_CONFIG_HOME=
 export XDG_CACHE_HOME="$TMP/xdg-cache"
+tc_require_python_tomllib          # the first python3 call runs isolated
 mkdir -p "$HOME" "$TMP/logs/mychannel" "$XDG_CACHE_HOME"
 CFG="$TMP/cfg.toml"
 cat > "$CFG" <<'EOF'
