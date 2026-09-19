@@ -77,7 +77,6 @@
 // ----------------------------------------------------------------------------
     .equ STDOUT, 1
     .equ STDERR, 2
-    .equ TERM_WIDTH, 80
     .equ CLOCK_REALTIME, 0
     .equ SECS_PER_DAY, 86400
 
@@ -561,73 +560,103 @@ tc_arg_error:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_print_usage:
+    // argparse.HelpFormatter._format_usage: the usage is a list of parts
+    // ("[-c CHANNEL]", "[-b BEGIN | -S SINCE | --users N]", ...) packed
+    // greedily into lines of text_width = max(terminal columns - 2, 11),
+    // the continuation lines indented past "usage: <prog> ".  A part is
+    // never split.  (Word-wrapping at a fixed 80 columns broke "[--sort
+    // METRIC]" across lines and ignored $COLUMNS / the terminal.)
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    mov x19, x0
+    mov x19, x0                        // fd
     adrp x20, PAGE(tc_opts)
     add x20, x20, LO12(tc_opts)
     ldr x21, [x20, #TC_O_PROG_PTR]
     ldr x22, [x20, #TC_O_PROG_LEN]
-    mov x23, #0
+    bl tc_term_columns
+    sub x20, x0, #2                    // width = columns - 2
+    cmp x20, #11
+    b.ge .Lpu_width_ok
+    mov x20, #11                       // text_width = max(width, 11)
+.Lpu_width_ok:
+    // "usage: " + prog
     mov x0, x19
     adrp x1, PAGE(s_usage_prefix)
     add x1, x1, LO12(s_usage_prefix)
     bl tc_fd_puts
-    add x23, x23, #7
     mov x0, x19
     mov x1, x21
     mov x2, x22
     bl tc_fd_write
-    add x23, x23, x22
-    adrp x24, PAGE(tc_usage_words)
-    add x24, x24, LO12(tc_usage_words)
-.Lpu_loop:
-    ldr x25, [x24], #8
-    cbz x25, .Lpu_done
-    mov x0, x25
-    bl tc_strlen
-    mov x26, x0
-    add x27, x23, #1
-    add x27, x27, x26
-    cmp x27, #TERM_WIDTH
-    b.le .Lpu_same
+    // a prog wider than 0.75 * text_width goes on a line of its own and
+    // the parts are indented by len("usage: ") only
+    add x9, x22, #7
+    lsl x9, x9, #2                     // 4 * (len(prefix) + len(prog))
+    mov x10, #3
+    mul x10, x20, x10                  // 3 * text_width
+    cmp x9, x10
+    b.gt .Lpu_long_prog
+    add x24, x22, #8                   // indent = len(prefix) + len(prog) + 1
+    add x23, x22, #7                   // line_len = (len(prefix) - 1) + len(prog) + 1
+    mov x25, #1                        // the line holds an item (prog)
+    b .Lpu_parts
+.Lpu_long_prog:
     mov x0, x19
     adrp x1, PAGE(s_newline)
     add x1, x1, LO12(s_newline)
     mov x2, #1
     bl tc_fd_write
-    mov x28, #8
-    add x28, x28, x22
-.Lpu_indent:
-    cbz x28, .Lpu_indent_done
+    mov x24, #7                        // indent = len(prefix)
+    mov x28, x24
+    bl .Lpu_spaces
+    mov x23, #6                        // line_len = indent - 1
+    mov x25, #0                        // the line is empty
+.Lpu_parts:
+    adrp x26, PAGE(tc_usage_parts)
+    add x26, x26, LO12(tc_usage_parts)
+.Lpu_loop:
+    ldr x27, [x26], #8
+    cbz x27, .Lpu_done
+    mov x0, x27
+    bl tc_strlen
+    mov x28, x0                        // len(part)
+    // if line_len + 1 + len(part) > text_width and line: new line
+    add x9, x23, #1
+    add x9, x9, x28
+    cmp x9, x20
+    b.le .Lpu_append
+    cbz x25, .Lpu_append
+    mov x0, x19
+    adrp x1, PAGE(s_newline)
+    add x1, x1, LO12(s_newline)
+    mov x2, #1
+    bl tc_fd_write
+    mov x9, x28                        // (x28 is the loop's part length)
+    mov x28, x24
+    stp x9, x9, [sp, #-16]!
+    bl .Lpu_spaces
+    ldp x28, x9, [sp], #16
+    sub x23, x24, #1                   // line_len = indent - 1
+    mov x25, #0
+.Lpu_append:
+    cbz x25, .Lpu_no_sep
     mov x0, x19
     adrp x1, PAGE(s_space)
     add x1, x1, LO12(s_space)
     mov x2, #1
     bl tc_fd_write
-    sub x28, x28, #1
-    b .Lpu_indent
-.Lpu_indent_done:
-    mov x23, #8
-    add x23, x23, x22
-    b .Lpu_word
-.Lpu_same:
+.Lpu_no_sep:
     mov x0, x19
-    adrp x1, PAGE(s_space)
-    add x1, x1, LO12(s_space)
-    mov x2, #1
+    mov x1, x27
+    mov x2, x28
     bl tc_fd_write
-    add x23, x23, #1
-.Lpu_word:
-    mov x0, x19
-    mov x1, x25
-    mov x2, x26
-    bl tc_fd_write
-    add x23, x23, x26
+    add x23, x23, x28
+    add x23, x23, #1                   // line_len += len(part) + 1
+    mov x25, #1
     b .Lpu_loop
 .Lpu_done:
     mov x0, x19
@@ -640,6 +669,22 @@ tc_print_usage:
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// .Lpu_spaces: write x28 spaces to fd x19 (clobbers x0-x2, x28)
+.Lpu_spaces:
+    stp x29, x30, [sp, #-16]!
+.Lpu_spaces_loop:
+    cbz x28, .Lpu_spaces_done
+    mov x0, x19
+    adrp x1, PAGE(s_space)
+    add x1, x1, LO12(s_space)
+    mov x2, #1
+    bl tc_fd_write
+    sub x28, x28, #1
+    b .Lpu_spaces_loop
+.Lpu_spaces_done:
     ldp x29, x30, [sp], #16
     ret
 
@@ -8852,76 +8897,85 @@ s_src_config_begin:  .asciz "config begin"
 s_src_config_since:  .asciz "config since"
 
 // ============================================================================
-// The usage words (wrapped greedily at 80 cols, indent 8+prog_len)
+// The usage parts, in argparse's order.  Python 3.13+ packs the usage one
+// ACTION at a time (HelpFormatter._get_actions_usage_parts): a mutually
+// exclusive group contributes one part per member, the brackets and '|'
+// separators attached, so a group may break across lines at a '|'.
 // ============================================================================
     .p2align 3
-tc_usage_words:
-    .quad u_help, u_c, u_channel, u_b, u_begin, u_pipe, u_S, u_since, u_pipe, u_users, u_Nend
-    .quad u_users_policy, u_howend, u_users_max, u_durationend, u_e, u_endend, u_m, u_mincountend
-    .quad u_B, u_show, u_colend, u_sort, u_metricend, u_sharefloor, u_N, u_n, u_N
-    .quad u_header, u_modeend, u_d, u_logsdir
-    .quad u_j, u_pipe, u_w, u_secend, u_watchhold, u_watchhold_end, u_color, u_autoend
-    .quad u_L, u_pipe, u_O, u_pipe, u_Uend, u_x, u_loginend, u_g, u_groupend
-    .quad u_exclbcast, u_include, u_loginend2, u_noexclude, u_config, u_configv, u_pipe, u_noconfigend
-    .quad u_streamer, u_nocache, u_pipe, u_rebuildend, u_manual, u_emitfish
+tc_usage_parts:
+    .quad up_00
+    .quad up_01
+    .quad up_02
+    .quad up_03
+    .quad up_04
+    .quad up_05
+    .quad up_06
+    .quad up_07
+    .quad up_08
+    .quad up_09
+    .quad up_10
+    .quad up_11
+    .quad up_12
+    .quad up_13
+    .quad up_14
+    .quad up_15
+    .quad up_16
+    .quad up_17
+    .quad up_18
+    .quad up_19
+    .quad up_20
+    .quad up_21
+    .quad up_22
+    .quad up_23
+    .quad up_24
+    .quad up_25
+    .quad up_26
+    .quad up_27
+    .quad up_28
+    .quad up_29
+    .quad up_30
+    .quad up_31
+    .quad up_32
+    .quad up_33
+    .quad up_34
     .quad 0
 
-u_help:        .asciz "[-h]"
-u_c:           .asciz "[-c"
-u_channel:     .asciz "CHANNEL]"
-u_b:           .asciz "[-b"
-u_begin:       .asciz "BEGIN"
-u_pipe:        .asciz "|"
-u_S:           .asciz "-S"
-u_since:       .asciz "SINCE"
-u_users:       .asciz "--users"
-u_Nend:        .asciz "N]"
-u_users_policy:.asciz "[--users-policy"
-u_howend:      .asciz "HOW]"
-u_users_max:   .asciz "[--users-max"
-u_durationend: .asciz "DURATION]"
-u_e:           .asciz "[-e"
-u_endend:      .asciz "END]"
-u_m:           .asciz "[-m"
-u_mincountend: .asciz "MIN_COUNT]"
-u_B:           .asciz "[-B]"
-u_show:        .asciz "[--show"
-u_colend:      .asciz "COL[,COL...]]"
-u_sort:        .asciz "[--sort"
-u_metricend:   .asciz "METRIC]"
-u_sharefloor:  .asciz "[--share-floor"
-u_N:           .asciz "N]"
-u_n:           .asciz "[-n"
-u_header:      .asciz "[--header"
-u_modeend:     .asciz "MODE]"
-u_d:           .asciz "[-d"
-u_logsdir:     .asciz "LOGS_DIR]"
-u_j:           .asciz "[-j"
-u_w:           .asciz "-w"
-u_secend:      .asciz "[SECONDS]]"
-u_watchhold:   .asciz "[--watch-hold"
-u_watchhold_end: .asciz "SECONDS]"
-u_color:       .asciz "[--color"
-u_autoend:     .asciz "{auto,always,never}]"
-u_L:           .asciz "[-L"
-u_O:           .asciz "-O"
-u_Uend:        .asciz "-U]"
-u_x:           .asciz "[-x"
-u_loginend:    .asciz "LOGIN[,LOGIN...]]"
-u_g:           .asciz "[-g"
-u_groupend:    .asciz "GROUP]"
-u_exclbcast:   .asciz "[--exclude-broadcaster]"
-u_include:     .asciz "[--include"
-u_loginend2:   .asciz "LOGIN[,LOGIN...]]"
-u_noexclude:   .asciz "[--no-exclude]"
-u_config:      .asciz "[--config"
-u_configv:     .asciz "CONFIG"
-u_noconfigend: .asciz "--no-config]"
-u_streamer:    .asciz "[--streamer]"
-u_nocache:     .asciz "[--no-cache"
-u_rebuildend:  .asciz "--rebuild-cache]"
-u_manual:      .asciz "[--manual]"
-u_emitfish:    .asciz "[--emit-fish-completions]"
+up_00: .asciz "[-h]"
+up_01: .asciz "[-c CHANNEL]"
+up_02: .asciz "[-b BEGIN |"
+up_03: .asciz "-S SINCE |"
+up_04: .asciz "--users N]"
+up_05: .asciz "[--users-policy HOW]"
+up_06: .asciz "[--users-max DURATION]"
+up_07: .asciz "[-e END]"
+up_08: .asciz "[-m MIN_COUNT]"
+up_09: .asciz "[-B]"
+up_10: .asciz "[--show COL[,COL...]]"
+up_11: .asciz "[--sort METRIC]"
+up_12: .asciz "[--share-floor N]"
+up_13: .asciz "[-n N]"
+up_14: .asciz "[--header MODE]"
+up_15: .asciz "[-d LOGS_DIR]"
+up_16: .asciz "[-j |"
+up_17: .asciz "-w [SECONDS]]"
+up_18: .asciz "[--watch-hold SECONDS]"
+up_19: .asciz "[--color {auto,always,never}]"
+up_20: .asciz "[-L |"
+up_21: .asciz "-O |"
+up_22: .asciz "-U]"
+up_23: .asciz "[-x LOGIN[,LOGIN...]]"
+up_24: .asciz "[-g GROUP]"
+up_25: .asciz "[--exclude-broadcaster]"
+up_26: .asciz "[--include LOGIN[,LOGIN...]]"
+up_27: .asciz "[--no-exclude]"
+up_28: .asciz "[--config CONFIG |"
+up_29: .asciz "--no-config]"
+up_30: .asciz "[--streamer]"
+up_31: .asciz "[--no-cache |"
+up_32: .asciz "--rebuild-cache]"
+up_33: .asciz "[--manual]"
+up_34: .asciz "[--emit-fish-completions]"
 
 // ============================================================================
 // The help body (everything after the usage block)

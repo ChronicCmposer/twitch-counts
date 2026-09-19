@@ -2821,22 +2821,10 @@ choose_limit:
     mov x0, #1
     bl isatty
     cbz w0, .Lcl_term_unlimited        // int result: test w0, not x0
-    // term lines
-    sub sp, sp, #16
-    mov x0, #1
-    ldr x1, =TIOCGWINSZ
-    mov x2, sp
-    bl tc_ioctl_p
-    cmp w0, #0
-    b.ne .Lcl_term_fallback
-    ldrh w23, [sp]                     // ws_row
-    add sp, sp, #16
-    cbz w23, .Lcl_term_fallback2
-    b .Lcl_term_calc
-.Lcl_term_fallback:
-    add sp, sp, #16
-.Lcl_term_fallback2:
-    mov w23, #24
+    // shutil.get_terminal_size(fallback=(80, 24)).lines: $LINES first,
+    // then the terminal, then 24 (tc_util.S)
+    bl tc_term_lines
+    mov x23, x0
 .Lcl_term_calc:
     // limit = max(rows - (reserved + 8), 5)   (Python adaptive_row_limit)
     sub x23, x23, x22                  // was `add`: a 30-line terminal got 32 rows

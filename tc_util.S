@@ -586,4 +586,172 @@ err_newline:
 err_newline_end:
     .equ err_newline_len, err_newline_end - err_newline
 
+    .text
+// ----------------------------------------------------------------------------
+// tc_env_int(x0=name) -> x0 = int(os.environ[name]) when the variable is set
+//   to a positive integer, else 0.  Python's int() grammar for what matters
+//   here: surrounding whitespace, an optional sign, digits with single '_'
+//   separators; anything else is a ValueError, and a value <= 0 is treated
+//   the same way by shutil.get_terminal_size (both mean "ask the terminal").
+//   Preserves x19-x28.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_env_int
+    FUNC_TYPE(tc_env_int)
+tc_env_int:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    bl getenv
+    cbz x0, .Lei_none
+    mov x19, x0
+.Lei_lead:
+    ldrb w0, [x19]
+    bl ei_is_space
+    cbz w0, .Lei_sign
+    add x19, x19, #1
+    b .Lei_lead
+.Lei_sign:
+    ldrb w0, [x19]
+    cmp w0, #'-'
+    b.eq .Lei_none                  // negative: "<= 0" -> the terminal decides
+    cmp w0, #'+'
+    b.ne .Lei_digits
+    add x19, x19, #1
+.Lei_digits:
+    mov x20, #0                     // value
+    mov x21, #0                     // digits seen
+    mov x22, #0                     // previous byte was '_'
+.Lei_loop:
+    ldrb w0, [x19]
+    cmp w0, #'_'
+    b.ne .Lei_not_us
+    cbz x21, .Lei_none              // '_' before any digit
+    cbnz x22, .Lei_none             // '__'
+    mov x22, #1
+    add x19, x19, #1
+    b .Lei_loop
+.Lei_not_us:
+    cmp w0, #'0'
+    b.lt .Lei_end
+    cmp w0, #'9'
+    b.gt .Lei_end
+    sub w0, w0, #'0'
+    mov x1, #10
+    mul x20, x20, x1
+    add x20, x20, x0
+    mov x1, #0x7fffffff
+    cmp x20, x1
+    b.le .Lei_digit_ok
+    mov x20, x1                     // saturate: large is large
+.Lei_digit_ok:
+    mov x21, #1
+    mov x22, #0
+    add x19, x19, #1
+    b .Lei_loop
+.Lei_end:
+    cbz x21, .Lei_none              // no digits
+    cbnz x22, .Lei_none             // trailing '_'
+.Lei_trail:
+    ldrb w0, [x19]
+    cbz w0, .Lei_done
+    bl ei_is_space
+    cbz w0, .Lei_none               // junk after the number
+    add x19, x19, #1
+    b .Lei_trail
+.Lei_done:
+    mov x0, x20
+    b .Lei_ret
+.Lei_none:
+    mov x0, #0
+.Lei_ret:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// ei_is_space(w0=byte) -> w0 = 1 for ASCII whitespace (space, \t\n\v\f\r)
+    .p2align 2
+ei_is_space:
+    cmp w0, #' '
+    b.eq .Leis_yes
+    cmp w0, #9
+    b.lt .Leis_no
+    cmp w0, #13
+    b.le .Leis_yes
+.Leis_no:
+    mov w0, #0
+    ret
+.Leis_yes:
+    mov w0, #1
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_term_columns() / tc_term_lines() -> x0: shutil.get_terminal_size(
+//   fallback=(80, 24)).columns / .lines.  $COLUMNS / $LINES first, then
+//   TIOCGWINSZ on fd 1 (sys.__stdout__), a 0 from the terminal or a failed
+//   ioctl -> the fallback.  Preserve x19-x28.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_term_columns
+    FUNC_TYPE(tc_term_columns)
+tc_term_columns:
+    stp x29, x30, [sp, #-16]!
+    adrp x0, PAGE(ts_s_columns)
+    add x0, x0, LO12(ts_s_columns)
+    bl tc_env_int
+    cbnz x0, .Ltc_ret
+    mov x0, #2                      // ws_col offset
+    bl ts_winsize_field
+    cbnz x0, .Ltc_ret
+    mov x0, #80
+.Ltc_ret:
+    ldp x29, x30, [sp], #16
+    ret
+
+    .p2align 2
+    .global tc_term_lines
+    FUNC_TYPE(tc_term_lines)
+tc_term_lines:
+    stp x29, x30, [sp, #-16]!
+    adrp x0, PAGE(ts_s_lines)
+    add x0, x0, LO12(ts_s_lines)
+    bl tc_env_int
+    cbnz x0, .Ltl_ret
+    mov x0, #0                      // ws_row offset
+    bl ts_winsize_field
+    cbnz x0, .Ltl_ret
+    mov x0, #24
+.Ltl_ret:
+    ldp x29, x30, [sp], #16
+    ret
+
+// ts_winsize_field(x0=offset) -> x0 = that u16 of TIOCGWINSZ on fd 1, or 0
+    .p2align 2
+ts_winsize_field:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    sub sp, sp, #16
+    mov x19, x0
+    mov x0, #1
+    ldr x1, =TIOCGWINSZ
+    mov x2, sp
+    bl tc_ioctl_p
+    cmp w0, #0
+    b.ne .Ltw_none
+    ldrh w0, [sp, x19]
+    b .Ltw_ret
+.Ltw_none:
+    mov x0, #0
+.Ltw_ret:
+    add sp, sp, #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+    RODATA
+ts_s_columns:         .asciz "COLUMNS"
+ts_s_lines:           .asciz "LINES"
+    .text
+
     .end

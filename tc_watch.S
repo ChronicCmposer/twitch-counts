@@ -9787,33 +9787,9 @@ watch_screen_paint:
 // ============================================================================
     .p2align 2
 watch_terminal_width:
-    stp x29, x30, [sp, #-16]!
-    stp x19, x20, [sp, #-16]!
-    mov x0, #STDOUT
-    bl isatty
-    cbz w0, .Lwtw_fallback            // int result: test w0, not x0
-    sub sp, sp, #16
-    mov x0, #STDOUT
-    ldr x1, =TIOCGWINSZ                // not a valid mov immediate on Darwin
-    mov x2, sp
-    bl tc_ioctl_p
-    cmp w0, #0
-    b.ne .Lwtw_fallback2
-    ldrh w9, [sp, #2]                  // ws_col
-    add sp, sp, #16
-    cbz w9, .Lwtw_fallback3
-    mov x0, x9
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
-    ret
-.Lwtw_fallback2:
-    add sp, sp, #16
-.Lwtw_fallback3:
-.Lwtw_fallback:
-    mov x0, #80
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
-    ret
+    // shutil.get_terminal_size(fallback=(80, 24)).columns: $COLUMNS wins,
+    // then the terminal, then 80 (tc_util.S)
+    b tc_term_columns
 
 // ============================================================================
 // watch_strcpy(dst, src) — copy a NUL-terminated string; returns dst.
