@@ -2,19 +2,59 @@
 # test-twitch-counts-full.sh — verify the REAL twitch-counts-full binary
 # (the full AArch64 port of twitch-counts.py).
 #
-# Builds a synthetic Chatterino log tree in a mktemp HOME and checks the
-# main() dispatch surface end to end:
+# The binary under test is NOT built here.  It is resolved as
+# "$BUILD/twitch-counts-full", where BUILD defaults to
+# build/<os> (os = `uname -s` lowercased) and can be overridden with
+# TC_BUILD (the Makefile exports TC_BUILD=build/<os> when it drives this
+# script via `make test`).  Run `make twitch-counts-full` first if it is
+# missing.
+#
+# Every invocation of the binary runs with HOME, XDG_CONFIG_HOME and
+# XDG_CACHE_HOME pointed at a per-run mktemp directory, so it can never
+# read or write the real user's ~/.config/twitch-counts.toml or
+# ~/.cache/twitch-counts/rollup.db (the assembly honours XDG_CONFIG_HOME /
+# XDG_CACHE_HOME, falling back to $HOME/.config or $HOME/.cache).
+#
+# Builds a synthetic Chatterino log tree under that isolated HOME and
+# checks the main() dispatch surface end to end:
 #   1. --manual prints the manual and exits 0
 #   2. --emit-fish-completions exits 0 and carries a completion for a real flag
 #   3. --complete with a logs dir returns candidates and exits 0
 #   4. -h prints the usage and exits 0
 #   5. no args -> "error: no channel given ..." on stderr, exit 1
 #   6. an end-to-end run prints the header + table + footer shape, exit 0
-#   7. --json output parses with python3 -m json.tool
+#   7. --json output parses with `python3 -m json.tool` (from PATH)
 #   8. --watch on a non-tty prints the needs-a-terminal error, exit 1
 #
 # Prints PASS/FAIL per check and exits nonzero on any failure.
 set -u
+
+HERE=$(cd "$(dirname "$0")" && pwd) || exit 2
+cd "$HERE" || exit 2
+
+# ---------------------------------------------------------------------------
+# python3 >= 3.11 (needed for the --json / json.tool check; tomllib is the
+# version probe every harness in this tree uses).
+# ---------------------------------------------------------------------------
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+    echo "FAIL: python3 (from PATH) must be >= 3.11 with tomllib available" >&2
+    exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# resolve the driver: $BUILD/twitch-counts-full, no in-script build.
+# ---------------------------------------------------------------------------
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+case $BUILD in
+    /*) : ;;
+    *) BUILD="$HERE/$BUILD" ;;
+esac
+BIN="$BUILD/twitch-counts-full"
+
+if [ ! -x "$BIN" ]; then
+    echo "FAIL: $BIN not found or not executable - run: make twitch-counts-full" >&2
+    exit 2
+fi
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-full-test.XXXXXX") || {
     echo "FAIL: cannot create temp directory"
@@ -43,7 +83,12 @@ cat > "$channels/chroniccmposer/chroniccmposer-2026-09-02.log" << 'EOF'
 [15:14:00] ChronicCmposer is now offline.
 EOF
 
-export HOME="$tmpdir"
+# --- isolation: HOME + XDG_CONFIG_HOME + XDG_CACHE_HOME never touch the
+# real user's ~/.config/twitch-counts.toml or ~/.cache/twitch-counts. -------
+export HOME="$tmpdir/home"
+export XDG_CONFIG_HOME="$tmpdir/xdg-config"
+export XDG_CACHE_HOME="$tmpdir/xdg-cache"
+mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
 
 pass=0
 fail=0
@@ -59,7 +104,7 @@ ok_or_fail() { # ok_or_fail <name> <ok: 1=pass, 0=fail>
 }
 
 # --- Check 1: --manual -------------------------------------------------------
-./twitch-counts-full --manual >"$tmpdir/manual.out" 2>"$tmpdir/manual.err"
+"$BIN" --manual >"$tmpdir/manual.out" 2>"$tmpdir/manual.err"
 rc=$?
 ok=0
 [ "$rc" -eq 0 ] &&
@@ -69,7 +114,7 @@ ok=0
 ok_or_fail "--manual prints the manual and exits 0" "$ok"
 
 # --- Check 2: --emit-fish-completions ----------------------------------------
-./twitch-counts-full --emit-fish-completions >"$tmpdir/fish.out" 2>"$tmpdir/fish.err"
+"$BIN" --emit-fish-completions >"$tmpdir/fish.out" 2>"$tmpdir/fish.err"
 rc=$?
 ok=0
 [ "$rc" -eq 0 ] &&
@@ -79,7 +124,7 @@ ok=0
 ok_or_fail "--emit-fish-completions carries a real flag line and exits 0" "$ok"
 
 # --- Check 3: --complete with a logs dir -------------------------------------
-./twitch-counts-full --no-config --no-cache -c chroniccmposer \
+"$BIN" --no-config --no-cache -c chroniccmposer \
     -d "$channels" --complete channels >"$tmpdir/comp.out" 2>"$tmpdir/comp.err"
 rc=$?
 ok=0
@@ -90,7 +135,7 @@ ok=0
 ok_or_fail "--complete channels returns candidates and exits 0" "$ok"
 
 # --- Check 4: -h -------------------------------------------------------------
-./twitch-counts-full -h >"$tmpdir/help.out" 2>"$tmpdir/help.err"
+"$BIN" -h >"$tmpdir/help.out" 2>"$tmpdir/help.err"
 rc=$?
 ok=0
 [ "$rc" -eq 0 ] && grep -q "usage: twitch-counts-full" "$tmpdir/help.out" && ok=1
@@ -98,7 +143,7 @@ ok=0
 ok_or_fail "-h prints the usage and exits 0" "$ok"
 
 # --- Check 5: no args --------------------------------------------------------
-./twitch-counts-full >"$tmpdir/noargs.out" 2>"$tmpdir/noargs.err"
+"$BIN" >"$tmpdir/noargs.out" 2>"$tmpdir/noargs.err"
 rc=$?
 ok=0
 [ "$rc" -eq 1 ] &&
@@ -108,7 +153,7 @@ ok=0
 ok_or_fail "no args errors 'no channel given' on stderr, exit 1" "$ok"
 
 # --- Check 6: end-to-end run shape -------------------------------------------
-./twitch-counts-full --no-config --no-cache -c chroniccmposer -d "$channels" \
+"$BIN" --no-config --no-cache -c chroniccmposer -d "$channels" \
     -e 2026-09-01 >"$tmpdir/e2e.out" 2>"$tmpdir/e2e.err"
 rc=$?
 ok=0
@@ -122,7 +167,7 @@ ok=0
 ok_or_fail "end-to-end run prints header + table + footer, exit 0" "$ok"
 
 # --- Check 7: --json parses --------------------------------------------------
-./twitch-counts-full --no-config --no-cache -c chroniccmposer -d "$channels" \
+"$BIN" --no-config --no-cache -c chroniccmposer -d "$channels" \
     -e 2026-09-01 --json >"$tmpdir/json.out" 2>"$tmpdir/json.err"
 rc=$?
 python3 -m json.tool "$tmpdir/json.out" >"$tmpdir/json.pretty" 2>"$tmpdir/json.tool.err"
@@ -133,7 +178,7 @@ ok=0
 ok_or_fail "--json output parses with python3 -m json.tool" "$ok"
 
 # --- Check 8: --watch on a non-tty -------------------------------------------
-./twitch-counts-full --no-config --no-cache -c chroniccmposer -d "$channels" \
+"$BIN" --no-config --no-cache -c chroniccmposer -d "$channels" \
     -w 0.2 >"$tmpdir/watch.out" 2>"$tmpdir/watch.err"
 rc=$?
 ok=0

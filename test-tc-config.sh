@@ -2,8 +2,11 @@
 # ============================================================================
 # test-tc-config.sh — Phase-3 harness for the config/env/exclusion hooks.
 #
-# Builds the config driver (check_tc_config.o + tc_config.o + tc_cli.o +
-# tc_util.o + toml.o) and checks:
+# Uses the prebuilt config driver at $BUILD/tc-config-test (BUILD defaults
+# to build/<os>, e.g. build/darwin or build/linux; override with TC_BUILD,
+# as the Makefile does when it runs harnesses via 'make test'). Build it
+# first with `make drivers` — this script does not build anything itself.
+# Checks:
 #   (a) config file resolution: values + source labels for top-level and
 #       [watch]/[tail] keys
 #   (b) precedence: CLI > env > config > default
@@ -18,6 +21,16 @@
 #       (normalized), and the resolved exclusion set + source list via the
 #       Python --json query.excluded / query.sources.exclude fields.
 #
+# The Python oracle is `python3 twitch-counts.py` from PATH (needs >= 3.11,
+# checked below via `import tomllib`).
+#
+# ISOLATION: this script protects the real ~/.config/twitch-counts.toml and
+# ~/.cache/twitch-counts/rollup.db. HOME, XDG_CONFIG_HOME and XDG_CACHE_HOME
+# are exported once, right after the per-run temp dir is created (see the
+# "Fixtures" section below), to locations under that temp dir. Every driver
+# and python3-oracle invocation for the rest of the script inherits them
+# from the environment, so none can reach the real files.
+#
 # Usage: ./test-tc-config.sh
 # ============================================================================
 set -u
@@ -25,9 +38,8 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$HERE"
 
-MUSL_GCC=./third_party/musl/bin/musl-gcc
-AS=as
-BIN=tc-config-test
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+BIN="$BUILD/tc-config-test"
 PY=python3
 
 PASS=0
@@ -36,18 +48,6 @@ DIFF_FAIL=0
 
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $1"; }
-
-# ---------------------------------------------------------------------------
-# Build the driver
-# ---------------------------------------------------------------------------
-build() {
-    $AS tc_util.S -o tc_util.o &&
-    $AS tc_cli.S -o tc_cli.o &&
-    $AS tc_config.S -o tc_config.o &&
-    $AS check_tc_config.S -o check_tc_config.o &&
-    $MUSL_GCC -static -o "$BIN" \
-        check_tc_config.o tc_config.o tc_cli.o tc_util.o third_party/tomlc99/toml.o
-}
 
 # run_case NAME ARG...  -> exit code in $RC, stdout+stderr in $OUT
 run_case() {
@@ -91,20 +91,35 @@ expect_driver() {
     fi
 }
 
-echo "building tc-config-test ..."
-if ! build; then
-    echo "BUILD FAILED"
+if [ ! -x "$HERE/$BIN" ]; then
+    echo "driver not found: $HERE/$BIN -- run: make drivers" >&2
     exit 1
 fi
-echo "build ok"
+
+if ! "$PY" -c 'import tomllib' >/dev/null 2>&1; then
+    echo "python3 (need >= 3.11, for tomllib) not usable on PATH -- required" >&2
+    echo "for the differential oracle (python3 twitch-counts.py)" >&2
+    exit 2
+fi
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-TMP=$(mktemp -d /tmp/tc-config-test.XXXXXX)
-export XDG_CONFIG_HOME=
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/tc-config-test.XXXXXX")
+# See "ISOLATION" in the header comment. HOME is isolated for both the
+# driver's fallback path resolution and Python's MacOS platform class
+# (which ignores XDG_* entirely and always uses HOME). XDG_CONFIG_HOME is
+# left empty on purpose: the XDG spec (and tc_config.S) treat an empty
+# value as "unset", so default-config-path resolution falls through to the
+# isolated $HOME/.config -- this is exactly what the b4/DEFAULTOUT case
+# below exercises, and it can never reach the real ~/.config since HOME is
+# isolated. XDG_CACHE_HOME is pointed at an isolated directory in case a
+# differential run's cache lookup ever honours XDG (Python's Linux class
+# does; its MacOS class still just uses the isolated HOME).
 export HOME="$TMP/home"
-mkdir -p "$HOME" "$TMP/logs/mychannel"
+export XDG_CONFIG_HOME=
+export XDG_CACHE_HOME="$TMP/xdg-cache"
+mkdir -p "$HOME" "$TMP/logs/mychannel" "$XDG_CACHE_HOME"
 CFG="$TMP/cfg.toml"
 cat > "$CFG" <<'EOF'
 channel = "cfgchan"
@@ -133,7 +148,7 @@ bots = ["bot_a", "bot_b", " BOT_C "]
 mods = ["mod_x"]
 always = ["bots"]
 EOF
-sed -i "s#DIR#$TMP/logs#g" "$CFG"
+sed "s#DIR#$TMP/logs#g" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
 
 # ---- a. config resolution: values + sources -------------------------------
 echo "-- (a) config file resolution --"
@@ -322,8 +337,8 @@ py_query() {
     # py_query [ENVVAR=val]... [ARG]...  -> prints excluded=... / exclude=...
     split_env "$@"
     local pout
-    pout=$(env "${DIFF_ENV[@]}" python3 twitch-counts.py --json -d "$LOGS" -c mychannel \
-        -b 2026-09-01 -e 2026-09-01 --top 50 "${DIFF_FLAGS[@]}" 2>/dev/null)
+    pout=$(env ${DIFF_ENV[@]+"${DIFF_ENV[@]}"} python3 twitch-counts.py --json -d "$LOGS" -c mychannel \
+        -b 2026-09-01 -e 2026-09-01 --top 50 ${DIFF_FLAGS[@]+"${DIFF_FLAGS[@]}"} 2>/dev/null)
     if ! printf '%s\n' "$pout" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
         echo 'excluded=PY-NONJSON'
         echo 'exclude=PY-NONJSON'
@@ -345,7 +360,7 @@ diff_case() {
     split_env "$@"
     local pyout asmout
     pyout=$(py_query "$@")
-    asmout=$(env "${DIFF_ENV[@]}" "$HERE/$BIN" -c mychannel -d "$LOGS" -b 2026-09-01 -e 2026-09-01 --top 50 "${DIFF_FLAGS[@]}" 2>&1)
+    asmout=$(env ${DIFF_ENV[@]+"${DIFF_ENV[@]}"} "$HERE/$BIN" -c mychannel -d "$LOGS" -b 2026-09-01 -e 2026-09-01 --top 50 ${DIFF_FLAGS[@]+"${DIFF_FLAGS[@]}"} 2>&1)
     local py_excl py_src asm_excl asm_src
     py_excl=$(printf '%s\n' "$pyout" | sed -n 's/^excluded=//p')
     py_src=$(printf '%s\n' "$pyout" | sed -n 's/^exclude=//p')

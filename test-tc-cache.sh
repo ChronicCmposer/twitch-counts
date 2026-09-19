@@ -14,17 +14,59 @@
 #   (f) --rebuild-cache -> purges the channel then reparses everything
 #   (g) corrupt the db -> cache unavailable with a named problem, the query
 #       still succeeds
-#   (h) generations: fingerprint-tagged rows coexist (bump the fingerprint
-#       constant in a scratch copy: generation count grows, both tags remain,
-#       and each generation reuses its own rows)
-#   (i) differential vs python3 twitch-counts.py (isolated XDG_CACHE_HOME):
-#       cold->warm transitions and the header cache-row strings.  Each side
-#       runs on its OWN cache (the fingerprint VALUE differs by design).
+#   (h) generations: fingerprint-tagged rows coexist (the prebuilt
+#       tc-cache-bump-test driver, built by the Makefile from a copy of
+#       tc_cache.S with its fingerprint constant bumped: generation count
+#       grows, both tags remain, and each generation reuses its own rows)
+#   (i) differential vs python3 twitch-counts.py: cold->warm transitions and
+#       the header cache-row strings.  Each side runs on its OWN isolated
+#       HOME/cache (the fingerprint VALUE differs by design).
 #
-# The binary under test is tc-cache-test (check_tc_cache.o + tc_cache.o +
-# tc_core.o + tc_cli.o + tc_config.o + tc_util.o + toml.o + sqlite3.o), linked
-# with the exact commands the Phase-6 spec allows.
+# Drivers: the assembly side runs $BUILD/tc-cache-test and
+# $BUILD/tc-cache-bump-test, where BUILD defaults to build/<os> (os = 'uname
+# -s' lowercased) resolved relative to this script's own directory, or
+# TC_BUILD when set. Both are built by `make drivers` (which also builds
+# tc-cache-bump-test from a sed-modified copy of tc_cache.S — see the
+# Makefile); this script does no building of its own and fails fast with a
+# clear message if either driver is missing. The Python oracle is
+# 'python3 twitch-counts.py' from PATH/this directory; python3 must be
+# >= 3.11 (checked via `import tomllib`) or the script exits 2 immediately.
+#
+# Isolation: every invocation of either the assembly driver or the Python
+# oracle runs with HOME pointed at a per-run mktemp directory (a separate one
+# for each side, since the two must not share a cache) and with
+# XDG_CONFIG_HOME/XDG_CACHE_HOME cleared so both implementations fall back to
+# that isolated $HOME/.config and $HOME/.cache (the assembly and Python's
+# Linux class honour XDG_CACHE_HOME/XDG_CONFIG_HOME directly; Python's macOS
+# class ignores XDG entirely and always uses $HOME/.cache and $HOME/.config —
+# clearing XDG and setting HOME covers both). This keeps every run away from
+# the real ~/.cache/twitch-counts/rollup.db and ~/.config/twitch-counts.toml.
 set -u
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 2
+cd "$HERE" || exit 2
+
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+case $BUILD in
+    /*) : ;;
+    *) BUILD="$HERE/$BUILD" ;;
+esac
+
+BIN="$BUILD/tc-cache-test"
+BUMP_BIN="$BUILD/tc-cache-bump-test"
+for d in "$BIN" "$BUMP_BIN"; do
+    if [ ! -x "$d" ]; then
+        echo "FAIL: driver not found or not executable: $d"
+        echo "      run: make drivers"
+        exit 2
+    fi
+done
+
+TC_PY="$HERE/twitch-counts.py"
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+    echo "FAIL: python3 >= 3.11 with tomllib is required as the oracle (python3 -c 'import tomllib' failed)"
+    exit 2
+fi
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-cache-test.XXXXXX") || {
     echo "FAIL: cannot create temp directory"
@@ -34,8 +76,10 @@ trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
 channels="$tmpdir/Logs/Twitch/Channels"
 home="$tmpdir/home"
-pycache="$tmpdir/pycache"
-mkdir -p "$channels/chroniccmposer" "$home" "$pycache"
+pyhome="$tmpdir/pyhome"
+mkdir -p "$channels/chroniccmposer" "$home" "$pyhome"
+DB="$home/.cache/twitch-counts/rollup.db"
+PYDB="$pyhome/.cache/twitch-counts/rollup.db"
 
 pass=0
 fail=0
@@ -80,14 +124,17 @@ cat > chroniccmposer-2026-09-03.log << 'EOF'
 EOF
 
 cd "$tmpdir" || exit 2
-BIN=/var/lib/opencode/dev/shirley-asm/tc-cache-test
-PY=/var/lib/opencode/dev/shirley-asm/twitch-counts.py
-DB="$home/.cache/twitch-counts/rollup.db"
 
 run() { # run <outfile> [extra args...]
     out="$1"; shift
-    XDG_CACHE_HOME="" HOME="$home" "$BIN" -c chroniccmposer -d "$channels" \
+    XDG_CONFIG_HOME="" XDG_CACHE_HOME="" HOME="$home" "$BIN" -c chroniccmposer -d "$channels" \
         -e 2026-09-03 "$@" >"$out" 2>"$tmpdir/e"
+}
+
+run_py() { # run_py <outfile> [extra args...]
+    out="$1"; shift
+    XDG_CONFIG_HOME="" XDG_CACHE_HOME="" HOME="$pyhome" python3 "$TC_PY" -c chroniccmposer \
+        -d "$channels" -e 2026-09-03 "$@" >"$out" 2>"$tmpdir/py.e"
 }
 
 # ============================================================================
@@ -167,8 +214,9 @@ ok_or_fail "c1. append invalidates that day; only it reparses" "$ok"
 #     09-01's exit_state changes -> 09-02's enter_state no longer matches ->
 #     both reparse; 09-03's enter is unchanged (09-02 still ends offline).
 # ============================================================================
-sed -i 's/\[15:17:00\] ChronicCmposer is now offline./[15:17:00] ChronicCmposer is live!/' \
-    "$channels/chroniccmposer/chroniccmposer-2026-09-01.log"
+sed 's/\[15:17:00\] ChronicCmposer is now offline./[15:17:00] ChronicCmposer is live!/' \
+    "$channels/chroniccmposer/chroniccmposer-2026-09-01.log" > "$tmpdir/edit.tmp" && \
+    mv "$tmpdir/edit.tmp" "$channels/chroniccmposer/chroniccmposer-2026-09-01.log"
 run "$tmpdir/state.out"
 reused=$(sed -n 's/^cachestatus used=[0-9]* reused=\([0-9]*\).*/\1/p' "$tmpdir/state.out")
 parsed=$(sed -n 's/^cachestatus .*parsed=\([0-9]*\) .*/\1/p' "$tmpdir/state.out")
@@ -176,14 +224,15 @@ ok=0
 [ "$reused" = "1" ] && [ "$parsed" = "2" ] && ok=1
 [ "$ok" -eq 0 ] && echo "  detail: reused=$reused parsed=$parsed"
 ok_or_fail "d1. entering-state change reparses 09-01 + 09-02" "$ok"
-sed -i 's/\[15:17:00\] ChronicCmposer is live!/[15:17:00] ChronicCmposer is now offline./' \
-    "$channels/chroniccmposer/chroniccmposer-2026-09-01.log"
+sed 's/\[15:17:00\] ChronicCmposer is live!/[15:17:00] ChronicCmposer is now offline./' \
+    "$channels/chroniccmposer/chroniccmposer-2026-09-01.log" > "$tmpdir/edit.tmp" && \
+    mv "$tmpdir/edit.tmp" "$channels/chroniccmposer/chroniccmposer-2026-09-01.log"
 
 # ============================================================================
 # (e) --no-cache: no db touched
 # ============================================================================
 rm -rf "$home/.cache"
-XDG_CACHE_HOME="" HOME="$home" "$BIN" -c chroniccmposer -d "$channels" -e 2026-09-03 --no-cache \
+XDG_CONFIG_HOME="" XDG_CACHE_HOME="" HOME="$home" "$BIN" -c chroniccmposer -d "$channels" -e 2026-09-03 --no-cache \
     > "$tmpdir/nocache.out" 2>"$tmpdir/e"
 used=$(sed -n 's/^cachestatus used=\([0-9]*\).*/\1/p' "$tmpdir/nocache.out")
 path=$(sed -n 's/^cachestatus .*path=\([^ ]*\).*/\1/p' "$tmpdir/nocache.out")
@@ -227,32 +276,19 @@ ok_or_fail "g1. corrupt db -> cache unavailable, query succeeds, problem named" 
 # ============================================================================
 # h1: every file row carries a 16-hex fingerprint and it is uniform
 fps=$(sed -n 's/^cachefile \([0-9a-f]*\) .*/\1/p' "$tmpdir/warm.out" | sort -u)
+fps_n=$(printf '%s\n' "$fps" | wc -l | tr -d ' ')
 ok=0
-[ "$(printf '%s\n' "$fps" | wc -l)" = "1" ] && [ -n "$fps" ] && ok=1
-[ "$ok" -eq 0 ] && echo "  detail: fps='$fps'"
+[ "$fps_n" = "1" ] && [ -n "$fps" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: fps='$fps' fps_n=$fps_n"
 ok_or_fail "h1. file rows are tagged with one 16-hex fingerprint" "$ok"
 
-# h2: bumping the fingerprint constant creates a second generation; both tag
-#     values coexist in the db and the bumped binary reuses its own rows
+# h2: bumping the fingerprint constant (prebuilt tc-cache-bump-test) creates a
+#     second generation; both tag values coexist in the db and the bumped
+#     binary reuses its own rows
 rm -rf "$home/.cache"
 run "$tmpdir/gen1.out"
 fps1=$(sed -n 's/^cachefile \([0-9a-f]*\) .*/\1/p' "$tmpdir/gen1.out" | sort -u)
-cp /var/lib/opencode/dev/shirley-asm/tc_layout.inc "$tmpdir/tc_layout.inc"
-cp /var/lib/opencode/dev/shirley-asm/tc_cache.S "$tmpdir/tc_cache_bump.S"
-sed -i 's/tc-cache-fp-v1/tc-cache-fp-v2/' "$tmpdir/tc_cache_bump.S"
-as "$tmpdir/tc_cache_bump.S" -o "$tmpdir/tc_cache_bump.o"
-/var/lib/opencode/dev/shirley-asm/third_party/musl/bin/musl-gcc -static \
-    -o "$tmpdir/tc-cache-bump-test" \
-    /var/lib/opencode/dev/shirley-asm/check_tc_cache.o \
-    "$tmpdir/tc_cache_bump.o" \
-    /var/lib/opencode/dev/shirley-asm/tc_core.o \
-    /var/lib/opencode/dev/shirley-asm/tc_cli.o \
-    /var/lib/opencode/dev/shirley-asm/tc_config.o \
-    /var/lib/opencode/dev/shirley-asm/tc_util.o \
-    /var/lib/opencode/dev/shirley-asm/third_party/tomlc99/toml.o \
-    /var/lib/opencode/dev/shirley-asm/third_party/sqlite3/sqlite3.o \
-    || { echo "FAIL: bump link failed"; fail=$((fail+1)); }
-XDG_CACHE_HOME="" HOME="$home" "$tmpdir/tc-cache-bump-test" -c chroniccmposer \
+XDG_CONFIG_HOME="" XDG_CACHE_HOME="" HOME="$home" "$BUMP_BIN" -c chroniccmposer \
     -d "$channels" -e 2026-09-03 > "$tmpdir/gen2.out" 2>"$tmpdir/e"
 rebuilt=$(sed -n 's/^cachestatus .*rebuilt=\(.*\) path=.*/\1/p' "$tmpdir/gen2.out")
 reused=$(sed -n 's/^cachestatus used=[0-9]* reused=\([0-9]*\).*/\1/p' "$tmpdir/gen2.out")
@@ -264,11 +300,12 @@ ok=0
     [ "$parsed" = "3" ] && [ "$gen" = "2" ] && ok=1
 [ "$ok" -eq 0 ] && echo "  detail: rebuilt=$rebuilt reused=$reused parsed=$parsed gen=$gen fps1=$fps1 fps2=$fps2"
 ok_or_fail "h2. fingerprint bump registers a new generation ('new parser generation')" "$ok"
+fps_both_n=$(printf '%s\n' $fps1 $fps2 | sort -u | wc -l | tr -d ' ')
 ok=0
-[ "$(printf '%s\n' $fps1 $fps2 | sort -u | wc -l)" = "2" ] && ok=1
-[ "$ok" -eq 0 ] && echo "  detail: fps1='$fps1' fps2='$fps2'"
+[ "$fps_both_n" = "2" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: fps1='$fps1' fps2='$fps2' fps_both_n=$fps_both_n"
 ok_or_fail "h3. both generations' fingerprints coexist in the db" "$ok"
-XDG_CACHE_HOME="" HOME="$home" "$tmpdir/tc-cache-bump-test" -c chroniccmposer \
+XDG_CONFIG_HOME="" XDG_CACHE_HOME="" HOME="$home" "$BUMP_BIN" -c chroniccmposer \
     -d "$channels" -e 2026-09-03 > "$tmpdir/gen3.out" 2>"$tmpdir/e"
 reused=$(sed -n 's/^cachestatus used=[0-9]* reused=\([0-9]*\).*/\1/p' "$tmpdir/gen3.out")
 parsed=$(sed -n 's/^cachestatus .*parsed=\([0-9]*\) .*/\1/p' "$tmpdir/gen3.out")
@@ -278,50 +315,48 @@ ok=0
 ok_or_fail "h4. the bumped generation reuses its own rows on the next run" "$ok"
 
 # ============================================================================
-# (i) differential vs python3 (each side on its OWN cache)
+# (i) differential vs python3 (each side on its OWN isolated cache)
 # ============================================================================
-if command -v python3 >/dev/null 2>&1; then
-    # asm cold/warm numbers
-    am_cold=$(sed -n 's/^cachestatus .*reused=\([0-9]*\) parsed=\([0-9]*\).*/reused=\1 parsed=\2/p' "$tmpdir/cold.out")
-    am_warm=$(sed -n 's/^cachestatus .*reused=\([0-9]*\) parsed=\([0-9]*\).*/reused=\1 parsed=\2/p' "$tmpdir/warm.out")
-    # python cold/warm on an isolated cache
-    XDG_CACHE_HOME="$pycache" python3 "$PY" -c chroniccmposer -d "$channels" \
-        -e 2026-09-03 --no-config > "$tmpdir/py.cold" 2>"$tmpdir/py.cold.err"
-    py_cold=$(sed -n 's/.*cache: *\([0-9,]*\) day(s) reused, \([0-9,]*\) parsed.*/\1 \2/p' "$tmpdir/py.cold" | tr -d ',' | tail -1)
-    py_cold_rebuilt=$(grep -o "rebuilt: [a-z -]*" "$tmpdir/py.cold" | tail -1)
-    XDG_CACHE_HOME="$pycache" python3 "$PY" -c chroniccmposer -d "$channels" \
-        -e 2026-09-03 --no-config > "$tmpdir/py.warm" 2>"$tmpdir/py.warm.err"
-    py_warm=$(sed -n 's/.*cache: *\([0-9,]*\) day(s) reused, \([0-9,]*\) parsed.*/\1 \2/p' "$tmpdir/py.warm" | tr -d ',' | tail -1)
-    py_rebuilt_on_warm=$(grep -c "rebuilt:" "$tmpdir/py.warm")
-    ok=0
-    [ "$py_cold" = "0 3" ] && [ "$py_warm" = "3 0" ] && ok=1
-    [ "$ok" -eq 0 ] && echo "  detail: py_cold='$py_cold' py_warm='$py_warm'"
-    ok_or_fail "i1. python cold->warm on its own cache (0 parsed then 3 reused)" "$ok"
-    ok=0
-    case "$py_cold_rebuilt" in *"new cache"*) true ;; *) false ;; esac && ok=1
-    [ "$ok" -eq 0 ] && echo "  detail: py_cold_rebuilt='$py_cold_rebuilt'"
-    ok_or_fail "i2. python cold header says 'rebuilt: new cache'" "$ok"
-    ok=0
-    [ "$py_rebuilt_on_warm" = "0" ] && ok=1
-    ok_or_fail "i3. python warm header has no rebuilt reason (path shown)" "$ok"
-    # totals agree between implementations on a fresh parsed run over the
-    # SAME (current) logs: the python's cache is isolated, so both cold.
-    home2="$tmpdir/home2"; mkdir -p "$home2"
-    XDG_CACHE_HOME="" HOME="$home2" "$BIN" -c chroniccmposer -d "$channels" \
-        -e 2026-09-03 > "$tmpdir/asm.freshcold" 2>"$tmpdir/e"
-    py_m=$(sed -n 's/.*; \([0-9,]*\) of \([0-9,]*\) message(s) in range.*/\2/p' "$tmpdir/py.cold" | tr -d ',' | tail -1)
-    am_m=$(sed -n 's/^tally .*messages=\([0-9]*\).*/\1/p' "$tmpdir/asm.freshcold")
-    ok=0
-    [ "$py_m" = "$am_m" ] && ok=1
-    [ "$ok" -eq 0 ] && echo "  detail: py_m=$py_m am_m=$am_m"
-    ok_or_fail "i4. python and asm count the same messages" "$ok"
-    # asm rebuilt reasons match the python's vocabulary on each own cache
-    ok=0
-    [ "$(sed -n 's/^cachestatus .*rebuilt=\([^ ]*\).*/\1/p' "$tmpdir/cold.out")" = "new" ] && ok=1
-    ok_or_fail "i5. asm cold reason is 'new cache' (same vocabulary)" "$ok"
-else
-    echo "NOTE: python3 not found; differential checks skipped"
-fi
+# asm cold/warm numbers
+am_cold=$(sed -n 's/^cachestatus .*reused=\([0-9]*\) parsed=\([0-9]*\).*/reused=\1 parsed=\2/p' "$tmpdir/cold.out")
+am_warm=$(sed -n 's/^cachestatus .*reused=\([0-9]*\) parsed=\([0-9]*\).*/reused=\1 parsed=\2/p' "$tmpdir/warm.out")
+# python cold/warm on its own isolated HOME/cache
+run_py "$tmpdir/py.cold" --no-config
+py_cold=$(sed -n 's/.*cache: *\([0-9,]*\) day(s) reused, \([0-9,]*\) parsed.*/\1 \2/p' "$tmpdir/py.cold" | tr -d ',' | tail -1)
+py_cold_rebuilt=$(grep -o "rebuilt: [a-z -]*" "$tmpdir/py.cold" | tail -1)
+run_py "$tmpdir/py.warm" --no-config
+py_warm=$(sed -n 's/.*cache: *\([0-9,]*\) day(s) reused, \([0-9,]*\) parsed.*/\1 \2/p' "$tmpdir/py.warm" | tr -d ',' | tail -1)
+py_rebuilt_on_warm=$(grep -c "rebuilt:" "$tmpdir/py.warm")
+ok=0
+[ "$py_cold" = "0 3" ] && [ "$py_warm" = "3 0" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: py_cold='$py_cold' py_warm='$py_warm'"
+ok_or_fail "i1. python cold->warm on its own cache (0 parsed then 3 reused)" "$ok"
+ok=0
+case "$py_cold_rebuilt" in *"new cache"*) true ;; *) false ;; esac && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: py_cold_rebuilt='$py_cold_rebuilt'"
+ok_or_fail "i2. python cold header says 'rebuilt: new cache'" "$ok"
+ok=0
+[ "$py_rebuilt_on_warm" = "0" ] && ok=1
+ok_or_fail "i3. python warm header has no rebuilt reason (path shown)" "$ok"
+ok=0
+[ -f "$PYDB" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: expected python rollup.db at $PYDB"
+ok_or_fail "i3b. python's own rollup.db exists at \$HOME/.cache/twitch-counts/ (isolated HOME)" "$ok"
+# totals agree between implementations on a fresh parsed run over the
+# SAME (current) logs: the python's cache is isolated, so both cold.
+home2="$tmpdir/home2"; mkdir -p "$home2"
+XDG_CONFIG_HOME="" XDG_CACHE_HOME="" HOME="$home2" "$BIN" -c chroniccmposer -d "$channels" \
+    -e 2026-09-03 > "$tmpdir/asm.freshcold" 2>"$tmpdir/e"
+py_m=$(sed -n 's/.*; \([0-9,]*\) of \([0-9,]*\) message(s) in range.*/\2/p' "$tmpdir/py.cold" | tr -d ',' | tail -1)
+am_m=$(sed -n 's/^tally .*messages=\([0-9]*\).*/\1/p' "$tmpdir/asm.freshcold")
+ok=0
+[ "$py_m" = "$am_m" ] && ok=1
+[ "$ok" -eq 0 ] && echo "  detail: py_m=$py_m am_m=$am_m"
+ok_or_fail "i4. python and asm count the same messages" "$ok"
+# asm rebuilt reasons match the python's vocabulary on each own cache
+ok=0
+[ "$(sed -n 's/^cachestatus .*rebuilt=\([^ ]*\).*/\1/p' "$tmpdir/cold.out")" = "new" ] && ok=1
+ok_or_fail "i5. asm cold reason is 'new cache' (same vocabulary)" "$ok"
 
 # --- Summary ----------------------------------------------------------------
 echo

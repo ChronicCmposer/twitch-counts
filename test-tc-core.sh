@@ -11,19 +11,70 @@
 #       unknown state, state filter, exclusions (via the private stub),
 #       unreadable recording
 #   (e) --users sizing: width/found for each policy + the unreachable case
-#   (f) differential vs python3 twitch-counts.py (skipped when python3 is
-#       missing): per-user counts, tally totals, and sized (width, found).
+#   (f) differential vs python3 twitch-counts.py: per-user counts, tally
+#       totals, and sized (width, found).  python3 (>= 3.11, with tomllib)
+#       is a hard requirement of this harness, checked once at the top.
 #
-# The binary under test is tc-core-test (check_tc_core.o + tc_core.o +
+# The binary under test is $BUILD/tc-core-test (check_tc_core.o + tc_core.o +
 # tc_cli.o + tc_util.o + tc_config_stub.o + toml.o), linked with the exact
 # commands the Phase-4 spec allows.  tc_config.o (Phase 3) is NEVER linked.
+# It is built ahead of time by `make drivers` (this script never builds
+# anything itself); BUILD defaults to build/<os> under this script's own
+# directory, using the same `uname -s | tr A-Z a-z` rule as the Makefile,
+# and can be overridden with TC_BUILD (as `make test` does).  Run
+# `make drivers twitch-counts-full` first if $BUILD/tc-core-test is missing.
+#
+# Isolation: every invocation of the driver and of the python3 oracle below
+# runs with HOME/XDG_CONFIG_HOME/XDG_CACHE_HOME pointed at a directory under
+# this run's own mktemp sandbox (exported once, right after the sandbox is
+# created), so nothing here can ever touch the real user's
+# ~/.cache/twitch-counts/rollup.db or ~/.config/twitch-counts.toml — the
+# Python's macOS class ignores XDG and reads HOME directly, its Linux class
+# and the assembly honour XDG, so both are set to cover either platform.
 set -u
+
+cd "$(dirname "$0")" || exit 2
+SCRIPT_DIR=$(pwd)
+
+# --- python3 oracle: must be on PATH and >= 3.11 (tomllib), never a bare
+#     hard-coded interpreter path -------------------------------------------
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "FAIL: python3 not found on PATH (needed to run the oracle, twitch-counts.py)" >&2
+    exit 2
+fi
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+    echo "FAIL: python3 ($(command -v python3), $(python3 --version 2>&1)) lacks tomllib; need >= 3.11" >&2
+    exit 2
+fi
+PY="$SCRIPT_DIR/twitch-counts.py"
+[ -f "$PY" ] || { echo "FAIL: oracle not found: $PY" >&2; exit 2; }
+
+# --- driver: built ahead of time by `make drivers`, never here -------------
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+case $BUILD in
+    /*) : ;;
+    *) BUILD="$SCRIPT_DIR/$BUILD" ;;
+esac
+BIN="$BUILD/tc-core-test"
+[ -x "$BIN" ] || {
+    echo "FAIL: driver not found: $BIN (run: make drivers)" >&2
+    exit 2
+}
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-core-test.XXXXXX") || {
     echo "FAIL: cannot create temp directory"
     exit 2
 }
 trap 'rm -rf "$tmpdir"' EXIT INT TERM
+
+# Sandbox HOME/XDG so the driver and the python3 oracle can never reach the
+# real user's config/cache (see "Isolation" above).
+home_sandbox="$tmpdir/home"
+mkdir -p "$home_sandbox/.config" "$home_sandbox/.cache"
+HOME="$home_sandbox"
+XDG_CONFIG_HOME="$home_sandbox/.config"
+XDG_CACHE_HOME="$home_sandbox/.cache"
+export HOME XDG_CONFIG_HOME XDG_CACHE_HOME
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer" "$channels/sizer" "$channels/unkchan" \
@@ -126,8 +177,6 @@ cat > unrchan/unrchan-2026-09-01.log << 'EOF'
 EOF
 
 cd "$tmpdir" || exit 2
-BIN=/var/lib/opencode/dev/shirley-asm/tc-core-test
-PY=/var/lib/opencode/dev/shirley-asm/twitch-counts.py
 
 # ============================================================================
 # (a) channel resolution
@@ -320,9 +369,10 @@ ok=0
 ok_or_fail "e4. --users unreachable count" "$ok"
 
 # ============================================================================
-# (f) differential vs python3
+# (f) differential vs python3 (python3 >= 3.11 with tomllib is a hard
+# requirement of this harness, verified at the top; the body below keeps its
+# original indentation from when it was wrapped in a "python3 found?" check)
 # ============================================================================
-if command -v python3 >/dev/null 2>&1; then
     # f1. basic
     "$BIN" -c chroniccmposer -d "$channels" -e 2026-09-03 >"$tmpdir/my"
     python3 "$PY" -c chroniccmposer -d "$channels" -e 2026-09-03 --no-config --no-cache >"$tmpdir/py"
@@ -486,9 +536,6 @@ PYEOF
         [ "$ok" -eq 0 ] && echo "  detail: py='$py_u'($py_width) my='$my_u'"
         ok_or_fail "diff: --users $pol sizing" "$ok"
     done
-else
-    echo "NOTE: python3 not found; differential checks skipped"
-fi
 
 # --- Summary ----------------------------------------------------------------
 echo

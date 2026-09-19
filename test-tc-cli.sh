@@ -2,10 +2,25 @@
 # ============================================================================
 # test-tc-cli.sh — Wave-A CLI harness for the twitch-counts AArch64 port.
 #
-# Builds the parse-only driver (check_tc_cli.o + tc_cli.o + tc_config_stub.o +
-# tc_util.o) and checks the argparse-equivalent layer: exit codes, exact
-# error text (normalized against python3 twitch-counts.py), window/datetime
-# arithmetic, conflicts, --help, and getopt forms.
+# Runs the already-built parse-only driver ($BUILD/tc-cli-test —
+# check_tc_cli.o + tc_cli.o + tc_config_stub.o + tc_util.o, linked by the
+# Makefile's `make drivers`) and checks the argparse-equivalent layer: exit
+# codes, exact error text (normalized against python3 twitch-counts.py),
+# window/datetime arithmetic, conflicts, --help, and getopt forms.
+#
+# $BUILD is $TC_BUILD if set (the Makefile exports it when it runs this via
+# `make test`), else build/<os> under this script's own directory, where
+# <os> is `uname -s` lowercased (build/darwin, build/linux). This script
+# does not build anything itself: if the driver is missing, run
+# `make drivers` first.
+#
+# Isolation: every invocation of python3 twitch-counts.py AND of the driver
+# runs with HOME, XDG_CONFIG_HOME and XDG_CACHE_HOME pointed at a per-run
+# mktemp directory (exported once, below, so every subsequent call in this
+# script inherits it) — this keeps the test from ever touching the real
+# ~/.config/twitch-counts.toml or ~/.cache/twitch-counts/rollup.db (macOS's
+# Python Platform class honours only HOME; Linux's Python class and the
+# assembly honour XDG_*, so both are set to cover either).
 #
 # Usage: ./test-tc-cli.sh
 # ============================================================================
@@ -14,10 +29,33 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$HERE"
 
-MUSL_GCC=./third_party/musl/bin/musl-gcc
-AS=as
-BIN=tc-cli-test
-PY=python3
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+BIN="$BUILD/tc-cli-test"
+
+if [ ! -x "$BIN" ]; then
+    echo "FAIL: driver not found or not executable: $BIN (run: make drivers)" >&2
+    exit 1
+fi
+
+# Isolated HOME/XDG so no oracle or driver call can ever reach the user's
+# real config or 355 MB rollup cache. Exported once, before any python3 or
+# $BIN invocation in this script (including the version check right below),
+# so every one of them inherits it.
+ISO_HOME=$(mktemp -d "${TMPDIR:-/tmp}/tc-cli-test-home.XXXXXX") || {
+    echo "FAIL: cannot create isolated HOME" >&2
+    exit 2
+}
+trap 'rm -rf "$ISO_HOME"' EXIT INT TERM
+export HOME="$ISO_HOME"
+export XDG_CONFIG_HOME="$ISO_HOME/.config"
+export XDG_CACHE_HOME="$ISO_HOME/.cache"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+    echo "FAIL: python3 on PATH must be >= 3.11 (import tomllib failed);" \
+         "twitch-counts.py requires it" >&2
+    exit 2
+fi
 
 PASS=0
 FAIL=0
@@ -25,25 +63,14 @@ FAIL=0
 ok()   { PASS=$((PASS+1)); }
 bad()  { FAIL=$((FAIL+1)); echo "FAIL: $1"; }
 
-# ---------------------------------------------------------------------------
-# Build the driver
-# ---------------------------------------------------------------------------
-build() {
-    $AS tc_util.S -o tc_util.o &&
-    $AS tc_main.S -o tc_main.o &&
-    $AS tc_cli.S -o tc_cli.o &&
-    $AS tc_config_stub.S -o tc_config_stub.o &&
-    $AS check_tc_cli.S -o check_tc_cli.o &&
-    $MUSL_GCC -static -o "$BIN" \
-        check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o
-}
-
 # run_case NAME ARG...  -> exit code in $RC, stdout in $OUT, stderr in $ERR
 run_case() {
     local name=$1; shift
-    OUT=$("$HERE/$BIN" "$@" 2>/tmp/tc_cli_err.$$); RC=$?
-    ERR=$(cat /tmp/tc_cli_err.$$)
-    rm -f /tmp/tc_cli_err.$$
+    local errfile
+    errfile=$(mktemp "${TMPDIR:-/tmp}/tc_cli_err.XXXXXX")
+    OUT=$("$BIN" "$@" 2>"$errfile"); RC=$?
+    ERR=$(cat "$errfile")
+    rm -f "$errfile"
 }
 
 # expect_exit NAME EXPECTED ARG...
@@ -93,12 +120,7 @@ expect_no_crash() {
     fi
 }
 
-echo "building tc-cli-test ..."
-if ! build; then
-    echo "BUILD FAILED"
-    exit 1
-fi
-echo "build ok"
+echo "driver: $BIN"
 
 # ---------------------------------------------------------------------------
 # 1. Exit-code parity with the Python reference on error cases
@@ -151,14 +173,23 @@ expect_exit "week-53-after"   1 -b 2026-W53
 # 2. Window arithmetic values
 # ---------------------------------------------------------------------------
 echo "-- window values --"
-# -S 30d from 2026-09-18 should land on 2026-08-19 (sod matches the day)
-expect_begin "since-30d" 20260819 -S 30d
-expect_begin "since-1w3d" 20260908 -S 1w3d
+# -S Nd is whole-day arithmetic (sod matches the day): begin = today - N
+# days. Computed at run time (via python3, not the driver or oracle, so no
+# isolation is needed for this plain date arithmetic) so the test is not
+# pinned to any particular calendar date.
+SINCE_30D=$(python3 -c "import datetime; print((datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d'))")
+SINCE_10D=$(python3 -c "import datetime; print((datetime.date.today() - datetime.timedelta(days=10)).strftime('%Y%m%d'))")
+expect_begin "since-30d" "$SINCE_30D" -S 30d
+expect_begin "since-1w3d" "$SINCE_10D" -S 1w3d
 # -S 12h is sub-24h, so the expected begin day depends on the wall clock
 # (begin = local now - 12h; the driver's end defaults to localtime now).
 # Compute it at run time so the test is not time-of-day dependent.
 SINCE_12H=$(python3 -c "import datetime; print((datetime.datetime.now() - datetime.timedelta(hours=12)).strftime('%Y%m%d'))")
 expect_begin "since-12h" "$SINCE_12H" -S 12h
+# begin-w3x/-w01 resolve an explicit ISO year+week to a calendar date; that
+# mapping is fixed by the ISO 8601 calendar and does not depend on "today",
+# so these are not date-pinned and need no run-time computation (verified
+# against datetime.date.fromisocalendar(2026, 31, 1/3) and (2026, 1, 1)).
 expect_begin "begin-w31"  20260727 -b 2026-W31
 expect_begin "begin-w31-wed" 20260729 -b 2026-W31-3
 expect_begin "begin-w01"  20251229 -b 2026-W01
@@ -198,8 +229,8 @@ while IFS= read -r line; do
     [ -z "$line" ] && continue
     # shellcheck disable=SC2086
     set -- $line
-    py_out=$($PY twitch-counts.py "$@" 2>&1); py_rc=$?
-    asm_out=$("$HERE/$BIN" "$@" 2>&1); asm_rc=$?
+    py_out=$(python3 twitch-counts.py "$@" 2>&1); py_rc=$?
+    asm_out=$("$BIN" "$@" 2>&1); asm_rc=$?
     if [ "$py_rc" != "$asm_rc" ]; then
         # A run that succeeds in the driver but reaches a later-stage failure
         # in the reference (missing channel/logs) is expected; skip it.

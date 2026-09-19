@@ -12,11 +12,13 @@
 #       -> empty stdout, exit 0; a missing channel dir -> the Python's
 #       "completion failed: ConfigError(...)" on stderr, exit 0
 #
-# The binary under test is tc-misc-test (check_tc_misc.o + tc_misc.o +
+# The binary under test is $BUILD/tc-misc-test (check_tc_misc.o + tc_misc.o +
 # tc_core.o + tc_cli.o + tc_config.o + tc_util.o + tc_cache.o + toml.o +
-# sqlite3.o), linked with the Phase-8 commands.  tc_cache.o + sqlite3.o are
-# required because the Phase-4 tc_core.o calls the Phase-6 rollup-cache hooks
-# (tc_cache_day/tc_cache_put_day/tc_cache_discard_day).
+# sqlite3.o + libpcre2-8), linked with the Phase-8 commands.  The Makefile
+# owns the link (`make drivers`, or `make drivers twitch-counts-full` for
+# the full product); this script only runs the result.  BUILD defaults to
+# build/<os> (build/darwin on macOS, build/linux on Linux) unless TC_BUILD
+# is set in the environment, matching how `make test` invokes harnesses.
 #
 # Documented divergences (the Python wins; the C port differs by design):
 #   * --manual/--emit-fish/--complete without any channel anywhere: the C
@@ -31,16 +33,52 @@
 #   * complete_users uses UTC "now" (begin = end - 7d); the Python uses local
 #     time.  The synthetic logs cover [now-6d, now-1d], safely inside either
 #     window, so the candidates match.
+#
+# Isolation: the Python oracle's macOS Platform class calls
+# os.path.expanduser("~/.cache/...") / ("~/.config/...") directly and
+# ignores XDG_*; its Linux class and the assembly driver honour
+# XDG_CONFIG_HOME/XDG_CACHE_HOME instead.  So every invocation of the
+# oracle and the driver below runs with HOME *and* XDG_CONFIG_HOME *and*
+# XDG_CACHE_HOME pointed at a per-run temp directory (exported once, right
+# after mktemp) -- covering both flavours and never touching the real
+# ~/.cache/twitch-counts/rollup.db or ~/.config/twitch-counts.toml.
 set -u
 
 # absolute directory of this script (captured before any cd)
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 2
+cd "$script_dir" || exit 2
+
+# --- oracle sanity check ------------------------------------------------------
+command -v python3 >/dev/null 2>&1 || {
+    echo "FAIL: python3 not found on PATH"
+    exit 2
+}
+python3 -c 'import tomllib' >/dev/null 2>&1 || {
+    echo "FAIL: python3 >= 3.11 required (tomllib module not found); got: $(python3 --version 2>&1)"
+    exit 2
+}
+PY="python3 $script_dir/twitch-counts.py"
+
+# --- driver under test --------------------------------------------------------
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+BIN="$script_dir/$BUILD/tc-misc-test"
+[ -x "$BIN" ] || {
+    echo "FAIL: driver not found: $BIN (run: make drivers)"
+    exit 2
+}
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/tc-misc-test.XXXXXX") || {
     echo "FAIL: cannot create temp directory"
     exit 2
 }
 trap 'rm -rf "$tmpdir"' EXIT INT TERM
+
+# --- isolation: never touch the real HOME's config/cache ---------------------
+HOME="$tmpdir/home"
+XDG_CONFIG_HOME="$HOME/.config"
+XDG_CACHE_HOME="$tmpdir/cache"
+export HOME XDG_CONFIG_HOME XDG_CACHE_HOME
+mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
 
 channels="$tmpdir/Logs/Twitch/Channels"
 mkdir -p "$channels/chroniccmposer" "$channels/OtherChan" "$channels/EMPTYDIR"
@@ -60,7 +98,12 @@ ok_or_fail() { # ok_or_fail <name> <ok: 1=pass, 0=fail>
 # --- synthetic channel logs (inside any 7-day window ending "now") ----------
 cd "$channels/chroniccmposer" || exit 2
 for days_ago in 6 5 4 3 2; do
-    d=$(date -u -d "$days_ago days ago" +%Y-%m-%d)
+    d=$(python3 -c '
+import datetime, sys
+days = int(sys.argv[1])
+now = datetime.datetime.now(datetime.timezone.utc)
+print((now - datetime.timedelta(days=days)).strftime("%Y-%m-%d"))
+' "$days_ago") || exit 2
     cat > "chroniccmposer-$d.log" << 'EOF'
 [10:00:00] ChronicCmposer is live!
 [10:00:01] alice: msg
@@ -70,7 +113,11 @@ for days_ago in 6 5 4 3 2; do
 [10:01:01] ChronicCmposer is now offline.
 EOF
 done
-d=$(date -u -d "1 day ago" +%Y-%m-%d)
+d=$(python3 -c '
+import datetime
+now = datetime.datetime.now(datetime.timezone.utc)
+print((now - datetime.timedelta(days=1)).strftime("%Y-%m-%d"))
+') || exit 2
 cat > "chroniccmposer-$d.log" << 'EOF'
 [10:00:00] ChronicCmposer is live!
 [10:00:01] alice: msg
@@ -97,17 +144,6 @@ regulars = ["alice", "bob"]
 always = ["bots"]
 EOF
 
-# --- build ----------------------------------------------------------------
-cd "$script_dir" || exit 2
-as tc_misc.S -o tc_misc.o || exit 2
-as check_tc_misc.S -o check_tc_misc.o || exit 2
-/var/lib/opencode/dev/shirley-asm/third_party/musl/bin/musl-gcc \
-    -static -o tc-misc-test \
-    check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o \
-    tc_cache.o third_party/tomlc99/toml.o third_party/sqlite3/sqlite3.o \
-    || exit 2
-BIN=./tc-misc-test
-PY="python3 twitch-counts.py"
 CFG="$tmpdir/config.toml"
 LOGS="$tmpdir/Logs/Twitch/Channels"
 
@@ -115,11 +151,9 @@ LOGS="$tmpdir/Logs/Twitch/Channels"
 run_diff() { # run_diff <name> [args...]
     name=$1
     shift
-    # fresh cache dir so the Python never reuses stale rollup days
-    mkdir -p "$tmpdir/cache"
-    XDG_CACHE_HOME="$tmpdir/cache" $PY "$@" > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+    $PY "$@" > "$tmpdir/py.out" 2> "$tmpdir/py.err"
     py_rc=$?
-    XDG_CACHE_HOME="$tmpdir/cache" $BIN "$@" > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+    "$BIN" "$@" > "$tmpdir/c.out" 2> "$tmpdir/c.err"
     c_rc=$?
     ok=1
     cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
@@ -149,13 +183,11 @@ done
 # env TWITCH_EXCLUDE, --exclude-broadcaster
 run_diff "complete includes layers" --config "$CFG" --logs-dir "$LOGS" \
     --complete includes -x "Foo,Bar Baz" -g regulars --include alice
-TWITCH_EXCLUDE="envuser1 envuser2" XDG_CACHE_HOME="$tmpdir/cache" \
-    $PY --config "$CFG" --logs-dir "$LOGS" --complete includes \
-    > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+TWITCH_EXCLUDE="envuser1 envuser2" $PY --config "$CFG" --logs-dir "$LOGS" \
+    --complete includes > "$tmpdir/py.out" 2> "$tmpdir/py.err"
 py_rc=$?
-TWITCH_EXCLUDE="envuser1 envuser2" XDG_CACHE_HOME="$tmpdir/cache" \
-    $BIN --config "$CFG" --logs-dir "$LOGS" --complete includes \
-    > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+TWITCH_EXCLUDE="envuser1 envuser2" "$BIN" --config "$CFG" --logs-dir "$LOGS" \
+    --complete includes > "$tmpdir/c.out" 2> "$tmpdir/c.err"
 c_rc=$?
 ok=1
 cmp -s "$tmpdir/py.out" "$tmpdir/c.out" || ok=0
@@ -183,11 +215,11 @@ run_diff "empty state: unknown group" --config "$CFG" --logs-dir "$LOGS" \
 # --- documented divergences (assert the current C contract) ------------------
 # explicit missing config: Python prints "completion failed:" + exit 0;
 # the C tc_cli_parse exits 1 first (eager config load).  Both are asserted.
-XDG_CACHE_HOME="$tmpdir/cache" $PY --config "$tmpdir/NO_SUCH.toml" \
-    --logs-dir "$LOGS" --complete groups > "$tmpdir/py.out" 2> "$tmpdir/py.err"
+$PY --config "$tmpdir/NO_SUCH.toml" --logs-dir "$LOGS" --complete groups \
+    > "$tmpdir/py.out" 2> "$tmpdir/py.err"
 py_rc=$?
-XDG_CACHE_HOME="$tmpdir/cache" $BIN --config "$tmpdir/NO_SUCH.toml" \
-    --logs-dir "$LOGS" --complete groups > "$tmpdir/c.out" 2> "$tmpdir/c.err"
+"$BIN" --config "$tmpdir/NO_SUCH.toml" --logs-dir "$LOGS" --complete groups \
+    > "$tmpdir/c.out" 2> "$tmpdir/c.err"
 c_rc=$?
 ok=1
 [ "$py_rc" -eq 0 ] && [ "$c_rc" -eq 1 ] || ok=0

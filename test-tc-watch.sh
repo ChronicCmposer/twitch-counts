@@ -11,17 +11,73 @@
 #     * appends:  a line written to the log shows up on the next frame
 #     * --json:   mutually exclusive with --watch (argparse error)
 #
-#   Usage:  ./test-tc-watch.sh            (builds tc-watch-test itself)
+#   Driver: the Makefile owns the build.  This script only runs
+#   $BUILD/tc-watch-test, where BUILD defaults to build/<os> (uname -s,
+#   lowercased) or comes from $TC_BUILD if set.  Run `make drivers` first;
+#   this script fails fast with a clear message if the driver is missing.
+#
+#   Isolation: a fresh tmp root is made with mktemp, and HOME,
+#   XDG_CONFIG_HOME and XDG_CACHE_HOME are exported to point inside it
+#   before the very first python3 invocation of the file (the tomllib
+#   probe below included — there is no exception). Every driver and
+#   oracle invocation after that point — direct or through the pty
+#   helper — inherits that environment (a pty child's os.execv() keeps
+#   the parent's environment), so nothing here can ever touch the real
+#   ~/.cache/twitch-counts/rollup.db or ~/.config/twitch-counts.toml.
+#   Per-test isolation additionally comes from --config pointing at a
+#   scratch toml and --no-cache where used.
+#
+#   Oracle: `python3` from PATH, resolved to an absolute path up front (a
+#   pty child execs it directly, which does not search PATH) and checked
+#   for tomllib (Python >= 3.11).
+#
+#   Usage:  ./test-tc-watch.sh
 #
 #   Exit:   0 = all tests passed; nonzero = at least one failure.
 # ============================================================================
 set -u
 cd "$(dirname "$0")"
 
-BIN=/var/lib/opencode/dev/shirley-asm/tc-watch-test
-PY="/usr/local/bin/python3"
-PYSCRIPT="/var/lib/opencode/dev/shirley-asm/twitch-counts.py"
-DATA=/tmp/tcwatchtest
+BUILD=${TC_BUILD:-build/$(uname -s | tr A-Z a-z)}
+BIN="$BUILD/tc-watch-test"
+
+if [ ! -x "$BIN" ]; then
+    echo "FAIL: $BIN not found or not executable -- run: make drivers" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# isolation: a per-run tmp root, with HOME/XDG pointed inside it so nothing
+# below -- including the tomllib probe just after this block -- can reach
+# the real ~/.cache/twitch-counts or ~/.config.  This runs before the very
+# first python3 invocation in the file, with no exceptions.
+# ---------------------------------------------------------------------------
+TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/tc-watch-test.XXXXXX") || {
+    echo "FAIL: cannot create temp directory" >&2
+    exit 1
+}
+trap 'rm -rf "$TMPROOT"' EXIT
+
+export HOME="$TMPROOT/home"
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_CACHE_HOME="$HOME/.cache"
+mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+
+PY=$(command -v python3) || {
+    echo "FAIL: python3 not found on PATH" >&2
+    exit 2
+}
+if ! "$PY" -c 'import tomllib' >/dev/null 2>&1; then
+    echo "FAIL: python3 (from PATH: $PY) must be >= 3.11 with tomllib available" >&2
+    exit 2
+fi
+PYSCRIPT="$(pwd)/twitch-counts.py"
+if [ ! -f "$PYSCRIPT" ]; then
+    echo "FAIL: $PYSCRIPT not found" >&2
+    exit 2
+fi
+
+DATA="$TMPROOT/data"
 LOGS="$DATA/Logs/Twitch/Channels"
 CH=chron
 PASS=0
@@ -41,17 +97,28 @@ check() { # check <name> <expected> <actual>
 # run_pty <outfile> <timeout> <sigint_after> <append_after> <append_line> -- args...
 # Launches the command in a pty; optionally sends SIGINT and/or appends a
 # line to the log mid-run.  Writes the pty transcript to <outfile> and the
-# exit code to <outfile>.rc.
+# exit code to <outfile>.rc.  argv[0] must be an absolute (or cwd-relative)
+# path: the child execs it directly with os.execv, which does not search
+# PATH.  The child inherits this process's environment (including the
+# isolated HOME/XDG_* set above), so it is isolated the same way a direct
+# invocation is.
 run_pty() {
     local out=$1 tmo=$2 sig=$3 app=$4 line=$5; shift 5
     python3 - "$out" "$tmo" "$sig" "$app" "$line" "$@" <<'PYEOF'
-import pty, os, time, select, signal, sys
+import pty, os, time, select, signal, sys, fcntl, termios, struct
 out, tmo, sig_after, app_after, line = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), sys.argv[5]
 argv = sys.argv[6:]
 pid, fd = pty.fork()
 if pid == 0:
     os.execv(argv[0], argv)
     os._exit(127)
+# Parent: give the pty a real, fixed size (30 rows x 100 cols) right away
+# so both this driver and the Python oracle see the same TIOCGWINSZ
+# result instead of both falling back to the 80x24 default.
+try:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 100, 0, 0))
+except OSError:
+    pass
 buf = b""
 start = time.time()
 sent = False
@@ -68,9 +135,27 @@ while time.time() - start < tmo:
         wpid, status = os.waitpid(pid, os.WNOHANG)
         if wpid == pid:
             rc = os.waitstatus_to_exitcode(status)
+            # macOS can discard a child's still-buffered pty output once
+            # the child has exited and the slave side closed, unless the
+            # master has already read it.  Drain whatever is left right
+            # now, before doing anything else.
+            while True:
+                r, _, _ = select.select([fd], [], [], 0)
+                if not r:
+                    break
+                try:
+                    chunk = os.read(fd, 65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
             break
     except ChildProcessError:
         rc = "gone"; break
+    # Poll at least once a second (in practice every 50ms) so a burst of
+    # output right before the child exits is never left unread for long
+    # enough for macOS to drop it.
     r, _, _ = select.select([fd], [], [], 0.05)
     if r:
         try:
@@ -110,19 +195,6 @@ for l in lines:
 print("\n".join(out))
 PYEOF
 }
-
-# ---------------------------------------------------------------------------
-# build
-# ---------------------------------------------------------------------------
-echo "== building =="
-as tc_watch.S -o tc_watch.o && \
-as check_tc_watch.S -o check_tc_watch.o && \
-/var/lib/opencode/dev/shirley-asm/third_party/musl/bin/musl-gcc -static -o tc-watch-test \
-    check_tc_watch.o tc_watch.o tc_render.o tc_json.o tc_core.o tc_cli.o \
-    tc_config.o tc_util.o tc_cache.o tc_misc.o \
-    third_party/tomlc99/toml.o third_party/sqlite3/sqlite3.o \
-    third_party/pcre2/install/lib/libpcre2-8.a
-if [ $? -ne 0 ]; then echo "BUILD FAILED"; exit 1; fi
 
 # ---------------------------------------------------------------------------
 # fixtures
