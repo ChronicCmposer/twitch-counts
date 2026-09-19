@@ -19,8 +19,9 @@
 //  here, matching Python's split_names()).
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
     .text
 
     .globl tc_env_get
@@ -66,8 +67,8 @@ tc_excl_contains:
     stp x23, x24, [sp, #-16]!
     mov x19, x0                         // login ptr
     mov x20, x1                         // login len
-    adrp x21, tc_opts
-    add x21, x21, :lo12:tc_opts
+    adrp x21, PAGE(tc_opts)
+    add x21, x21, LO12(tc_opts)
     // --exclude-broadcaster: exclude the lowercased resolved channel
     ldr x0, [x21, #TC_O_EXCL_BCAST_VAL]
     cbz x0, .Lstc_list

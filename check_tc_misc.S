@@ -21,8 +21,9 @@
 //  This is the shape Wave E's main() must take in tc_main.S.
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
 
     .globl tc_cli_parse
     .globl tc_misc_manual
@@ -39,7 +40,7 @@
 // ----------------------------------------------------------------------------
     .p2align 2
     .global main
-    .type main, %function
+    FUNC_TYPE(main)
 main:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -48,8 +49,8 @@ main:
     mov x20, x1                         // argv
     bl tc_cli_parse
     // flags -> dispatch
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_MANUAL
     b.ne .Lmain_manual
@@ -67,8 +68,8 @@ main:
     bl tc_misc_fish
     b .Lmain_out
 .Lmain_complete:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x0, [x0, #TC_O_COMPLETE_KIND]
     bl tc_misc_complete
     b .Lmain_out

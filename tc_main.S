@@ -230,8 +230,9 @@
 //        differs for booleans: raw "true" vs str(True)="True").
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
     .text
 
 // ----------------------------------------------------------------------------
@@ -246,7 +247,7 @@
 // ----------------------------------------------------------------------------
     .p2align 2
     .global main
-    .type main, %function
+    FUNC_TYPE(main)
 main:
     stp x29, x30, [sp, #-16]!        // frame record (sp stays 16-aligned)
     stp x19, x20, [sp, #-16]!
@@ -259,8 +260,8 @@ main:
     mov x1, x20
     bl tc_cli_parse                  // exits 2/1/0 on its own
 
-    adrp x21, tc_opts
-    add x21, x21, :lo12:tc_opts
+    adrp x21, PAGE(tc_opts)
+    add x21, x21, LO12(tc_opts)
     ldr x1, [x21, #TC_O_FLAGS]
 
     // ---- Python main() dispatch order: manual -> fish -> complete ----
@@ -280,8 +281,8 @@ main:
     tst x1, #TC_F_JSON
     b.eq .Lmain_report_go
     mov x0, #SIGINT
-    adrp x1, tc_main_sigint_handler
-    add x1, x1, :lo12:tc_main_sigint_handler
+    adrp x1, PAGE(tc_main_sigint_handler)
+    add x1, x1, LO12(tc_main_sigint_handler)
     bl signal
     mov x23, x0                      // previous disposition (callee-saved)
 .Lmain_report_go:
@@ -336,10 +337,10 @@ main:
     mov x0, #0
     bl fflush                        // order this write after any stdio
     mov x0, #STDERR
-    adrp x1, s_interrupted
-    add x1, x1, :lo12:s_interrupted
-    adrp x2, s_interrupted_end
-    add x2, x2, :lo12:s_interrupted_end
+    adrp x1, PAGE(s_interrupted)
+    add x1, x1, LO12(s_interrupted)
+    adrp x2, PAGE(s_interrupted_end)
+    add x2, x2, LO12(s_interrupted_end)
     sub x2, x2, x1
     bl write
 .Lmain_watch_done:
@@ -364,24 +365,28 @@ main:
 //   them across the handler anyway).
 // ----------------------------------------------------------------------------
     .p2align 2
-    .type tc_main_sigint_handler, %function
+    FUNC_TYPE(tc_main_sigint_handler)
 tc_main_sigint_handler:
     stp x29, x30, [sp, #-16]!
     mov x0, #STDERR
-    adrp x1, s_interrupted
-    add x1, x1, :lo12:s_interrupted
-    adrp x2, s_interrupted_end
-    add x2, x2, :lo12:s_interrupted_end
+    adrp x1, PAGE(s_interrupted)
+    add x1, x1, LO12(s_interrupted)
+    adrp x2, PAGE(s_interrupted_end)
+    add x2, x2, LO12(s_interrupted_end)
     sub x2, x2, x1
     bl write
     mov w0, #130
+#ifdef __APPLE__
+    bl __exit                        // noreturn (C _exit is __exit on Darwin)
+#else
     bl _exit                         // noreturn
+#endif
 
 // ----------------------------------------------------------------------------
 // Read-only message data.  Lengths are label differences so the writer and
 // the string can never drift apart.
 // ----------------------------------------------------------------------------
-    .section .rodata
+    RODATA
 s_interrupted:
     .ascii "{\"error\": \"interrupted\"}\n"
 s_interrupted_end:

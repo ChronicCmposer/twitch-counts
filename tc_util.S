@@ -27,6 +27,7 @@
 //    * sp must stay 16-byte aligned at every call site.
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
     .text
 
@@ -44,7 +45,7 @@
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_strlen
-    .type tc_strlen, %function
+    FUNC_TYPE(tc_strlen)
 tc_strlen:
     mov x1, x0                      // x1 = scan pointer
 .Lstrlen_loop:
@@ -64,7 +65,7 @@ tc_strlen:
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_puts
-    .type tc_puts, %function
+    FUNC_TYPE(tc_puts)
 tc_puts:
     stp x19, x30, [sp, #-16]!       // save x19 (held string) + return address
     mov x19, x0                     // x19 = string (safe across calls)
@@ -86,7 +87,7 @@ tc_puts:
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_eputs
-    .type tc_eputs, %function
+    FUNC_TYPE(tc_eputs)
 tc_eputs:
     stp x19, x30, [sp, #-16]!
     mov x19, x0
@@ -107,7 +108,7 @@ tc_eputs:
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_putu64
-    .type tc_putu64, %function
+    FUNC_TYPE(tc_putu64)
 tc_putu64:
     stp x19, x30, [sp, #-16]!       // save x19 (running value) + return address
     sub sp, sp, #32                 // 21-byte digit buffer (32 keeps 16-aligned)
@@ -145,22 +146,22 @@ tc_putu64:
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_fail
-    .type tc_fail, %function
+    FUNC_TYPE(tc_fail)
 tc_fail:
     stp x19, x30, [sp, #-16]!
     mov x19, x0                     // x19 = message
     mov x0, #0                      // fflush(NULL)
     bl fflush
     mov x0, #STDERR                 // write(2, "error: ", err_prefix_len)
-    adrp x1, err_prefix
-    add x1, x1, :lo12:err_prefix
+    adrp x1, PAGE(err_prefix)
+    add x1, x1, LO12(err_prefix)
     mov x2, #err_prefix_len
     bl write
     mov x0, x19                     // tc_eputs(message)
     bl tc_eputs
     mov x0, #STDERR                 // write(2, "\n", err_newline_len)
-    adrp x1, err_newline
-    add x1, x1, :lo12:err_newline
+    adrp x1, PAGE(err_newline)
+    add x1, x1, LO12(err_newline)
     mov x2, #err_newline_len
     bl write
     mov w0, #1                      // exit(1)
@@ -170,7 +171,7 @@ tc_fail:
 // Read-only message data.  Lengths are label differences so the writer and
 // the .equ can never drift apart.
 // ----------------------------------------------------------------------------
-    .section .rodata
+    RODATA
 err_prefix:
     .ascii "error: "
 err_prefix_end:

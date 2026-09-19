@@ -20,8 +20,9 @@
 //  Linking:    musl-gcc -static
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
 
     .text
 
@@ -30,12 +31,12 @@
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_cache_status
-    .type tc_cache_status, %function
+    FUNC_TYPE(tc_cache_status)
 tc_cache_status:
     mov x0, #1                      // used = 1 (cache served this pass)
     mov x1, #0                      // reused = 0 days
-    adrp x2, tc_tally
-    add x2, x2, :lo12:tc_tally
+    adrp x2, PAGE(tc_tally)
+    add x2, x2, LO12(tc_tally)
     ldr x2, [x2, #TC_T_PARSED]      // parsed = lines parsed this pass
     mov x3, #0                      // problem = none
     mov x4, #0                      // rebuilt_reason = none
@@ -50,7 +51,7 @@ tc_cache_status:
 // tc_cache_day(fpath, lo, hi, enter_state, ymd) -> x0 = 0 (parse normally)
     .p2align 2
     .global tc_cache_day
-    .type tc_cache_day, %function
+    FUNC_TYPE(tc_cache_day)
 tc_cache_day:
     mov x0, #0
     ret
@@ -58,7 +59,7 @@ tc_cache_day:
 // tc_cache_put_day(exit_state) -> 0 (nothing stashed, nothing to write)
     .p2align 2
     .global tc_cache_put_day
-    .type tc_cache_put_day, %function
+    FUNC_TYPE(tc_cache_put_day)
 tc_cache_put_day:
     mov x0, #0
     ret
@@ -66,7 +67,7 @@ tc_cache_put_day:
 // tc_cache_discard_day() -> 0 (drop any pending stash: none)
     .p2align 2
     .global tc_cache_discard_day
-    .type tc_cache_discard_day, %function
+    FUNC_TYPE(tc_cache_discard_day)
 tc_cache_discard_day:
     mov x0, #0
     ret

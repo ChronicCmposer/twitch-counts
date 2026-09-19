@@ -76,8 +76,9 @@
 //      rather than a dict + bisect list; identical semantics.
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
 
 // ----------------------------------------------------------------------------
 // Externals
@@ -310,6 +311,91 @@ tc_watch_hold_src:   .skip 8             // u64 source id
 tc_watch_notify:     .skip 8             // u64 0/1
 tc_watch_max_events: .skip 8
 tc_watch_seed_lookback:.skip 8
+    // Byte offsets of the settings block fields from tc_watch_interval (its
+    // base).  Apple's assembler cannot fold a label difference inside an
+    // operand, so code addresses siblings through these constants; the
+    // .if guard below fails the build on either platform if they drift.
+    .equ WS_INTERVAL,               0
+    .equ WS_HOLD,                   8
+    .equ WS_MIN_REDRAW,             16
+    .equ WS_MIN_INTERVAL,           24
+    .equ WS_FADE_K,                 32
+    .equ WS_RETAIN_SECONDS,         40
+    .equ WS_MATCH_SECONDS,          48
+    .equ WS_SHADES,                 56
+    .equ WS_REPLAY_STEPS,           64
+    .equ WS_FULL_REPAINT,           72
+    .equ WS_SHOW_TIMING,            80
+    .equ WS_TINT_FALLING,           88
+    .equ WS_FADE_CURVE,             96
+    .equ WS_USER_WIDTH,             104
+    .equ WS_STREAMER,               112
+    .equ WS_INTERVAL_SRC,           120
+    .equ WS_HOLD_SRC,               128
+    .equ WS_NOTIFY,                 136
+    .equ WS_MAX_EVENTS,             144
+    .equ WS_SEED_LOOKBACK,          152
+    .equ WS_SETTINGS_SIZE,       160
+    .if (tc_watch_interval - tc_watch_interval) != WS_INTERVAL
+    .error "tc_watch settings block drifted: tc_watch_interval"
+    .endif
+    .if (tc_watch_hold - tc_watch_interval) != WS_HOLD
+    .error "tc_watch settings block drifted: tc_watch_hold"
+    .endif
+    .if (tc_watch_min_redraw - tc_watch_interval) != WS_MIN_REDRAW
+    .error "tc_watch settings block drifted: tc_watch_min_redraw"
+    .endif
+    .if (tc_watch_min_interval - tc_watch_interval) != WS_MIN_INTERVAL
+    .error "tc_watch settings block drifted: tc_watch_min_interval"
+    .endif
+    .if (tc_watch_fade_k - tc_watch_interval) != WS_FADE_K
+    .error "tc_watch settings block drifted: tc_watch_fade_k"
+    .endif
+    .if (tc_watch_retain_seconds - tc_watch_interval) != WS_RETAIN_SECONDS
+    .error "tc_watch settings block drifted: tc_watch_retain_seconds"
+    .endif
+    .if (tc_watch_match_seconds - tc_watch_interval) != WS_MATCH_SECONDS
+    .error "tc_watch settings block drifted: tc_watch_match_seconds"
+    .endif
+    .if (tc_watch_shades - tc_watch_interval) != WS_SHADES
+    .error "tc_watch settings block drifted: tc_watch_shades"
+    .endif
+    .if (tc_watch_replay_steps - tc_watch_interval) != WS_REPLAY_STEPS
+    .error "tc_watch settings block drifted: tc_watch_replay_steps"
+    .endif
+    .if (tc_watch_full_repaint - tc_watch_interval) != WS_FULL_REPAINT
+    .error "tc_watch settings block drifted: tc_watch_full_repaint"
+    .endif
+    .if (tc_watch_show_timing - tc_watch_interval) != WS_SHOW_TIMING
+    .error "tc_watch settings block drifted: tc_watch_show_timing"
+    .endif
+    .if (tc_watch_tint_falling - tc_watch_interval) != WS_TINT_FALLING
+    .error "tc_watch settings block drifted: tc_watch_tint_falling"
+    .endif
+    .if (tc_watch_fade_curve - tc_watch_interval) != WS_FADE_CURVE
+    .error "tc_watch settings block drifted: tc_watch_fade_curve"
+    .endif
+    .if (tc_watch_user_width - tc_watch_interval) != WS_USER_WIDTH
+    .error "tc_watch settings block drifted: tc_watch_user_width"
+    .endif
+    .if (tc_watch_streamer - tc_watch_interval) != WS_STREAMER
+    .error "tc_watch settings block drifted: tc_watch_streamer"
+    .endif
+    .if (tc_watch_interval_src - tc_watch_interval) != WS_INTERVAL_SRC
+    .error "tc_watch settings block drifted: tc_watch_interval_src"
+    .endif
+    .if (tc_watch_hold_src - tc_watch_interval) != WS_HOLD_SRC
+    .error "tc_watch settings block drifted: tc_watch_hold_src"
+    .endif
+    .if (tc_watch_notify - tc_watch_interval) != WS_NOTIFY
+    .error "tc_watch settings block drifted: tc_watch_notify"
+    .endif
+    .if (tc_watch_max_events - tc_watch_interval) != WS_MAX_EVENTS
+    .error "tc_watch settings block drifted: tc_watch_max_events"
+    .endif
+    .if (tc_watch_seed_lookback - tc_watch_interval) != WS_SEED_LOOKBACK
+    .error "tc_watch settings block drifted: tc_watch_seed_lookback"
+    .endif
 
     // loop / window state
 tc_watch_win_width:  .skip 8             // u64 sliding width in seconds
@@ -429,7 +515,7 @@ tc_watch_highlight_on:.skip 8            // u64 1 when highlight rules exist
 // ----------------------------------------------------------------------------
 // .rodata
 // ----------------------------------------------------------------------------
-    .section .rodata
+    RODATA
 s_need_tty:         .asciz "--watch needs a terminal (it repaints in place)"
 s_todo_notify:      .asciz "TODO - not implemented: change notification on Linux. set [tail] notify = false to poll on the interval instead"
 
@@ -521,7 +607,7 @@ s_key_channel:      .asciz "channel"
 // ============================================================================
     .p2align 2
     .global tc_watch_run
-    .type tc_watch_run, %function
+    FUNC_TYPE(tc_watch_run)
 tc_watch_run:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -533,8 +619,8 @@ tc_watch_run:
     mov x0, #STDOUT
     bl isatty
     cbnz w0, .Lwr_tty_ok
-    adrp x0, s_need_tty
-    add x0, x0, :lo12:s_need_tty
+    adrp x0, PAGE(s_need_tty)
+    add x0, x0, LO12(s_need_tty)
     bl tc_report_fail                 // noreturn
 .Lwr_tty_ok:
     // ---- resolve settings, ramps, patterns, tail -------------------------
@@ -542,12 +628,12 @@ tc_watch_run:
     bl watch_build_ramps
     bl watch_compile_patterns
     bl watch_load_tail
-    adrp x9, tc_watch_notify
-    add x9, x9, :lo12:tc_watch_notify
+    adrp x9, PAGE(tc_watch_notify)
+    add x9, x9, LO12(tc_watch_notify)
     ldr x9, [x9]
     cbz x9, .Lwr_notify_ok
-    adrp x0, s_todo_notify
-    add x0, x0, :lo12:s_todo_notify
+    adrp x0, PAGE(s_todo_notify)
+    add x0, x0, LO12(s_todo_notify)
     bl tc_report_fail                 // noreturn
 .Lwr_notify_ok:
     // ---- channel + listing + window --------------------------------------
@@ -559,8 +645,8 @@ tc_watch_run:
     bl watch_init_window
     bl watch_size_users               // --users bisection (no-op otherwise)
     bl watch_seed_state               // -> x0 entering state
-    adrp x9, tc_watch_cur_state
-    add x9, x9, :lo12:tc_watch_cur_state
+    adrp x9, PAGE(tc_watch_cur_state)
+    add x9, x9, LO12(tc_watch_cur_state)
     str x0, [x9]
     // ---- prime the readers (cold read) ------------------------------------
     bl watch_roll_window              // end = now, begin slides
@@ -568,49 +654,51 @@ tc_watch_run:
     // ---- launch replay: reconstruct the tint state ------------------------
     bl watch_launch_tints
     // ---- hide the cursor and run the loop ---------------------------------
-    adrp x0, s_cursor_hide
-    add x0, x0, :lo12:s_cursor_hide
+    adrp x0, PAGE(s_cursor_hide)
+    add x0, x0, LO12(s_cursor_hide)
     bl tc_puts
     mov x0, #SIGINT
-    adrp x1, watch_sigint_handler
-    add x1, x1, :lo12:watch_sigint_handler
+    adrp x1, PAGE(watch_sigint_handler)
+    add x1, x1, LO12(watch_sigint_handler)
     bl signal
     mov x19, #0                       // x19 = loop flag (0 running)
 .Lwr_loop:
-    ldr x9, =tc_watch_interrupted
+    adrp x9, PAGE(tc_watch_interrupted)
+    add x9, x9, LO12(tc_watch_interrupted)
     ldr x9, [x9]
     cbnz x9, .Lwr_done
     // min_redraw floor
-    adrp x9, tc_watch_painted_at
-    add x9, x9, :lo12:tc_watch_painted_at
+    adrp x9, PAGE(tc_watch_painted_at)
+    add x9, x9, LO12(tc_watch_painted_at)
     ldr d0, [x9]
     fcvtzu x10, d0
     cbz x10, .Lwr_minredraw_done      // never painted
-    adrp x9, tc_watch_min_redraw
-    add x9, x9, :lo12:tc_watch_min_redraw
+    adrp x9, PAGE(tc_watch_min_redraw)
+    add x9, x9, LO12(tc_watch_min_redraw)
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwr_minredraw_done
     bl watch_monotonic                // d0 = now
-    adrp x9, tc_watch_painted_at
-    add x9, x9, :lo12:tc_watch_painted_at
+    adrp x9, PAGE(tc_watch_painted_at)
+    add x9, x9, LO12(tc_watch_painted_at)
     ldr d1, [x9]
     fsub d0, d0, d1
-    adrp x9, tc_watch_min_redraw
-    add x9, x9, :lo12:tc_watch_min_redraw
+    adrp x9, PAGE(tc_watch_min_redraw)
+    add x9, x9, LO12(tc_watch_min_redraw)
     ldr d1, [x9]
     fsub d0, d1, d0                   // early
     fcmp d0, #0.0
     b.le .Lwr_minredraw_done
     bl watch_sleep
 .Lwr_minredraw_done:
-    ldr x9, =tc_watch_interrupted
+    adrp x9, PAGE(tc_watch_interrupted)
+    add x9, x9, LO12(tc_watch_interrupted)
     ldr x9, [x9]
     cbnz x9, .Lwr_done
     // ---- tick -------------------------------------------------------------
     bl watch_monotonic
-    adrp x9, tc_watch_started
-    add x9, x9, :lo12:tc_watch_started
+    adrp x9, PAGE(tc_watch_started)
+    add x9, x9, LO12(tc_watch_started)
     str d0, [x9]
     // config memo: reload + re-resolve when the file changed
     bl tc_config_changed
@@ -628,19 +716,19 @@ tc_watch_run:
     bl tc_plan_presentation
     // ---- frame capture ----------------------------------------------------
     bl watch_prepare_frame           // allocate line buffers for this frame
-    adrp x9, tc_watch_user_width
-    add x9, x9, :lo12:tc_watch_user_width
+    adrp x9, PAGE(tc_watch_user_width)
+    add x9, x9, LO12(tc_watch_user_width)
     ldr x0, [x9]
     bl tc_frame_set_pin
-    adrp x0, watch_tint_hook
-    add x0, x0, :lo12:watch_tint_hook
+    adrp x0, PAGE(watch_tint_hook)
+    add x0, x0, LO12(watch_tint_hook)
     mov x1, #0
     bl tc_frame_set_tint
-    adrp x0, tc_watch_lines
-    add x0, x0, :lo12:tc_watch_lines
+    adrp x0, PAGE(tc_watch_lines)
+    add x0, x0, LO12(tc_watch_lines)
     ldr x0, [x0]
-    adrp x1, tc_watch_frame_cap
-    add x1, x1, :lo12:tc_watch_frame_cap
+    adrp x1, PAGE(tc_watch_frame_cap)
+    add x1, x1, LO12(tc_watch_frame_cap)
     ldr x1, [x1]
     bl tc_frame_begin
     bl watch_filter_tints            // expire carried tints (now)
@@ -650,21 +738,21 @@ tc_watch_run:
     bl watch_build_status
     bl watch_screen_paint
     bl watch_monotonic
-    adrp x9, tc_watch_painted_at
-    add x9, x9, :lo12:tc_watch_painted_at
+    adrp x9, PAGE(tc_watch_painted_at)
+    add x9, x9, LO12(tc_watch_painted_at)
     str d0, [x9]
     bl watch_build_prev
-    adrp x9, tc_watch_first
-    adrp x9, tc_watch_first
-    add x9, x9, :lo12:tc_watch_first
+    adrp x9, PAGE(tc_watch_first)
+    adrp x9, PAGE(tc_watch_first)
+    add x9, x9, LO12(tc_watch_first)
     str xzr, [x9]
     // ---- wait --------------------------------------------------------------
     bl watch_next_wait
     b .Lwr_loop
 .Lwr_done:
     // restore the cursor + newline, flush
-    adrp x0, s_cursor_show
-    add x0, x0, :lo12:s_cursor_show
+    adrp x0, PAGE(s_cursor_show)
+    add x0, x0, LO12(s_cursor_show)
     bl tc_puts
     mov w0, #0
     bl fflush
@@ -684,8 +772,8 @@ tc_watch_run:
     .p2align 2
 watch_sigint_handler:
     stp x19, x30, [sp, #-16]!
-    adrp x9, tc_watch_interrupted
-    add x9, x9, :lo12:tc_watch_interrupted
+    adrp x9, PAGE(tc_watch_interrupted)
+    add x9, x9, LO12(tc_watch_interrupted)
     mov x10, #1
     str x10, [x9]
     ldp x19, x30, [sp], #16
@@ -698,17 +786,17 @@ watch_sigint_handler:
 watch_monotonic:
     stp x19, x30, [sp, #-16]!
     mov x0, #CLOCK_MONOTONIC
-    adrp x1, tc_watch_ts
-    add x1, x1, :lo12:tc_watch_ts
+    adrp x1, PAGE(tc_watch_ts)
+    add x1, x1, LO12(tc_watch_ts)
     bl clock_gettime
-    adrp x9, tc_watch_ts
-    add x9, x9, :lo12:tc_watch_ts
+    adrp x9, PAGE(tc_watch_ts)
+    add x9, x9, LO12(tc_watch_ts)
     ldr x10, [x9]                    // tv_sec (u64)
     ldr x11, [x9, #8]                // tv_nsec
     scvtf d0, x10
     scvtf d1, x11
-    adrp x9, dbl_nanosec
-    add x9, x9, :lo12:dbl_nanosec
+    adrp x9, PAGE(dbl_nanosec)
+    add x9, x9, LO12(dbl_nanosec)
     ldr d2, [x9]
     fdiv d1, d1, d2
     fadd d0, d0, d1
@@ -727,19 +815,19 @@ watch_local_now:
     stp x20, x21, [sp, #-16]!
     stp x22, x23, [sp, #-16]!
     mov x0, #CLOCK_REALTIME
-    adrp x1, tc_watch_ts
-    add x1, x1, :lo12:tc_watch_ts
+    adrp x1, PAGE(tc_watch_ts)
+    add x1, x1, LO12(tc_watch_ts)
     bl clock_gettime
-    adrp x19, tc_watch_ts
-    add x19, x19, :lo12:tc_watch_ts
+    adrp x19, PAGE(tc_watch_ts)
+    add x19, x19, LO12(tc_watch_ts)
     mov x0, x19
-    adrp x1, tc_watch_tm
-    add x1, x1, :lo12:tc_watch_tm
+    adrp x1, PAGE(tc_watch_tm)
+    add x1, x1, LO12(tc_watch_tm)
     bl localtime_r
     // struct tm (musl aarch64): tm_sec@0, tm_min@4, tm_hour@8, tm_mday@12,
     // tm_mon@16, tm_year@20 — all 32-bit ints
-    adrp x19, tc_watch_tm
-    add x19, x19, :lo12:tc_watch_tm
+    adrp x19, PAGE(tc_watch_tm)
+    add x19, x19, LO12(tc_watch_tm)
     ldr w20, [x19, #20]               // tm_year
     add x20, x20, #1900
     ldr w21, [x19, #16]               // tm_mon
@@ -775,18 +863,18 @@ watch_sleep:
     fcvtzs x9, d0                    // whole seconds (toward zero; d0 > 0)
     scvtf d1, x9
     fsub d2, d0, d1                  // fraction
-    adrp x10, dbl_nanosec
-    add x10, x10, :lo12:dbl_nanosec
+    adrp x10, PAGE(dbl_nanosec)
+    add x10, x10, LO12(dbl_nanosec)
     ldr d3, [x10]
     fmul d2, d2, d3
     fcvtzu x11, d2                   // tv_nsec
-    adrp x10, tc_watch_ts
-    add x10, x10, :lo12:tc_watch_ts
+    adrp x10, PAGE(tc_watch_ts)
+    add x10, x10, LO12(tc_watch_ts)
     str x9, [x10]
     str x11, [x10, #8]
     mov x0, x10
-    adrp x1, tc_watch_ts2
-    add x1, x1, :lo12:tc_watch_ts2
+    adrp x1, PAGE(tc_watch_ts2)
+    add x1, x1, LO12(tc_watch_ts2)
     bl nanosleep
 .Lws_done:
     ldp x19, x30, [sp], #16
@@ -803,78 +891,78 @@ watch_load_settings:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
-    adrp x20, tc_watch_interval
-    add x20, x20, :lo12:tc_watch_interval
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
+    adrp x20, PAGE(tc_watch_interval)
+    add x20, x20, LO12(tc_watch_interval)
     ldr d0, [x19, #TC_O_INTERVAL]
     str d0, [x20]
     ldr d0, [x19, #TC_O_HOLD]
-    str d0, [x20, #(tc_watch_hold - tc_watch_interval)]
+    str d0, [x20, #WS_HOLD]
     ldr d0, [x19, #TC_O_MIN_REDRAW]
-    str d0, [x20, #(tc_watch_min_redraw - tc_watch_interval)]
+    str d0, [x20, #WS_MIN_REDRAW]
     ldr d0, [x19, #TC_O_MIN_INTERVAL]
-    str d0, [x20, #(tc_watch_min_interval - tc_watch_interval)]
+    str d0, [x20, #WS_MIN_INTERVAL]
     ldr d0, [x19, #TC_O_FADE_K]
-    str d0, [x20, #(tc_watch_fade_k - tc_watch_interval)]
+    str d0, [x20, #WS_FADE_K]
     ldr x21, [x19, #TC_O_SHADES]
-    str x21, [x20, #(tc_watch_shades - tc_watch_interval)]
+    str x21, [x20, #WS_SHADES]
     ldr x21, [x19, #TC_O_REPLAY_STEPS]
-    str x21, [x20, #(tc_watch_replay_steps - tc_watch_interval)]
+    str x21, [x20, #WS_REPLAY_STEPS]
     ldr x21, [x19, #TC_O_FULL_REPAINT]
-    str x21, [x20, #(tc_watch_full_repaint - tc_watch_interval)]
+    str x21, [x20, #WS_FULL_REPAINT]
     ldr x21, [x19, #TC_O_SHOW_TIMING]
-    str x21, [x20, #(tc_watch_show_timing - tc_watch_interval)]
+    str x21, [x20, #WS_SHOW_TIMING]
     ldr x21, [x19, #TC_O_TINT_FALLING]
-    str x21, [x20, #(tc_watch_tint_falling - tc_watch_interval)]
+    str x21, [x20, #WS_TINT_FALLING]
     ldr x21, [x19, #TC_O_FADE_CURVE]
-    str x21, [x20, #(tc_watch_fade_curve - tc_watch_interval)]
+    str x21, [x20, #WS_FADE_CURVE]
     ldr x21, [x19, #TC_O_USER_WIDTH]
-    str x21, [x20, #(tc_watch_user_width - tc_watch_interval)]
+    str x21, [x20, #WS_USER_WIDTH]
     ldr x21, [x19, #TC_O_STREAMER_MODE]
-    str x21, [x20, #(tc_watch_streamer - tc_watch_interval)]
+    str x21, [x20, #WS_STREAMER]
     // sources
-    adrp x21, tc_opts
-    add x21, x21, :lo12:tc_opts
+    adrp x21, PAGE(tc_opts)
+    add x21, x21, LO12(tc_opts)
     mov x22, #TC_O_SRC
     add x21, x21, x22
     ldr x22, [x21, #TC_SET_INTERVAL*8]
-    str x22, [x20, #(tc_watch_interval_src - tc_watch_interval)]
+    str x22, [x20, #WS_INTERVAL_SRC]
     ldr x22, [x21, #TC_SET_HOLD*8]
-    str x22, [x20, #(tc_watch_hold_src - tc_watch_interval)]
+    str x22, [x20, #WS_HOLD_SRC]
     // session floors (replay_horizon + max(hold,0))
-    ldr d0, [x20, #(tc_watch_hold - tc_watch_interval)]
+    ldr d0, [x20, #WS_HOLD]
     ldr d1, [x20]                    // interval
-    ldr x0, [x20, #(tc_watch_replay_steps - tc_watch_interval)]
+    ldr x0, [x20, #WS_REPLAY_STEPS]
     bl watch_replay_horizon          // d0 = horizon
-    str d0, [x20, #(tc_watch_retain_seconds - tc_watch_interval)]
-    ldr d0, [x20, #(tc_watch_hold - tc_watch_interval)]
+    str d0, [x20, #WS_RETAIN_SECONDS]
+    ldr d0, [x20, #WS_HOLD]
     fcmp d0, #0.0
     b.le .Lwls_hold0
-    str d0, [x20, #(tc_watch_match_seconds - tc_watch_interval)]
+    str d0, [x20, #WS_MATCH_SECONDS]
     b .Lwls_check
 .Lwls_hold0:
     mov x9, #0
     scvtf d1, x9
-    str d1, [x20, #(tc_watch_match_seconds - tc_watch_interval)]
+    str d1, [x20, #WS_MATCH_SECONDS]
 .Lwls_check:
     // interval >= min_interval?
     ldr d0, [x20]
-    ldr d1, [x20, #(tc_watch_min_interval - tc_watch_interval)]
+    ldr d1, [x20, #WS_MIN_INTERVAL]
     fcmp d0, d1
     b.ge .Lwls_ok
     // compose: {src_label}: interval must be at least {floor:g}s ({flabel})
-    adrp x19, tc_watch_errbuf
-    add x19, x19, :lo12:tc_watch_errbuf
+    adrp x19, PAGE(tc_watch_errbuf)
+    add x19, x19, LO12(tc_watch_errbuf)
     mov x23, x19
     // interval label
-    adrp x0, s_watch_flag            // "--watch"
-    add x0, x0, :lo12:s_watch_flag
-    adrp x21, tc_watch_interval_src
-    add x21, x21, :lo12:tc_watch_interval_src
+    adrp x0, PAGE(s_watch_flag)            // "--watch"
+    add x0, x0, LO12(s_watch_flag)
+    adrp x21, PAGE(tc_watch_interval_src)
+    add x21, x21, LO12(tc_watch_interval_src)
     ldr x22, [x21]
-    adrp x21, s_watch_flag
-    add x21, x21, :lo12:s_watch_flag
+    adrp x21, PAGE(s_watch_flag)
+    add x21, x21, LO12(s_watch_flag)
     cmp x22, #TC_SRC_CLI_WATCH
     b.eq .Lwls_ilbl_plain
     // "--watch (from {src})"
@@ -883,8 +971,8 @@ watch_load_settings:
     bl wc_cat
     mov x23, x0
     mov x0, x23
-    adrp x1, s_from_paren
-    add x1, x1, :lo12:s_from_paren
+    adrp x1, PAGE(s_from_paren)
+    add x1, x1, LO12(s_from_paren)
     bl wc_cat
     mov x23, x0
     mov x0, x22
@@ -895,8 +983,8 @@ watch_load_settings:
     bl wc_catn
     mov x23, x0
     mov x0, x23
-    adrp x1, s_close_paren
-    add x1, x1, :lo12:s_close_paren
+    adrp x1, PAGE(s_close_paren)
+    add x1, x1, LO12(s_close_paren)
     bl wc_cat
     mov x23, x0
     b .Lwls_ilbl_done
@@ -907,38 +995,38 @@ watch_load_settings:
     mov x23, x0
 .Lwls_ilbl_done:
     mov x0, x23
-    adrp x1, s_int_min_pre
-    add x1, x1, :lo12:s_int_min_pre
+    adrp x1, PAGE(s_int_min_pre)
+    add x1, x1, LO12(s_int_min_pre)
     bl wc_cat
     mov x23, x0
     // floor %g
-    ldr d0, [x20, #(tc_watch_min_interval - tc_watch_interval)]
+    ldr d0, [x20, #WS_MIN_INTERVAL]
     mov x0, x23
     mov x1, #128
-    adrp x2, fmt_g
-    add x2, x2, :lo12:fmt_g
+    adrp x2, PAGE(fmt_g)
+    add x2, x2, LO12(fmt_g)
     bl snprintf
     mov x0, x23
     bl tc_strlen
     add x23, x23, x0
     mov x0, x23
-    adrp x1, s_int_min_mid
-    add x1, x1, :lo12:s_int_min_mid
+    adrp x1, PAGE(s_int_min_mid)
+    add x1, x1, LO12(s_int_min_mid)
     bl wc_cat
     mov x23, x0
     // floor label: "watch.min_interval (from {src})"
     mov x0, x23
-    adrp x1, s_min_interval_flag
-    add x1, x1, :lo12:s_min_interval_flag
+    adrp x1, PAGE(s_min_interval_flag)
+    add x1, x1, LO12(s_min_interval_flag)
     bl wc_cat
     mov x23, x0
     mov x0, x23
-    adrp x1, s_from_paren
-    add x1, x1, :lo12:s_from_paren
+    adrp x1, PAGE(s_from_paren)
+    add x1, x1, LO12(s_from_paren)
     bl wc_cat
     mov x23, x0
-    adrp x21, tc_opts
-    add x21, x21, :lo12:tc_opts
+    adrp x21, PAGE(tc_opts)
+    add x21, x21, LO12(tc_opts)
     mov x22, #TC_O_SRC
     add x21, x21, x22
     ldr x22, [x21, #TC_SET_MIN_INTERVAL*8]
@@ -950,14 +1038,14 @@ watch_load_settings:
     bl wc_catn
     mov x23, x0
     mov x0, x23
-    adrp x1, s_close_paren2
-    add x1, x1, :lo12:s_close_paren2
+    adrp x1, PAGE(s_close_paren2)
+    add x1, x1, LO12(s_close_paren2)
     bl wc_cat
     mov x23, x0
     mov w1, #0
     strb w1, [x23]
-    adrp x0, tc_watch_errbuf
-    add x0, x0, :lo12:tc_watch_errbuf
+    adrp x0, PAGE(tc_watch_errbuf)
+    add x0, x0, LO12(tc_watch_errbuf)
     bl tc_report_fail                 // noreturn
 .Lwls_ok:
     ldp x23, x24, [sp], #16
@@ -1004,16 +1092,16 @@ watch_load_tail:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
-    adrp x20, tc_watch_notify
-    add x20, x20, :lo12:tc_watch_notify
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
+    adrp x20, PAGE(tc_watch_notify)
+    add x20, x20, LO12(tc_watch_notify)
     ldr x21, [x19, #TC_O_NOTIFY]
     str x21, [x20]
     ldr x21, [x19, #TC_O_MAX_EVENTS]
-    str x21, [x20, #(tc_watch_max_events - tc_watch_notify)]
+    str x21, [x20, #(WS_MAX_EVENTS - WS_NOTIFY)]
     ldr x21, [x19, #TC_O_SEED_LOOKBACK]
-    str x21, [x20, #(tc_watch_seed_lookback - tc_watch_notify)]
+    str x21, [x20, #(WS_SEED_LOOKBACK - WS_NOTIFY)]
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -1184,10 +1272,10 @@ watch_days_from_civil:
 watch_build_dirpath:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x0, tc_watch_dirpath
-    add x0, x0, :lo12:tc_watch_dirpath
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x0, PAGE(tc_watch_dirpath)
+    add x0, x0, LO12(tc_watch_dirpath)
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_LOGS_DIR
     bl wc_cat
     mov x19, x0                        // cursor AT the NUL (append in place)
@@ -1216,49 +1304,49 @@ watch_build_listing:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // stat the channel dir; unchanged mtime + existing listing -> memo hit
-    adrp x0, tc_watch_dirpath
-    add x0, x0, :lo12:tc_watch_dirpath
-    adrp x1, tc_watch_stat
-    add x1, x1, :lo12:tc_watch_stat
+    adrp x0, PAGE(tc_watch_dirpath)
+    add x0, x0, LO12(tc_watch_dirpath)
+    adrp x1, PAGE(tc_watch_stat)
+    add x1, x1, LO12(tc_watch_stat)
     bl stat
     cbnz w0, .Lwbl_rebuild
-    adrp x9, tc_watch_ts
-    add x9, x9, :lo12:tc_watch_ts
+    adrp x9, PAGE(tc_watch_ts)
+    add x9, x9, LO12(tc_watch_ts)
     ldr x10, [x9, #ST_MTIM_SEC]
     movz x11, #0xCA00, lsl #0
     movk x11, #0x3B9A, lsl #16         // 1000000000
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
-    adrp x9, tc_watch_list_mtime
-    add x9, x9, :lo12:tc_watch_list_mtime
+    adrp x9, PAGE(tc_watch_list_mtime)
+    add x9, x9, LO12(tc_watch_list_mtime)
     ldr x11, [x9]
     cmp x10, x11
     b.ne .Lwbl_rebuild
-    adrp x9, tc_watch_list_have
-    add x9, x9, :lo12:tc_watch_list_have
+    adrp x9, PAGE(tc_watch_list_have)
+    add x9, x9, LO12(tc_watch_list_have)
     ldr x9, [x9]
     cbnz x9, .Lwbl_done
 .Lwbl_rebuild:
     // free any previous listing entries, then scan the directory
-    adrp x9, tc_listing
-    add x9, x9, :lo12:tc_listing
+    adrp x9, PAGE(tc_listing)
+    add x9, x9, LO12(tc_listing)
     ldr x10, [x9, #TC_L_ENTRIES]
     cbz x10, .Lwbl_open
     mov x0, x10
     bl free
-    adrp x9, tc_listing
-    add x9, x9, :lo12:tc_listing
+    adrp x9, PAGE(tc_listing)
+    add x9, x9, LO12(tc_listing)
     str xzr, [x9, #TC_L_ENTRIES]
     str xzr, [x9, #TC_L_CAP]
 .Lwbl_open:
-    adrp x0, tc_watch_dirpath
-    add x0, x0, :lo12:tc_watch_dirpath
+    adrp x0, PAGE(tc_watch_dirpath)
+    add x0, x0, LO12(tc_watch_dirpath)
     bl opendir
     cbz x0, .Lwbl_memo_nodir         // dir vanished: keep an empty listing
     mov x19, x0                       // DIR*
-    adrp x20, tc_listing
-    add x20, x20, :lo12:tc_listing
+    adrp x20, PAGE(tc_listing)
+    add x20, x20, LO12(tc_listing)
     str xzr, [x20, #TC_L_COUNT]
 .Lwbl_list:
     mov x0, x19
@@ -1325,37 +1413,37 @@ watch_build_listing:
     cbz x1, .Lwbl_memo
     ldr x0, [x20, #TC_L_ENTRIES]
     mov x2, #TC_L_ENTRY_SZ
-    adrp x3, watch_listing_cmp
-    add x3, x3, :lo12:watch_listing_cmp
+    adrp x3, PAGE(watch_listing_cmp)
+    add x3, x3, LO12(watch_listing_cmp)
     bl qsort
 .Lwbl_memo:
     // record the dir mtime memo
-    adrp x0, tc_watch_dirpath
-    add x0, x0, :lo12:tc_watch_dirpath
-    adrp x1, tc_watch_stat
-    add x1, x1, :lo12:tc_watch_stat
+    adrp x0, PAGE(tc_watch_dirpath)
+    add x0, x0, LO12(tc_watch_dirpath)
+    adrp x1, PAGE(tc_watch_stat)
+    add x1, x1, LO12(tc_watch_stat)
     bl stat
     cbnz w0, .Lwbl_memo_skip
-    adrp x9, tc_watch_ts
-    add x9, x9, :lo12:tc_watch_ts
+    adrp x9, PAGE(tc_watch_ts)
+    add x9, x9, LO12(tc_watch_ts)
     ldr x10, [x9, #ST_MTIM_SEC]
     movz x11, #0xCA00, lsl #0
     movk x11, #0x3B9A, lsl #16
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
-    adrp x9, tc_watch_list_mtime
-    add x9, x9, :lo12:tc_watch_list_mtime
+    adrp x9, PAGE(tc_watch_list_mtime)
+    add x9, x9, LO12(tc_watch_list_mtime)
     str x10, [x9]
 .Lwbl_memo_skip:
-    adrp x9, tc_watch_list_have
-    add x9, x9, :lo12:tc_watch_list_have
+    adrp x9, PAGE(tc_watch_list_have)
+    add x9, x9, LO12(tc_watch_list_have)
     mov x10, #1
     str x10, [x9]
     b .Lwbl_done
 .Lwbl_memo_nodir:
-    adrp x9, tc_watch_list_have
-    add x9, x9, :lo12:tc_watch_list_have
+    adrp x9, PAGE(tc_watch_list_have)
+    add x9, x9, LO12(tc_watch_list_have)
     mov x10, #1
     str x10, [x9]
 .Lwbl_done:
@@ -1367,8 +1455,8 @@ watch_build_listing:
     ldp x29, x30, [sp], #16
     ret
 .Lwbl_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -1523,8 +1611,8 @@ watch_parse_log_filename:
 watch_days_in_month:
     stp x29, x30, [sp, #-16]!
     // month_days table
-    adrp x10, watch_month_days
-    add x10, x10, :lo12:watch_month_days
+    adrp x10, PAGE(watch_month_days)
+    add x10, x10, LO12(watch_month_days)
     sub x11, x1, #1
     ldrb w12, [x10, x11]
     // February leap
@@ -1563,8 +1651,8 @@ watch_init_window:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     // end_given?  (Python: settings["end"] truthy)
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     mov x20, #TC_O_SRC
     add x19, x19, x20
     ldr x20, [x19, #TC_SET_END*8]
@@ -1575,12 +1663,12 @@ watch_init_window:
 .Lwiw_end_default:
     mov x20, #0
 .Lwiw_end_store:
-    adrp x9, tc_watch_end_given
-    add x9, x9, :lo12:tc_watch_end_given
+    adrp x9, PAGE(tc_watch_end_given)
+    add x9, x9, LO12(tc_watch_end_given)
     str x20, [x9]
     // kind dispatch
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x20, [x19, #TC_W_KIND]
     cmp x20, #TC_WIN_EARLIEST
     b.eq .Lwiw_earliest
@@ -1594,63 +1682,63 @@ watch_init_window:
     // reads begin/end directly, so it never notices; watch must roll the
     // begin with the clock, so key on TC_W_BEGIN_ROLLS: set -> since-style
     // sliding width = end - begin, clear -> a fixed begin, width 0.
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x20, [x9, #TC_W_BEGIN_ROLLS]
     cbz x20, .Lwiw_fixed
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x0, [x9, #TC_W_BEGIN_YMD]
     ldr x1, [x9, #TC_W_BEGIN_SOD]
     bl watch_ymd_sod_to_epoch
     mov x20, x0
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
     bl watch_ymd_sod_to_epoch
     sub x0, x0, x20
-    adrp x9, tc_watch_win_width
-    add x9, x9, :lo12:tc_watch_win_width
+    adrp x9, PAGE(tc_watch_win_width)
+    add x9, x9, LO12(tc_watch_win_width)
     str x0, [x9]
     b .Lwiw_done
 .Lwiw_fixed:
-    adrp x9, tc_watch_win_width
-    add x9, x9, :lo12:tc_watch_win_width
+    adrp x9, PAGE(tc_watch_win_width)
+    add x9, x9, LO12(tc_watch_win_width)
     str xzr, [x9]
     b .Lwiw_done
 .Lwiw_earliest:
     // begin = earliest file (midnight); "no log files found in <dir>" when none
-    adrp x20, tc_listing
-    add x20, x20, :lo12:tc_listing
+    adrp x20, PAGE(tc_listing)
+    add x20, x20, LO12(tc_listing)
     ldr x21, [x20, #TC_L_COUNT]
     cbnz x21, .Lwiw_earliest_ok
-    adrp x0, tc_watch_errbuf
-    add x0, x0, :lo12:tc_watch_errbuf
-    adrp x1, s_no_logs_pre
-    add x1, x1, :lo12:s_no_logs_pre
+    adrp x0, PAGE(tc_watch_errbuf)
+    add x0, x0, LO12(tc_watch_errbuf)
+    adrp x1, PAGE(s_no_logs_pre)
+    add x1, x1, LO12(s_no_logs_pre)
     bl wc_cat
-    adrp x1, tc_watch_dirpath
-    add x1, x1, :lo12:tc_watch_dirpath
+    adrp x1, PAGE(tc_watch_dirpath)
+    add x1, x1, LO12(tc_watch_dirpath)
     bl wc_cat
-    adrp x0, tc_watch_errbuf
-    add x0, x0, :lo12:tc_watch_errbuf
+    adrp x0, PAGE(tc_watch_errbuf)
+    add x0, x0, LO12(tc_watch_errbuf)
     bl tc_report_fail
 .Lwiw_earliest_ok:
     ldr x22, [x20, #TC_L_ENTRIES]
     ldr x23, [x22, #TC_L_YMD]
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x23, [x19, #TC_W_BEGIN_YMD]
     str xzr, [x19, #TC_W_BEGIN_SOD]
-    adrp x9, tc_watch_win_width
-    add x9, x9, :lo12:tc_watch_win_width
+    adrp x9, PAGE(tc_watch_win_width)
+    add x9, x9, LO12(tc_watch_win_width)
     str xzr, [x9]
     b .Lwiw_done
 .Lwiw_users:
     // begin placeholder = end; width resolved by watch_size_users
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x20, [x19, #TC_W_END_YMD]
     ldr x21, [x19, #TC_W_END_SOD]
     str x20, [x19, #TC_W_BEGIN_YMD]
@@ -1658,8 +1746,8 @@ watch_init_window:
     b .Lwiw_done
 .Lwiw_since:
     // width = end - begin (seconds), recomputed each roll
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
     bl watch_ymd_sod_to_epoch
@@ -1668,15 +1756,15 @@ watch_init_window:
     ldr x1, [x19, #TC_W_END_SOD]
     bl watch_ymd_sod_to_epoch
     sub x0, x0, x20
-    adrp x9, tc_watch_win_width
-    add x9, x9, :lo12:tc_watch_win_width
+    adrp x9, PAGE(tc_watch_win_width)
+    add x9, x9, LO12(tc_watch_win_width)
     str x0, [x9]
 .Lwiw_done:
     // fill the threshold + state filter from the options (mirror tc_complete_window)
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
-    adrp x10, tc_opts
-    add x10, x10, :lo12:tc_opts
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
+    adrp x10, PAGE(tc_opts)
+    add x10, x10, LO12(tc_opts)
     ldr x11, [x10, #TC_O_MIN_COUNT]
     str x11, [x9, #TC_W_THRESHOLD]
     ldr x11, [x10, #TC_O_STATE_FILTER]
@@ -1695,19 +1783,19 @@ watch_roll_window:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x9, tc_watch_end_given
-    add x9, x9, :lo12:tc_watch_end_given
+    adrp x9, PAGE(tc_watch_end_given)
+    add x9, x9, LO12(tc_watch_end_given)
     ldr x9, [x9]
     cbnz x9, .Lwrw_slide
     bl watch_local_now                // x0=ymd, x1=sod (local: logs are local)
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x0, [x19, #TC_W_END_YMD]
     str x1, [x19, #TC_W_END_SOD]
 .Lwrw_slide:
     // begin rolls?
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x20, [x19, #TC_W_BEGIN_ROLLS]
     cbz x20, .Lwrw_done
     ldr x21, [x19, #TC_W_END_YMD]
@@ -1715,13 +1803,13 @@ watch_roll_window:
     mov x0, x21
     mov x1, x22
     bl watch_ymd_sod_to_epoch
-    adrp x9, tc_watch_win_width
-    add x9, x9, :lo12:tc_watch_win_width
+    adrp x9, PAGE(tc_watch_win_width)
+    add x9, x9, LO12(tc_watch_win_width)
     ldr x20, [x9]
     sub x0, x0, x20
     bl watch_epoch_to_ymd_sod         // x0=ymd, x1=sod
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x0, [x19, #TC_W_BEGIN_YMD]
     str x1, [x19, #TC_W_BEGIN_SOD]
 .Lwrw_done:
@@ -1731,7 +1819,7 @@ watch_roll_window:
     ret
 
 // month_days table (rodata lives with the other strings)
-    .section .rodata
+    RODATA
     .p2align 2
 watch_month_days:
     .byte 31,28,31,30,31,30,31,31,30,31,30,31
@@ -1750,11 +1838,11 @@ watch_reader_find:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                        // path
-    adrp x9, tc_watch_reader_n
-    add x9, x9, :lo12:tc_watch_reader_n
+    adrp x9, PAGE(tc_watch_reader_n)
+    add x9, x9, LO12(tc_watch_reader_n)
     ldr x20, [x9]
-    adrp x9, tc_watch_readers
-    add x9, x9, :lo12:tc_watch_readers
+    adrp x9, PAGE(tc_watch_readers)
+    add x9, x9, LO12(tc_watch_readers)
     ldr x21, [x9]
     mov x22, #0
 .Lwrf_loop:
@@ -1809,11 +1897,11 @@ watch_reader_get:
     bl wc_cat
     str x20, [x21, #RD_FDATE]
     // append to the reader array (grow)
-    adrp x9, tc_watch_reader_n
-    add x9, x9, :lo12:tc_watch_reader_n
+    adrp x9, PAGE(tc_watch_reader_n)
+    add x9, x9, LO12(tc_watch_reader_n)
     ldr x22, [x9]
-    adrp x10, tc_watch_reader_cap
-    add x10, x10, :lo12:tc_watch_reader_cap
+    adrp x10, PAGE(tc_watch_reader_cap)
+    add x10, x10, LO12(tc_watch_reader_cap)
     ldr x11, [x10]
     cmp x22, x11
     b.lt .Lwrg_append
@@ -1824,30 +1912,30 @@ watch_reader_get:
     mov x11, #READER_INIT
 .Lwrg_alloc:
     mov x23, x11
-    adrp x9, tc_watch_readers
-    add x9, x9, :lo12:tc_watch_readers
+    adrp x9, PAGE(tc_watch_readers)
+    add x9, x9, LO12(tc_watch_readers)
     ldr x0, [x9]
     mov x1, #8
     mul x1, x11, x1
     bl realloc
     cbz x0, .Lwrg_oom
-    adrp x9, tc_watch_readers
-    add x9, x9, :lo12:tc_watch_readers
+    adrp x9, PAGE(tc_watch_readers)
+    add x9, x9, LO12(tc_watch_readers)
     str x0, [x9]
-    adrp x9, tc_watch_reader_cap
-    add x9, x9, :lo12:tc_watch_reader_cap
+    adrp x9, PAGE(tc_watch_reader_cap)
+    add x9, x9, LO12(tc_watch_reader_cap)
     str x23, [x9]
-    adrp x9, tc_watch_reader_n
-    add x9, x9, :lo12:tc_watch_reader_n
+    adrp x9, PAGE(tc_watch_reader_n)
+    add x9, x9, LO12(tc_watch_reader_n)
     ldr x22, [x9]
 .Lwrg_append:
-    adrp x9, tc_watch_readers
-    add x9, x9, :lo12:tc_watch_readers
+    adrp x9, PAGE(tc_watch_readers)
+    add x9, x9, LO12(tc_watch_readers)
     ldr x10, [x9]
     str x21, [x10, x22, lsl #3]
     add x22, x22, #1
-    adrp x9, tc_watch_reader_n
-    add x9, x9, :lo12:tc_watch_reader_n
+    adrp x9, PAGE(tc_watch_reader_n)
+    add x9, x9, LO12(tc_watch_reader_n)
     str x22, [x9]
     mov x0, x21
 .Lwrg_have:
@@ -1857,8 +1945,8 @@ watch_reader_get:
     ldp x29, x30, [sp], #16
     ret
 .Lwrg_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // watch_reader_reset(rd) — discard buckets/matches/offset/remainder/window/day;
@@ -2184,8 +2272,8 @@ watch_bucket_insert:
     ldp x29, x30, [sp], #16
     ret
 .Lwbi_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // watch_memcmp_n(a, b, n1, n2) -> x0 = -1/0/1: compare a[0..n1) (NUL padded)
@@ -2379,8 +2467,8 @@ watch_reader_refresh:
     ldr x28, [x19, #RD_REM_LEN]
     cbz x26, .Lwrrf_text
     // stash the old chunk base, join, then free it (it is not reused)
-    adrp x9, tc_watch_join_old
-    add x9, x9, :lo12:tc_watch_join_old
+    adrp x9, PAGE(tc_watch_join_old)
+    add x9, x9, LO12(tc_watch_join_old)
     str x24, [x9]
     mov x0, x24                        // chunk (a)
     mov x1, x26                        // remainder (b)
@@ -2389,8 +2477,8 @@ watch_reader_refresh:
     bl watch_join_bufs                 // x0 = combined, x1 = total len
     mov x26, x0                        // combined (x26: remainder was dead)
     mov x25, x1                        // total len
-    adrp x9, tc_watch_join_old
-    add x9, x9, :lo12:tc_watch_join_old
+    adrp x9, PAGE(tc_watch_join_old)
+    add x9, x9, LO12(tc_watch_join_old)
     ldr x0, [x9]
     cbz x0, .Lwrrf_join_free_done
     bl free
@@ -2586,8 +2674,8 @@ watch_join_bufs:
     ldp x29, x30, [sp], #16
     ret
 .Lwjb_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // watch_copy_to(dst, src, len) -> dst + len
@@ -2639,8 +2727,8 @@ watch_seek_window:
     mov x21, x2                        // floor
     cbz x21, .Lwsw_zero
     // want = "%02d:%02d:%02d"
-    adrp x22, tc_watch_want
-    add x22, x22, :lo12:tc_watch_want
+    adrp x22, PAGE(tc_watch_want)
+    add x22, x22, LO12(tc_watch_want)
     mov x9, #3600
     udiv x23, x21, x9                  // h
     msub x10, x23, x9, x21
@@ -2682,8 +2770,8 @@ watch_seek_window:
     mov x0, x19
     mov x1, x26
     mov x2, #0
-    adrp x3, lit_is_live
-    add x3, x3, :lo12:lit_is_live
+    adrp x3, PAGE(lit_is_live)
+    add x3, x3, LO12(lit_is_live)
     mov x4, #9                         // len(" is live!") == 9
     bl watch_rfind                     // x0 = index or -1
     cmp x0, #0
@@ -2735,8 +2823,8 @@ watch_seek_window:
     mov x0, x19
     mov x1, x26
     mov x2, #0
-    adrp x3, lit_offline
-    add x3, x3, :lo12:lit_offline
+    adrp x3, PAGE(lit_offline)
+    add x3, x3, LO12(lit_offline)
     mov x4, #16
     bl watch_rfind
     cmp x0, #0
@@ -3057,8 +3145,8 @@ watch_line_is_marker:
     sub x11, x10, #9
     cmp x11, x9
     b.lt .Lwlim_off
-    adrp x12, lit_is_live
-    add x12, x12, :lo12:lit_is_live
+    adrp x12, PAGE(lit_is_live)
+    add x12, x12, LO12(lit_is_live)
     mov x13, #0
 .Lwlim_cl1:
     cmp x13, #9
@@ -3090,8 +3178,8 @@ watch_line_is_marker:
     sub x11, x10, #16
     cmp x11, x9
     b.lt .Lwlim_no
-    adrp x12, lit_offline
-    add x12, x12, :lo12:lit_offline
+    adrp x12, PAGE(lit_offline)
+    add x12, x12, LO12(lit_offline)
     mov x13, #0
 .Lwlim_cl2:
     cmp x13, #16
@@ -3122,7 +3210,7 @@ watch_line_is_marker:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
-    .section .rodata
+    RODATA
 lit_is_live:        .asciz " is live!"
 lit_offline:        .asciz " is now offline."
     .text
@@ -3360,8 +3448,8 @@ watch_fold_line:
     add x9, x9, #1
     str x9, [x0, #BK_N]
     // highlight matching (only when rules exist)
-    adrp x9, tc_watch_highlight_on
-    add x9, x9, :lo12:tc_watch_highlight_on
+    adrp x9, PAGE(tc_watch_highlight_on)
+    add x9, x9, LO12(tc_watch_highlight_on)
     ldr x9, [x9]
     cbz x9, .Lwfln_skip
     // msg = [first ": " colon + 2, end) — re-derive the colon
@@ -3437,8 +3525,8 @@ watch_fold_line:
     ldp x29, x30, [sp], #16
     ret
 .Lwflm_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -3481,8 +3569,8 @@ speaker_login2:
     b .Lsl2_login
 .Lsl2_login_ok:
     // lowercase into scratch2
-    adrp x4, tc_watch_scratch2
-    add x4, x4, :lo12:tc_watch_scratch2
+    adrp x4, PAGE(tc_watch_scratch2)
+    add x4, x4, LO12(tc_watch_scratch2)
     mov x2, #0
 .Lsl2_lower:
     cmp x2, x20
@@ -3573,8 +3661,8 @@ speaker_login2:
 .Lsl2_left_ok:
     cbz x7, .Lsl2_fail
     // login = right (already lowercase); copy into scratch2
-    adrp x8, tc_watch_scratch2
-    add x8, x8, :lo12:tc_watch_scratch2
+    adrp x8, PAGE(tc_watch_scratch2)
+    add x8, x8, LO12(tc_watch_scratch2)
     mov x2, #0
 .Lsl2_copy:
     cmp x2, x4
@@ -3611,12 +3699,12 @@ watch_highlight_match:
     stp x25, x26, [sp, #-16]!
     mov x19, x0                        // msg
     mov x20, x1                        // len
-    adrp x9, tc_watch_highlight_on
-    add x9, x9, :lo12:tc_watch_highlight_on
+    adrp x9, PAGE(tc_watch_highlight_on)
+    add x9, x9, LO12(tc_watch_highlight_on)
     ldr x9, [x9]
     cbz x9, .Lwhm_none
-    adrp x21, tc_opts
-    add x21, x21, :lo12:tc_opts
+    adrp x21, PAGE(tc_opts)
+    add x21, x21, LO12(tc_opts)
     ldr x22, [x21, #TC_O_HL_COUNT]
     mov x23, #-1                       // best
     mov x24, #0                        // rule index
@@ -3624,8 +3712,8 @@ watch_highlight_match:
     cmp x24, x22
     b.ge .Lwhm_done
     // rule patterns
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     add x9, x9, #TC_O_HL_ARR
     mov x10, #TC_HL_RULE_SZ
     mul x10, x24, x10
@@ -3636,16 +3724,16 @@ watch_highlight_match:
     cmp x26, x25
     b.ge .Lwhm_rule_next
     // compiled pattern ptr = tc_watch_patterns[rule*PAT_MAX + pat]
-    adrp x9, tc_watch_patterns
-    add x9, x9, :lo12:tc_watch_patterns
+    adrp x9, PAGE(tc_watch_patterns)
+    add x9, x9, LO12(tc_watch_patterns)
     mov x10, #TC_HL_PAT_MAX
     mul x10, x24, x10
     add x10, x10, x26
     ldr x9, [x9, x10, lsl #3]
     cbz x9, .Lwhm_pat_next
     // match data for this pattern slot
-    adrp x5, tc_watch_match_data
-    add x5, x5, :lo12:tc_watch_match_data
+    adrp x5, PAGE(tc_watch_match_data)
+    add x5, x5, LO12(tc_watch_match_data)
     ldr x5, [x5, x10, lsl #3]
     cbz x5, .Lwhm_pat_next
     // pcre2_match_8(code, subject, length, 0, 0, md, 0)
@@ -3941,8 +4029,8 @@ watch_reader_window:
     ldp x29, x30, [sp], #16
     ret
 .Lwrw_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -4303,8 +4391,8 @@ watch_reader_day:
     ldp x29, x30, [sp], #16
     ret
 .Lwday_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -4416,11 +4504,11 @@ watch_memo_find:
     mov x20, x1                        // size
     mov x21, x2                        // mtime
     mov x22, x3                        // enter
-    adrp x9, tc_watch_days_n
-    add x9, x9, :lo12:tc_watch_days_n
+    adrp x9, PAGE(tc_watch_days_n)
+    add x9, x9, LO12(tc_watch_days_n)
     ldr x10, [x9]
-    adrp x9, tc_watch_days
-    add x9, x9, :lo12:tc_watch_days
+    adrp x9, PAGE(tc_watch_days)
+    add x9, x9, LO12(tc_watch_days)
     ldr x11, [x9]
     mov x12, #0
 .Lwmf_loop:
@@ -4472,11 +4560,11 @@ watch_memo_put:
     mov x24, x5                        // counts ptr
     mov x25, x6                        // count
     // grow the memo array when full
-    adrp x9, tc_watch_days_n
-    add x9, x9, :lo12:tc_watch_days_n
+    adrp x9, PAGE(tc_watch_days_n)
+    add x9, x9, LO12(tc_watch_days_n)
     ldr x10, [x9]
-    adrp x11, tc_watch_days_cap
-    add x11, x11, :lo12:tc_watch_days_cap
+    adrp x11, PAGE(tc_watch_days_cap)
+    add x11, x11, LO12(tc_watch_days_cap)
     ldr x12, [x11]
     cmp x10, x12
     b.lt .Lwmp_append
@@ -4487,25 +4575,25 @@ watch_memo_put:
     mov x12, #DAYS_INIT
 .Lwmp_alloc:
     mov x26, x12
-    adrp x9, tc_watch_days
-    add x9, x9, :lo12:tc_watch_days
+    adrp x9, PAGE(tc_watch_days)
+    add x9, x9, LO12(tc_watch_days)
     ldr x0, [x9]
     mov x1, #DM_SZ
     mul x1, x12, x1
     bl realloc
     cbz x0, .Lwmp_oom
-    adrp x9, tc_watch_days
-    add x9, x9, :lo12:tc_watch_days
+    adrp x9, PAGE(tc_watch_days)
+    add x9, x9, LO12(tc_watch_days)
     str x0, [x9]
-    adrp x9, tc_watch_days_cap
-    add x9, x9, :lo12:tc_watch_days_cap
+    adrp x9, PAGE(tc_watch_days_cap)
+    add x9, x9, LO12(tc_watch_days_cap)
     str x26, [x9]
 .Lwmp_append:
-    adrp x9, tc_watch_days_n
-    add x9, x9, :lo12:tc_watch_days_n
+    adrp x9, PAGE(tc_watch_days_n)
+    add x9, x9, LO12(tc_watch_days_n)
     ldr x10, [x9]
-    adrp x11, tc_watch_days
-    add x11, x11, :lo12:tc_watch_days
+    adrp x11, PAGE(tc_watch_days)
+    add x11, x11, LO12(tc_watch_days)
     ldr x11, [x11]
     mov x12, #DM_SZ
     mul x12, x10, x12
@@ -4527,8 +4615,8 @@ watch_memo_put:
     ldp x29, x30, [sp], #16
     ret
 .Lwmp_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // watch_memo_retain(live_ymd_list...) — drop memos whose ymd is not live.
@@ -4541,11 +4629,11 @@ watch_memo_retain:
     stp x23, x24, [sp, #-16]!
     mov x19, x0                        // live count
     mov x20, x1                        // live array
-    adrp x9, tc_watch_days_n
-    add x9, x9, :lo12:tc_watch_days_n
+    adrp x9, PAGE(tc_watch_days_n)
+    add x9, x9, LO12(tc_watch_days_n)
     ldr x21, [x9]                      // memo count
-    adrp x9, tc_watch_days
-    add x9, x9, :lo12:tc_watch_days
+    adrp x9, PAGE(tc_watch_days)
+    add x9, x9, LO12(tc_watch_days)
     ldr x22, [x9]                      // memo array
     mov x23, #0                        // out
     mov x24, #0                        // i
@@ -4588,8 +4676,8 @@ watch_memo_retain:
     add x24, x24, #1
     b .Lwmr_loop
 .Lwmr_done:
-    adrp x9, tc_watch_days_n
-    add x9, x9, :lo12:tc_watch_days_n
+    adrp x9, PAGE(tc_watch_days_n)
+    add x9, x9, LO12(tc_watch_days_n)
     str x23, [x9]
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
@@ -4612,37 +4700,37 @@ watch_count_tick:
     stp x27, x28, [sp, #-16]!
     bl watch_refresh_listing
     bl watch_seed_state                // x0 = entering state
-    adrp x9, tc_watch_cur_state
-    add x9, x9, :lo12:tc_watch_cur_state
+    adrp x9, PAGE(tc_watch_cur_state)
+    add x9, x9, LO12(tc_watch_cur_state)
     str x0, [x9]
     // gather
     bl watch_gather
     // fold (reuse or rebuild)
     bl watch_fold
     // bookkeeping into the tally
-    adrp x9, tc_tally
-    add x9, x9, :lo12:tc_tally
-    adrp x10, tc_watch_g_files
-    add x10, x10, :lo12:tc_watch_g_files
+    adrp x9, PAGE(tc_tally)
+    add x9, x9, LO12(tc_tally)
+    adrp x10, PAGE(tc_watch_g_files)
+    add x10, x10, LO12(tc_watch_g_files)
     ldr x11, [x10]
     str x11, [x9, #TC_T_FILES]
-    adrp x10, tc_watch_g_parsed
-    add x10, x10, :lo12:tc_watch_g_parsed
+    adrp x10, PAGE(tc_watch_g_parsed)
+    add x10, x10, LO12(tc_watch_g_parsed)
     ldr x11, [x10]
     str x11, [x9, #TC_T_PARSED]
-    adrp x10, tc_watch_g_reused
-    add x10, x10, :lo12:tc_watch_g_reused
+    adrp x10, PAGE(tc_watch_g_reused)
+    add x10, x10, LO12(tc_watch_g_reused)
     ldr x11, [x10]
     str x11, [x9, #TC_T_REUSED]
     // unreadable list
-    adrp x10, tc_watch_g_unr_n
-    add x10, x10, :lo12:tc_watch_g_unr_n
+    adrp x10, PAGE(tc_watch_g_unr_n)
+    add x10, x10, LO12(tc_watch_g_unr_n)
     ldr x11, [x10]
     str x11, [x9, #TC_T_UNR_COUNT]
     cbz x11, .Lwct_unr_done
     add x12, x9, #TC_T_UNR_ENTRIES
-    adrp x13, tc_watch_g_unr
-    add x13, x13, :lo12:tc_watch_g_unr
+    adrp x13, PAGE(tc_watch_g_unr)
+    add x13, x13, LO12(tc_watch_g_unr)
     mov x14, #0
 .Lwct_unr_loop:
     cmp x14, x11
@@ -4664,12 +4752,12 @@ watch_count_tick:
     b .Lwct_unr_loop
 .Lwct_unr_done:
     // retain readers + day memos to the in-range paths/dates
-    adrp x9, tc_watch_win_n
-    add x9, x9, :lo12:tc_watch_win_n
+    adrp x9, PAGE(tc_watch_win_n)
+    add x9, x9, LO12(tc_watch_win_n)
     ldr x9, [x9]
     cbz x9, .Lwct_retain_done
-    adrp x0, tc_watch_wins
-    add x0, x0, :lo12:tc_watch_wins
+    adrp x0, PAGE(tc_watch_wins)
+    add x0, x0, LO12(tc_watch_wins)
     ldr x0, [x0]
     // (the windows list is handled in watch_gather; readers are retained below)
 .Lwct_retain_done:
@@ -4709,23 +4797,23 @@ watch_gather:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // reset bookkeeping + windows
-    adrp x9, tc_watch_g_files
-    add x9, x9, :lo12:tc_watch_g_files
+    adrp x9, PAGE(tc_watch_g_files)
+    add x9, x9, LO12(tc_watch_g_files)
     str xzr, [x9]
     str xzr, [x9, #8]                  // parsed
     str xzr, [x9, #16]                 // reused
-    adrp x9, tc_watch_g_unr_n
-    add x9, x9, :lo12:tc_watch_g_unr_n
+    adrp x9, PAGE(tc_watch_g_unr_n)
+    add x9, x9, LO12(tc_watch_g_unr_n)
     str xzr, [x9]
-    adrp x9, tc_watch_win_n
-    add x9, x9, :lo12:tc_watch_win_n
+    adrp x9, PAGE(tc_watch_win_n)
+    add x9, x9, LO12(tc_watch_win_n)
     str xzr, [x9]
-    adrp x9, tc_watch_sqlite_hit
-    add x9, x9, :lo12:tc_watch_sqlite_hit
+    adrp x9, PAGE(tc_watch_sqlite_hit)
+    add x9, x9, LO12(tc_watch_sqlite_hit)
     str xzr, [x9]
     // window epochs + shared state
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
     bl watch_ymd_sod_to_epoch
@@ -4736,32 +4824,32 @@ watch_gather:
     mov x21, x0
     ldr x22, [x19, #TC_W_BEGIN_YMD]
     ldr x23, [x19, #TC_W_END_YMD]
-    adrp x9, tc_watch_cur_state
-    add x9, x9, :lo12:tc_watch_cur_state
+    adrp x9, PAGE(tc_watch_cur_state)
+    add x9, x9, LO12(tc_watch_cur_state)
     ldr x25, [x9]
     bl tc_cache_used
     mov x26, x0
-    adrp x27, tc_listing
-    add x27, x27, :lo12:tc_listing
+    adrp x27, PAGE(tc_listing)
+    add x27, x27, LO12(tc_listing)
     ldr x27, [x27, #TC_L_COUNT]
     // stash the shared state for the per-file helper
-    adrp x9, tc_watch_g_begin
-    add x9, x9, :lo12:tc_watch_g_begin
+    adrp x9, PAGE(tc_watch_g_begin)
+    add x9, x9, LO12(tc_watch_g_begin)
     str x20, [x9]
-    adrp x9, tc_watch_g_end
-    add x9, x9, :lo12:tc_watch_g_end
+    adrp x9, PAGE(tc_watch_g_end)
+    add x9, x9, LO12(tc_watch_g_end)
     str x21, [x9]
-    adrp x9, tc_watch_g_begin_ymd
-    add x9, x9, :lo12:tc_watch_g_begin_ymd
+    adrp x9, PAGE(tc_watch_g_begin_ymd)
+    add x9, x9, LO12(tc_watch_g_begin_ymd)
     str x22, [x9]
-    adrp x9, tc_watch_g_end_ymd
-    add x9, x9, :lo12:tc_watch_g_end_ymd
+    adrp x9, PAGE(tc_watch_g_end_ymd)
+    add x9, x9, LO12(tc_watch_g_end_ymd)
     str x23, [x9]
-    adrp x9, tc_watch_g_enter
-    add x9, x9, :lo12:tc_watch_g_enter
+    adrp x9, PAGE(tc_watch_g_enter)
+    add x9, x9, LO12(tc_watch_g_enter)
     str x25, [x9]
-    adrp x9, tc_watch_g_cache
-    add x9, x9, :lo12:tc_watch_g_cache
+    adrp x9, PAGE(tc_watch_g_cache)
+    add x9, x9, LO12(tc_watch_g_cache)
     str x26, [x9]
     mov x19, #0                        // i
 .Lwg_loop:
@@ -4769,14 +4857,14 @@ watch_gather:
     b.ge .Lwg_done
     mov x0, x19
     bl watch_gather_file
-    adrp x9, tc_watch_g_enter
-    add x9, x9, :lo12:tc_watch_g_enter
+    adrp x9, PAGE(tc_watch_g_enter)
+    add x9, x9, LO12(tc_watch_g_enter)
     ldr x25, [x9]
     add x19, x19, #1
     b .Lwg_loop
 .Lwg_done:
-    adrp x9, tc_watch_cur_state
-    add x9, x9, :lo12:tc_watch_cur_state
+    adrp x9, PAGE(tc_watch_cur_state)
+    add x9, x9, LO12(tc_watch_cur_state)
     str x25, [x9]
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -4803,27 +4891,27 @@ watch_gather_file:
     stp x27, x28, [sp, #-16]!
     mov x19, x0                        // i
     // entry
-    adrp x9, tc_listing
-    add x9, x9, :lo12:tc_listing
+    adrp x9, PAGE(tc_listing)
+    add x9, x9, LO12(tc_listing)
     ldr x10, [x9, #TC_L_ENTRIES]
     mov x11, #TC_L_ENTRY_SZ
     mul x11, x19, x11
     add x19, x10, x11                  // listing entry (x19)
     ldr x21, [x19, #TC_L_YMD]
     // range check
-    adrp x9, tc_watch_g_begin_ymd
-    add x9, x9, :lo12:tc_watch_g_begin_ymd
+    adrp x9, PAGE(tc_watch_g_begin_ymd)
+    add x9, x9, LO12(tc_watch_g_begin_ymd)
     ldr x10, [x9]
     cmp x21, x10
     b.lt .Lwgf_done
-    adrp x9, tc_watch_g_end_ymd
-    add x9, x9, :lo12:tc_watch_g_end_ymd
+    adrp x9, PAGE(tc_watch_g_end_ymd)
+    add x9, x9, LO12(tc_watch_g_end_ymd)
     ldr x10, [x9]
     cmp x21, x10
     b.gt .Lwgf_done
     // files++
-    adrp x9, tc_watch_g_files
-    add x9, x9, :lo12:tc_watch_g_files
+    adrp x9, PAGE(tc_watch_g_files)
+    add x9, x9, LO12(tc_watch_g_files)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -4832,11 +4920,11 @@ watch_gather_file:
     mov x1, #0
     bl watch_ymd_sod_to_epoch
     mov x22, x0                        // day_start
-    adrp x9, tc_watch_g_begin
-    add x9, x9, :lo12:tc_watch_g_begin
+    adrp x9, PAGE(tc_watch_g_begin)
+    add x9, x9, LO12(tc_watch_g_begin)
     ldr x10, [x9]                      // begin_epoch
-    adrp x11, tc_watch_g_end
-    add x11, x11, :lo12:tc_watch_g_end
+    adrp x11, PAGE(tc_watch_g_end)
+    add x11, x11, LO12(tc_watch_g_end)
     ldr x11, [x11]                     // end_epoch
     cmp x10, x22
     b.le .Lwgf_lo0
@@ -4866,26 +4954,26 @@ watch_gather_file:
     mov x25, #1                        // whole_day
 .Lwgf_wd_done:
     // build the file path
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
-    adrp x1, tc_watch_dirpath
-    add x1, x1, :lo12:tc_watch_dirpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
+    adrp x1, PAGE(tc_watch_dirpath)
+    add x1, x1, LO12(tc_watch_dirpath)
     bl wc_cat
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x19, #TC_L_NAME
     bl wc_cat
     // stat
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
-    adrp x20, tc_watch_stat
-    add x20, x20, :lo12:tc_watch_stat
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
+    adrp x20, PAGE(tc_watch_stat)
+    add x20, x20, LO12(tc_watch_stat)
     mov x1, x20
     bl stat
     cbnz w0, .Lwgf_unreadable
     // entry was clobbered by the path build; reload it
-    adrp x9, tc_listing
-    add x9, x9, :lo12:tc_listing
+    adrp x9, PAGE(tc_listing)
+    add x9, x9, LO12(tc_listing)
     ldr x10, [x9, #TC_L_ENTRIES]
     mov x11, #TC_L_ENTRY_SZ
     mul x11, x0, x11
@@ -4897,12 +4985,12 @@ watch_gather_file:
     // instead we stash the entry pointer in x19 before any call — it was
     // clobbered.  Recover it from the fdless scan below.
     // (fixed: we keep x19 as the entry across calls by re-reading it here)
-    adrp x9, tc_listing
-    add x9, x9, :lo12:tc_listing
+    adrp x9, PAGE(tc_listing)
+    add x9, x9, LO12(tc_listing)
     ldr x10, [x9, #TC_L_ENTRIES]
     // scan for the entry whose ymd matches x21
-    adrp x11, tc_listing
-    add x11, x11, :lo12:tc_listing
+    adrp x11, PAGE(tc_listing)
+    add x11, x11, LO12(tc_listing)
     ldr x12, [x11, #TC_L_COUNT]
     mov x13, #0
 .Lwgf_rescan:
@@ -4925,11 +5013,11 @@ watch_gather_file:
     mul x9, x9, x10
     ldr x10, [x20, #ST_MTIM_NSEC]
     add x28, x9, x10                    // mtime_ns
-    adrp x9, tc_watch_g_enter
-    add x9, x9, :lo12:tc_watch_g_enter
+    adrp x9, PAGE(tc_watch_g_enter)
+    add x9, x9, LO12(tc_watch_g_enter)
     ldr x26, [x9]                       // enter
-    adrp x9, tc_watch_g_cache
-    add x9, x9, :lo12:tc_watch_g_cache
+    adrp x9, PAGE(tc_watch_g_cache)
+    add x9, x9, LO12(tc_watch_g_cache)
     ldr x10, [x9]                       // cache_used
     // ---- whole-day cache/memo --------------------------------------------
     cbz x25, .Lwgf_reader
@@ -4941,8 +5029,8 @@ watch_gather_file:
     bl watch_memo_find
     cbz x0, .Lwgf_memo_miss
     // memo hit: reused++, window = memo counts, enter = memo exit
-    adrp x9, tc_watch_g_reused
-    add x9, x9, :lo12:tc_watch_g_reused
+    adrp x9, PAGE(tc_watch_g_reused)
+    add x9, x9, LO12(tc_watch_g_reused)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -4950,13 +5038,13 @@ watch_gather_file:
     ldr x0, [x11, #DM_COUNTS]
     bl watch_win_add
     ldr x9, [x11, #DM_EXIT]
-    adrp x10, tc_watch_g_enter
-    add x10, x10, :lo12:tc_watch_g_enter
+    adrp x10, PAGE(tc_watch_g_enter)
+    add x10, x10, LO12(tc_watch_g_enter)
     str x9, [x10]
     b .Lwgf_done
 .Lwgf_memo_miss:
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
     mov x1, x23                        // lo
     mov x2, x24                        // hi
     mov x3, x26
@@ -4968,18 +5056,18 @@ watch_gather_file:
     b.eq .Lwgf_sqlite_hit
     b .Lwgf_reader
 .Lwgf_sqlite_hit:
-    adrp x9, tc_watch_sqlite_hit
-    add x9, x9, :lo12:tc_watch_sqlite_hit
+    adrp x9, PAGE(tc_watch_sqlite_hit)
+    add x9, x9, LO12(tc_watch_sqlite_hit)
     mov x10, #1
     str x10, [x9]
-    adrp x9, tc_watch_g_reused
-    add x9, x9, :lo12:tc_watch_g_reused
+    adrp x9, PAGE(tc_watch_g_reused)
+    add x9, x9, LO12(tc_watch_g_reused)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
     // build the memo counts from the reader (cold read once per session)
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
     mov x1, x21
     bl watch_reader_get
     mov x19, x0                        // rd
@@ -5016,25 +5104,25 @@ watch_gather_file:
     ldr x0, [x11, #DM_COUNTS]
     bl watch_win_add
     ldr x9, [x11, #DM_EXIT]
-    adrp x10, tc_watch_g_enter
-    add x10, x10, :lo12:tc_watch_g_enter
+    adrp x10, PAGE(tc_watch_g_enter)
+    add x10, x10, LO12(tc_watch_g_enter)
     str x9, [x10]
     b .Lwgf_done
 .Lwgf_reader:
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
     mov x1, x21
     bl watch_reader_get
     mov x19, x0                        // rd
     // floor = max(0, int(lo - retain)) unless seeking
 
     mov x3, #0
-    adrp x9, tc_watch_seeking
-    add x9, x9, :lo12:tc_watch_seeking
+    adrp x9, PAGE(tc_watch_seeking)
+    add x9, x9, LO12(tc_watch_seeking)
     ldr x9, [x9]
     cbnz x9, .Lwgf_floor_done
-    adrp x9, tc_watch_retain_seconds
-    add x9, x9, :lo12:tc_watch_retain_seconds
+    adrp x9, PAGE(tc_watch_retain_seconds)
+    add x9, x9, LO12(tc_watch_retain_seconds)
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwgf_floor_done
@@ -5052,8 +5140,8 @@ watch_gather_file:
     b.lt .Lwgf_unreadable
 
     cbz x0, .Lwgf_parsed_done
-    adrp x9, tc_watch_g_parsed
-    add x9, x9, :lo12:tc_watch_g_parsed
+    adrp x9, PAGE(tc_watch_g_parsed)
+    add x9, x9, LO12(tc_watch_g_parsed)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -5067,8 +5155,8 @@ watch_gather_file:
 
     // put whole day (cold read, no appends, not partial)
     cbz x25, .Lwgf_put_done
-    adrp x9, tc_watch_g_cache
-    add x9, x9, :lo12:tc_watch_g_cache
+    adrp x9, PAGE(tc_watch_g_cache)
+    add x9, x9, LO12(tc_watch_g_cache)
     ldr x9, [x9]
     cbz x9, .Lwgf_put_done
     ldr x9, [x19, #RD_APPENDS]
@@ -5079,13 +5167,13 @@ watch_gather_file:
     bl tc_cache_put_day
 .Lwgf_put_done:
     ldr x9, [x19, #RD_EXIT]
-    adrp x10, tc_watch_g_enter
-    add x10, x10, :lo12:tc_watch_g_enter
+    adrp x10, PAGE(tc_watch_g_enter)
+    add x10, x10, LO12(tc_watch_g_enter)
     str x9, [x10]
     // memo the whole day (never partial)
     cbz x25, .Lwgf_win_add
-    adrp x9, tc_watch_g_cache
-    add x9, x9, :lo12:tc_watch_g_cache
+    adrp x9, PAGE(tc_watch_g_cache)
+    add x9, x9, LO12(tc_watch_g_cache)
     ldr x9, [x9]
     cbz x9, .Lwgf_win_add
     ldr x9, [x19, #RD_PARTIAL]
@@ -5114,11 +5202,11 @@ watch_gather_file:
     b .Lwgf_done
 .Lwgf_unreadable:
     add x0, x19, #TC_L_NAME
-    adrp x1, s_cannot_read
-    add x1, x1, :lo12:s_cannot_read
+    adrp x1, PAGE(s_cannot_read)
+    add x1, x1, LO12(s_cannot_read)
     bl watch_record_unreadable
-    adrp x9, tc_watch_g_enter
-    add x9, x9, :lo12:tc_watch_g_enter
+    adrp x9, PAGE(tc_watch_g_enter)
+    add x9, x9, LO12(tc_watch_g_enter)
     str xzr, [x9]
 .Lwgf_done:
     ldp x27, x28, [sp], #16
@@ -5137,11 +5225,11 @@ watch_win_add:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // win ptr
-    adrp x9, tc_watch_win_n
-    add x9, x9, :lo12:tc_watch_win_n
+    adrp x9, PAGE(tc_watch_win_n)
+    add x9, x9, LO12(tc_watch_win_n)
     ldr x10, [x9]
-    adrp x11, tc_watch_wins_cap
-    add x11, x11, :lo12:tc_watch_wins_cap
+    adrp x11, PAGE(tc_watch_wins_cap)
+    add x11, x11, LO12(tc_watch_wins_cap)
     ldr x12, [x11]
     cmp x10, x12
     b.lt .Lwina_append
@@ -5152,25 +5240,25 @@ watch_win_add:
     mov x12, #WINLIST_INIT
 .Lwina_alloc:
     mov x20, x12
-    adrp x9, tc_watch_wins
-    add x9, x9, :lo12:tc_watch_wins
+    adrp x9, PAGE(tc_watch_wins)
+    add x9, x9, LO12(tc_watch_wins)
     ldr x0, [x9]
     mov x1, #8
     mul x1, x12, x1
     bl realloc
     cbz x0, .Lwina_oom
-    adrp x9, tc_watch_wins
-    add x9, x9, :lo12:tc_watch_wins
+    adrp x9, PAGE(tc_watch_wins)
+    add x9, x9, LO12(tc_watch_wins)
     str x0, [x9]
-    adrp x9, tc_watch_wins_cap
-    add x9, x9, :lo12:tc_watch_wins_cap
+    adrp x9, PAGE(tc_watch_wins_cap)
+    add x9, x9, LO12(tc_watch_wins_cap)
     str x20, [x9]
 .Lwina_append:
-    adrp x9, tc_watch_win_n
-    add x9, x9, :lo12:tc_watch_win_n
+    adrp x9, PAGE(tc_watch_win_n)
+    add x9, x9, LO12(tc_watch_win_n)
     ldr x10, [x9]
-    adrp x11, tc_watch_wins
-    add x11, x11, :lo12:tc_watch_wins
+    adrp x11, PAGE(tc_watch_wins)
+    add x11, x11, LO12(tc_watch_wins)
     ldr x11, [x11]
     str x19, [x11, x10, lsl #3]
     add x10, x10, #1
@@ -5179,8 +5267,8 @@ watch_win_add:
     ldp x29, x30, [sp], #16
     ret
 .Lwina_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -5193,14 +5281,14 @@ watch_record_unreadable:
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // name
     mov x20, x1                        // reason
-    adrp x9, tc_watch_g_unr_n
-    add x9, x9, :lo12:tc_watch_g_unr_n
+    adrp x9, PAGE(tc_watch_g_unr_n)
+    add x9, x9, LO12(tc_watch_g_unr_n)
     ldr x10, [x9]
     ldr x11, =64
     cmp x10, x11
     b.ge .Lwru_done
-    adrp x11, tc_watch_g_unr
-    add x11, x11, :lo12:tc_watch_g_unr
+    adrp x11, PAGE(tc_watch_g_unr)
+    add x11, x11, LO12(tc_watch_g_unr)
     mov x12, #96
     mul x12, x10, x12
     add x11, x11, x12
@@ -5249,36 +5337,36 @@ watch_fold:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x19, [x9, #TC_W_STATE_FILTER]  // shape
-    adrp x9, tc_watch_sqlite_hit
-    add x9, x9, :lo12:tc_watch_sqlite_hit
+    adrp x9, PAGE(tc_watch_sqlite_hit)
+    add x9, x9, LO12(tc_watch_sqlite_hit)
     ldr x20, [x9]
-    adrp x9, tc_watch_win_n
-    add x9, x9, :lo12:tc_watch_win_n
+    adrp x9, PAGE(tc_watch_win_n)
+    add x9, x9, LO12(tc_watch_win_n)
     ldr x21, [x9]                      // n
     // reuse?
-    adrp x9, tc_watch_fold_n
-    add x9, x9, :lo12:tc_watch_fold_n
+    adrp x9, PAGE(tc_watch_fold_n)
+    add x9, x9, LO12(tc_watch_fold_n)
     ldr x10, [x9]
     cmp x10, x21
     b.ne .Lwf_rebuild
-    adrp x9, tc_watch_fold_shape
-    add x9, x9, :lo12:tc_watch_fold_shape
+    adrp x9, PAGE(tc_watch_fold_shape)
+    add x9, x9, LO12(tc_watch_fold_shape)
     ldr x10, [x9]
     cmp x10, x19
     b.ne .Lwf_rebuild
-    adrp x9, tc_watch_fold_sqlite
-    add x9, x9, :lo12:tc_watch_fold_sqlite
+    adrp x9, PAGE(tc_watch_fold_sqlite)
+    add x9, x9, LO12(tc_watch_fold_sqlite)
     ldr x10, [x9]
     cmp x10, x20
     b.ne .Lwf_rebuild
     // compare the pointer lists
-    adrp x9, tc_watch_fold_wins
-    add x9, x9, :lo12:tc_watch_fold_wins
-    adrp x10, tc_watch_wins
-    add x10, x10, :lo12:tc_watch_wins
+    adrp x9, PAGE(tc_watch_fold_wins)
+    add x9, x9, LO12(tc_watch_fold_wins)
+    adrp x10, PAGE(tc_watch_wins)
+    add x10, x10, LO12(tc_watch_wins)
     ldr x10, [x10]
     mov x22, #0
 .Lwf_cmp:
@@ -5296,19 +5384,19 @@ watch_fold:
 .Lwf_rebuild:
     bl watch_reset_count
     // apply every window
-    adrp x9, tc_watch_win_n
-    add x9, x9, :lo12:tc_watch_win_n
+    adrp x9, PAGE(tc_watch_win_n)
+    add x9, x9, LO12(tc_watch_win_n)
     ldr x21, [x9]
-    adrp x9, tc_watch_wins
-    add x9, x9, :lo12:tc_watch_wins
+    adrp x9, PAGE(tc_watch_wins)
+    add x9, x9, LO12(tc_watch_wins)
     ldr x10, [x9]
     mov x22, #0
 .Lwf_apply:
     cmp x22, x21
     b.ge .Lwf_finish
     // reload the windows base: watch_apply below clobbers caller-saved x10
-    adrp x9, tc_watch_wins
-    add x9, x9, :lo12:tc_watch_wins
+    adrp x9, PAGE(tc_watch_wins)
+    add x9, x9, LO12(tc_watch_wins)
     ldr x10, [x9]
     ldr x24, [x10, x22, lsl #3]
     // iterate the WW record: each {login, state, n}
@@ -5341,19 +5429,19 @@ watch_fold:
     bl watch_finish
 .Lwf_store:
     // remember the shape + pointers
-    adrp x9, tc_watch_fold_shape
-    add x9, x9, :lo12:tc_watch_fold_shape
+    adrp x9, PAGE(tc_watch_fold_shape)
+    add x9, x9, LO12(tc_watch_fold_shape)
     str x19, [x9]
-    adrp x9, tc_watch_fold_sqlite
-    add x9, x9, :lo12:tc_watch_fold_sqlite
+    adrp x9, PAGE(tc_watch_fold_sqlite)
+    add x9, x9, LO12(tc_watch_fold_sqlite)
     str x20, [x9]
-    adrp x9, tc_watch_fold_n
-    add x9, x9, :lo12:tc_watch_fold_n
+    adrp x9, PAGE(tc_watch_fold_n)
+    add x9, x9, LO12(tc_watch_fold_n)
     str x21, [x9]
-    adrp x9, tc_watch_fold_wins
-    add x9, x9, :lo12:tc_watch_fold_wins
-    adrp x10, tc_watch_wins
-    add x10, x10, :lo12:tc_watch_wins
+    adrp x9, PAGE(tc_watch_fold_wins)
+    add x9, x9, LO12(tc_watch_fold_wins)
+    adrp x10, PAGE(tc_watch_wins)
+    add x10, x10, LO12(tc_watch_wins)
     ldr x10, [x10]
     mov x22, #0
 .Lwf_copy:
@@ -5379,15 +5467,15 @@ watch_fold:
     .p2align 2
 watch_reset_count:
     stp x29, x30, [sp, #-16]!
-    adrp x0, tc_tally
-    add x0, x0, :lo12:tc_tally
+    adrp x0, PAGE(tc_tally)
+    add x0, x0, LO12(tc_tally)
     mov x1, #0
     mov x2, #TC_TALLY_SIZE
     bl memset
-    adrp x0, tc_tally
-    add x0, x0, :lo12:tc_tally
-    adrp x1, tc_users
-    add x1, x1, :lo12:tc_users
+    adrp x0, PAGE(tc_tally)
+    add x0, x0, LO12(tc_tally)
+    adrp x1, PAGE(tc_users)
+    add x1, x1, LO12(tc_users)
     str x1, [x0, #TC_T_USERS_PTR]
     str xzr, [x1, #TC_US_COUNT]
     ldp x29, x30, [sp], #16
@@ -5406,8 +5494,8 @@ watch_apply:
     mov x20, x1                        // len
     mov x21, x2                        // state
     mov x22, x3                        // n
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     mov x0, x19
     mov x1, x20
     bl find_user
@@ -5415,12 +5503,12 @@ watch_apply:
     b.ge .Lwapp_have
     mov x0, x19
     mov x1, x20
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     bl add_user
 .Lwapp_have:
-    adrp x9, tc_users
-    add x9, x9, :lo12:tc_users
+    adrp x9, PAGE(tc_users)
+    add x9, x9, LO12(tc_users)
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
@@ -5460,8 +5548,8 @@ watch_finish:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_tally
-    add x19, x19, :lo12:tc_tally
+    adrp x19, PAGE(tc_tally)
+    add x19, x19, LO12(tc_tally)
     str xzr, [x19, #TC_T_STATES + 0]
     str xzr, [x19, #TC_T_STATES + 8]
     str xzr, [x19, #TC_T_STATES + 16]
@@ -5469,8 +5557,8 @@ watch_finish:
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 8]
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 16]
     str xzr, [x19, #TC_T_MESSAGES]
-    adrp x20, tc_users
-    add x20, x20, :lo12:tc_users
+    adrp x20, PAGE(tc_users)
+    add x20, x20, LO12(tc_users)
     ldr x21, [x20, #TC_US_COUNT]
     ldr x22, [x20, #TC_US_ENTRIES]
     mov x23, #0
@@ -5542,16 +5630,16 @@ watch_retain_readers:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // build the live path list = listing entry names
-    adrp x19, tc_listing
-    add x19, x19, :lo12:tc_listing
+    adrp x19, PAGE(tc_listing)
+    add x19, x19, LO12(tc_listing)
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     // keep readers whose path matches an entry
-    adrp x22, tc_watch_reader_n
-    add x22, x22, :lo12:tc_watch_reader_n
+    adrp x22, PAGE(tc_watch_reader_n)
+    add x22, x22, LO12(tc_watch_reader_n)
     ldr x23, [x22]
-    adrp x24, tc_watch_readers
-    add x24, x24, :lo12:tc_watch_readers
+    adrp x24, PAGE(tc_watch_readers)
+    add x24, x24, LO12(tc_watch_readers)
     ldr x24, [x24]
     mov x25, #0                        // out
     mov x26, #0                        // i
@@ -5582,8 +5670,8 @@ watch_retain_readers:
     // memo retain: live ymd list
     cbz x20, .Lwret_memo_none
     // build the live ymd array in the scratch
-    adrp x0, tc_watch_scratch
-    add x0, x0, :lo12:tc_watch_scratch
+    adrp x0, PAGE(tc_watch_scratch)
+    add x0, x0, LO12(tc_watch_scratch)
     mov x1, #0
     mov x2, #2048
     bl memset
@@ -5595,20 +5683,20 @@ watch_retain_readers:
     mul x9, x19, x9
     add x10, x21, x9
     ldr x11, [x10, #TC_L_YMD]
-    adrp x12, tc_watch_scratch
-    add x12, x12, :lo12:tc_watch_scratch
+    adrp x12, PAGE(tc_watch_scratch)
+    add x12, x12, LO12(tc_watch_scratch)
     str x11, [x12, x19, lsl #3]
     add x19, x19, #1
     b .Lwret_live
 .Lwret_live_done:
     mov x0, x20
-    adrp x1, tc_watch_scratch
-    add x1, x1, :lo12:tc_watch_scratch
+    adrp x1, PAGE(tc_watch_scratch)
+    add x1, x1, LO12(tc_watch_scratch)
     bl watch_memo_retain
     b .Lwret_out
 .Lwret_memo_none:
-    adrp x9, tc_watch_days_n
-    add x9, x9, :lo12:tc_watch_days_n
+    adrp x9, PAGE(tc_watch_days_n)
+    add x9, x9, LO12(tc_watch_days_n)
     str xzr, [x9]
 .Lwret_out:
     ldp x27, x28, [sp], #16
@@ -5692,12 +5780,12 @@ watch_seed_state:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x19, [x9, #TC_W_BEGIN_YMD]     // begin_ymd
     // find earlier = listing entries with ymd < begin_ymd
-    adrp x20, tc_listing
-    add x20, x20, :lo12:tc_listing
+    adrp x20, PAGE(tc_listing)
+    add x20, x20, LO12(tc_listing)
     ldr x21, [x20, #TC_L_COUNT]
     ldr x22, [x20, #TC_L_ENTRIES]
     mov x23, #0                        // earlier count
@@ -5723,23 +5811,23 @@ watch_seed_state:
     mul x9, x24, x9
     add x25, x22, x9                   // last entry
     // build its path
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
-    adrp x1, tc_watch_dirpath
-    add x1, x1, :lo12:tc_watch_dirpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
+    adrp x1, PAGE(tc_watch_dirpath)
+    add x1, x1, LO12(tc_watch_dirpath)
     bl wc_cat
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x25, #TC_L_NAME
     bl wc_cat
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
-    adrp x1, tc_watch_stat
-    add x1, x1, :lo12:tc_watch_stat
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
+    adrp x1, PAGE(tc_watch_stat)
+    add x1, x1, LO12(tc_watch_stat)
     bl stat
     cbnz w0, .Lwss_none_earlier
-    adrp x1, tc_watch_stat             // reload: bl stat clobbered caller-saved x1
-    add x1, x1, :lo12:tc_watch_stat
+    adrp x1, PAGE(tc_watch_stat)             // reload: bl stat clobbered caller-saved x1
+    add x1, x1, LO12(tc_watch_stat)
     ldr x26, [x25, #TC_L_YMD]          // earlier_last_ymd
     ldr x27, [x1, #ST_SIZE]            // size
     ldr x9, [x1, #ST_MTIM_SEC]
@@ -5759,8 +5847,8 @@ watch_seed_state:
     mov x20, #1                        // memoizable
 .Lwss_key_skip:
     // memo key match?
-    adrp x9, tc_watch_seed_key1
-    add x9, x9, :lo12:tc_watch_seed_key1
+    adrp x9, PAGE(tc_watch_seed_key1)
+    add x9, x9, LO12(tc_watch_seed_key1)
     ldr x10, [x9]
     cmp x10, x19
     b.ne .Lwss_scan
@@ -5777,8 +5865,8 @@ watch_seed_state:
     b .Lwss_out
 .Lwss_scan:
     // scan reversed(earlier[-lookback:]) — the last min(count, lookback) files
-    adrp x9, tc_watch_seed_lookback
-    add x9, x9, :lo12:tc_watch_seed_lookback
+    adrp x9, PAGE(tc_watch_seed_lookback)
+    add x9, x9, LO12(tc_watch_seed_lookback)
     ldr x10, [x9]
     cmp x23, x10
     b.le .Lwss_start
@@ -5797,17 +5885,17 @@ watch_seed_state:
     mul x9, x24, x9
     add x10, x22, x9                   // entry
     // build the path
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
-    adrp x1, tc_watch_dirpath
-    add x1, x1, :lo12:tc_watch_dirpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
+    adrp x1, PAGE(tc_watch_dirpath)
+    add x1, x1, LO12(tc_watch_dirpath)
     bl wc_cat
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x10, #TC_L_NAME
     bl wc_cat
-    adrp x0, tc_watch_fpath
-    add x0, x0, :lo12:tc_watch_fpath
+    adrp x0, PAGE(tc_watch_fpath)
+    add x0, x0, LO12(tc_watch_fpath)
     bl watch_scan_markers              // x0 = state 0/1/2 (0 = none found)
     cbnz x0, .Lwss_found
     sub x21, x21, #1
@@ -5817,13 +5905,13 @@ watch_seed_state:
 .Lwss_done:
     // memoize only when the earlier-file stat succeeded (Python: key None)
     cbz x20, .Lwss_out
-    adrp x9, tc_watch_seed_key1
-    add x9, x9, :lo12:tc_watch_seed_key1
+    adrp x9, PAGE(tc_watch_seed_key1)
+    add x9, x9, LO12(tc_watch_seed_key1)
     // store the key (begin_ymd, earlier_ymd, size, mtime)
-    adrp x9, tc_watch_seed_key1
-    add x9, x9, :lo12:tc_watch_seed_key1
-    adrp x10, tc_window
-    add x10, x10, :lo12:tc_window
+    adrp x9, PAGE(tc_watch_seed_key1)
+    add x9, x9, LO12(tc_watch_seed_key1)
+    adrp x10, PAGE(tc_window)
+    add x10, x10, LO12(tc_window)
     ldr x10, [x10, #TC_W_BEGIN_YMD]
     str x10, [x9]
     str x26, [x9, #8]
@@ -5987,8 +6075,8 @@ watch_size_users:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x10, [x9, #TC_W_KIND]
     cmp x10, #TC_WIN_USERS
     b.ne .Lwsu_done
@@ -5997,8 +6085,8 @@ watch_size_users:
     ldr x1, [x9, #TC_W_END_SOD]
     bl watch_ymd_sod_to_epoch
     mov x19, x0                        // end_epoch
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x20, [x9, #TC_O_USERS]         // requested
     ldr x21, [x9, #TC_O_USERS_MAX]     // ceiling
     cmp x21, #1
@@ -6008,12 +6096,12 @@ watch_size_users:
     bl watch_eff_threshold
     mov x22, x0                        // eff
     // search memo reset
-    adrp x9, tc_watch_search_n
-    add x9, x9, :lo12:tc_watch_search_n
+    adrp x9, PAGE(tc_watch_search_n)
+    add x9, x9, LO12(tc_watch_search_n)
     str xzr, [x9]
     // seeking flag on
-    adrp x9, tc_watch_seeking
-    add x9, x9, :lo12:tc_watch_seeking
+    adrp x9, PAGE(tc_watch_seeking)
+    add x9, x9, LO12(tc_watch_seeking)
     mov x10, #1
     str x10, [x9]
     // widest = reported(ceiling)
@@ -6080,8 +6168,8 @@ watch_size_users:
     bl watch_reported_width
     mov x27, x0                        // under
     // policy
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x9, [x9, #TC_O_USERS_POLICY]
     cmp x9, #TC_POLICY_AT_MOST
     b.eq .Lwsu_at_most
@@ -6119,26 +6207,26 @@ watch_size_users:
     mov x2, x23
     b .Lwsu_apply
 .Lwsu_apply:
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     str x1, [x9, #TC_W_USERS_WIDTH]
     str x2, [x9, #TC_W_USERS_FOUND]
-    adrp x9, tc_watch_win_width
-    add x9, x9, :lo12:tc_watch_win_width
+    adrp x9, PAGE(tc_watch_win_width)
+    add x9, x9, LO12(tc_watch_win_width)
     str x1, [x9]
     sub x0, x19, x1
     bl watch_epoch_to_ymd_sod
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
 .Lwsu_done:
-    adrp x9, tc_watch_seeking
-    add x9, x9, :lo12:tc_watch_seeking
+    adrp x9, PAGE(tc_watch_seeking)
+    add x9, x9, LO12(tc_watch_seeking)
     str xzr, [x9]
     // clear the fold-reuse state: the probes perturbed the tables
-    adrp x9, tc_watch_fold_n
-    add x9, x9, :lo12:tc_watch_fold_n
+    adrp x9, PAGE(tc_watch_fold_n)
+    add x9, x9, LO12(tc_watch_fold_n)
     str xzr, [x9]
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -6160,8 +6248,8 @@ watch_reported_width:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                        // seconds
-    adrp x20, tc_window
-    add x20, x20, :lo12:tc_window
+    adrp x20, PAGE(tc_window)
+    add x20, x20, LO12(tc_window)
     ldr x0, [x20, #TC_W_END_YMD]
     ldr x1, [x20, #TC_W_END_SOD]
     bl watch_ymd_sod_to_epoch
@@ -6172,8 +6260,8 @@ watch_reported_width:
     bl watch_count_tick
     bl watch_eff_threshold
     mov x21, x0                        // eff
-    adrp x22, tc_users
-    add x22, x22, :lo12:tc_users
+    adrp x22, PAGE(tc_users)
+    add x22, x22, LO12(tc_users)
     ldr x23, [x22, #TC_US_COUNT]
     ldr x24, [x22, #TC_US_ENTRIES]
     mov x19, #0                        // n
@@ -6213,8 +6301,8 @@ watch_reported_width:
     .p2align 2
 watch_eff_threshold:
     stp x29, x30, [sp, #-16]!
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
     cmp x2, #TC_M_OFFLINE_SHARE
@@ -6256,38 +6344,38 @@ watch_build_ramps:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_watch_shades
-    add x19, x19, :lo12:tc_watch_shades
+    adrp x19, PAGE(tc_watch_shades)
+    add x19, x19, LO12(tc_watch_shades)
     ldr x20, [x19]                     // shades
     ldr x9, =SHADES_MAX
     cmp x20, x9
     b.le .Lwbr_shades_ok
-    adrp x0, s_shades_too_large
-    add x0, x0, :lo12:s_shades_too_large
+    adrp x0, PAGE(s_shades_too_large)
+    add x0, x0, LO12(s_shades_too_large)
     bl tc_report_fail
 .Lwbr_shades_ok:
     cmp x20, #1
     b.ge .Lwbr_shades_ge
     mov x20, #1                        // steps = max(1, shades)
 .Lwbr_shades_ge:
-    adrp x21, tc_watch_ramp_count
-    add x21, x21, :lo12:tc_watch_ramp_count
+    adrp x21, PAGE(tc_watch_ramp_count)
+    add x21, x21, LO12(tc_watch_ramp_count)
     mov x22, #0                        // ramp index
     // ramp 0: up
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_FADE_UP_RGB
     mov x1, x20
     mov x2, #0                         // key "up"
     bl watch_build_one_ramp            // x0 = ramp base
     add x22, x22, #1
     // ramp 1: down when tint_falling
-    adrp x9, tc_watch_tint_falling
-    add x9, x9, :lo12:tc_watch_tint_falling
+    adrp x9, PAGE(tc_watch_tint_falling)
+    add x9, x9, LO12(tc_watch_tint_falling)
     ldr x9, [x9]
     cbz x9, .Lwbr_highlights
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_FADE_DOWN_RGB
     mov x1, x20
     mov x2, #1
@@ -6295,16 +6383,16 @@ watch_build_ramps:
     add x22, x22, #1
 .Lwbr_highlights:
     // highlight rules
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x23, [x9, #TC_O_HL_COUNT]
     mov x24, #0
 .Lwbr_hl:
     cmp x24, x23
     b.ge .Lwbr_count
     // rule entry
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     add x9, x9, #TC_O_HL_ARR
     mov x10, #TC_HL_RULE_SZ
     mul x10, x24, x10
@@ -6337,22 +6425,22 @@ watch_build_ramps:
     bl watch_ramp_distinct             // x0 = 1 when all shades identical
     cbz x0, .Lwbr_degen_next
     // raise the ConfigError
-    adrp x19, tc_watch_errbuf
-    add x19, x19, :lo12:tc_watch_errbuf
+    adrp x19, PAGE(tc_watch_errbuf)
+    add x19, x19, LO12(tc_watch_errbuf)
     mov x23, x19
     mov x0, x23
-    adrp x1, s_watch_fade_curve
-    add x1, x1, :lo12:s_watch_fade_curve
+    adrp x1, PAGE(s_watch_fade_curve)
+    add x1, x1, LO12(s_watch_fade_curve)
     bl wc_cat
     mov x23, x0
     // {curve!r}
     mov w1, #'\''
     strb w1, [x23], #1
-    adrp x9, tc_watch_fade_curve
-    add x9, x9, :lo12:tc_watch_fade_curve
+    adrp x9, PAGE(tc_watch_fade_curve)
+    add x9, x9, LO12(tc_watch_fade_curve)
     ldr x9, [x9]
-    adrp x10, watch_curve_names
-    add x10, x10, :lo12:watch_curve_names
+    adrp x10, PAGE(watch_curve_names)
+    add x10, x10, LO12(watch_curve_names)
     ldr x1, [x10, x9, lsl #3]
     mov x0, x23
     bl wc_cat
@@ -6360,25 +6448,25 @@ watch_build_ramps:
     mov w1, #'\''
     strb w1, [x23], #1
     mov x0, x23
-    adrp x1, s_collapse_mid2
-    add x1, x1, :lo12:s_collapse_mid2
+    adrp x1, PAGE(s_collapse_mid2)
+    add x1, x1, LO12(s_collapse_mid2)
     bl wc_cat
     mov x23, x0
     // {k:g}
-    adrp x9, tc_watch_fade_k
-    add x9, x9, :lo12:tc_watch_fade_k
+    adrp x9, PAGE(tc_watch_fade_k)
+    add x9, x9, LO12(tc_watch_fade_k)
     ldr d0, [x9]
     mov x0, x23
     mov x1, #128
-    adrp x2, fmt_g
-    add x2, x2, :lo12:fmt_g
+    adrp x2, PAGE(fmt_g)
+    add x2, x2, LO12(fmt_g)
     bl snprintf
     mov x0, x23
     bl tc_strlen
     add x23, x23, x0
     mov x0, x23
-    adrp x1, s_collapse_mid
-    add x1, x1, :lo12:s_collapse_mid
+    adrp x1, PAGE(s_collapse_mid)
+    add x1, x1, LO12(s_collapse_mid)
     bl wc_cat
     mov x23, x0
     // the ramp key
@@ -6389,13 +6477,13 @@ watch_build_ramps:
     bl wc_cat
     mov x23, x0
     mov x0, x23
-    adrp x1, s_collapse_post
-    add x1, x1, :lo12:s_collapse_post
+    adrp x1, PAGE(s_collapse_post)
+    add x1, x1, LO12(s_collapse_post)
     bl wc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_watch_errbuf
-    add x0, x0, :lo12:tc_watch_errbuf
+    adrp x0, PAGE(tc_watch_errbuf)
+    add x0, x0, LO12(tc_watch_errbuf)
     bl tc_report_fail                  // noreturn
 .Lwbr_degen_next:
     add x24, x24, #1
@@ -6419,25 +6507,25 @@ watch_rule_curve_k:
     ldr x2, [x0, #TC_HL_CURVE]
     cmp x2, #-1
     b.ne .Lwrck_curve_ok
-    adrp x9, tc_watch_fade_curve
-    add x9, x9, :lo12:tc_watch_fade_curve
+    adrp x9, PAGE(tc_watch_fade_curve)
+    add x9, x9, LO12(tc_watch_fade_curve)
     ldr x2, [x9]
 .Lwrck_curve_ok:
     ldr d0, [x0, #TC_HL_K]
-    adrp x9, dbl_neg1
-    add x9, x9, :lo12:dbl_neg1
+    adrp x9, PAGE(dbl_neg1)
+    add x9, x9, LO12(dbl_neg1)
     ldr d1, [x9]
     fcmp d0, d1
     b.ne .Lwrck_k_ok
-    adrp x9, tc_watch_fade_k
-    add x9, x9, :lo12:tc_watch_fade_k
+    adrp x9, PAGE(tc_watch_fade_k)
+    add x9, x9, LO12(tc_watch_fade_k)
     ldr d0, [x9]
 .Lwrck_k_ok:
     mov x0, x2
     mov x1, x0                        // (k bits are stored as an x-reg below)
     // store the double bits in x1
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str d0, [x9]
     ldr x1, [x9]
     mov x0, x2
@@ -6453,14 +6541,14 @@ watch_rule_curve_k:
 watch_build_one_ramp:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x9, tc_watch_fade_curve
-    add x9, x9, :lo12:tc_watch_fade_curve
+    adrp x9, PAGE(tc_watch_fade_curve)
+    add x9, x9, LO12(tc_watch_fade_curve)
     ldr x3, [x9]
-    adrp x9, tc_watch_fade_k
-    add x9, x9, :lo12:tc_watch_fade_k
+    adrp x9, PAGE(tc_watch_fade_k)
+    add x9, x9, LO12(tc_watch_fade_k)
     ldr d4, [x9]
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str d4, [x9]
     ldr x4, [x9]
     bl watch_build_one_ramp_full
@@ -6481,24 +6569,24 @@ watch_build_one_ramp_full:
     mov x20, x1                        // steps
     mov x21, x2                        // key
     mov x22, x3                        // curve
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str x4, [x9]                       // k bits
     ldr d5, [x9]                       // k (double)
-    adrp x9, tc_watch_dtmp2            // the curve branches read k from here;
-    add x9, x9, :lo12:tc_watch_dtmp2   // a stale dtmp2 would silently use k=0
+    adrp x9, PAGE(tc_watch_dtmp2)            // the curve branches read k from here;
+    add x9, x9, LO12(tc_watch_dtmp2)   // a stale dtmp2 would silently use k=0
     str x4, [x9]
     // ramp base = arena + key * shades_max * shade_sz
-    adrp x23, tc_watch_ramp_arena
-    add x23, x23, :lo12:tc_watch_ramp_arena
+    adrp x23, PAGE(tc_watch_ramp_arena)
+    add x23, x23, LO12(tc_watch_ramp_arena)
     mov x9, #SHADES_MAX
     mul x9, x21, x9
     mov x10, #SHADE_SZ
     mul x9, x9, x10
     add x23, x23, x9                   // base
     // register the ramp descriptor
-    adrp x9, tc_watch_ramps
-    add x9, x9, :lo12:tc_watch_ramps
+    adrp x9, PAGE(tc_watch_ramps)
+    add x9, x9, LO12(tc_watch_ramps)
     mov x10, #16
     mul x10, x21, x10
     add x9, x9, x10
@@ -6532,23 +6620,23 @@ watch_build_one_ramp_full:
     b .Lwbrf_clamp
 .Lwbrf_bend_power:
     // pow(x, k) — every d-reg dies on the call, so x and k live in memory
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     str d0, [x9]                       // save x
-    adrp x9, tc_watch_dtmp2
-    add x9, x9, :lo12:tc_watch_dtmp2
+    adrp x9, PAGE(tc_watch_dtmp2)
+    add x9, x9, LO12(tc_watch_dtmp2)
     ldr d1, [x9]                       // k
     bl pow                             // pow(x, k)
     b .Lwbrf_clamp
 .Lwbrf_bend_ease_out:
     // 1 - (1-x)^k
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     str d0, [x9]                       // save x
     fmov d1, #1.0
     fsub d0, d1, d0                    // 1-x
-    adrp x9, tc_watch_dtmp2
-    add x9, x9, :lo12:tc_watch_dtmp2
+    adrp x9, PAGE(tc_watch_dtmp2)
+    add x9, x9, LO12(tc_watch_dtmp2)
     ldr d1, [x9]                       // k
     bl pow                             // (1-x)^k
     fmov d1, #1.0
@@ -6556,8 +6644,8 @@ watch_build_one_ramp_full:
     b .Lwbrf_clamp
 .Lwbrf_bend_bias:
     // x / (k*(1-x) + x)
-    adrp x9, tc_watch_dtmp2
-    add x9, x9, :lo12:tc_watch_dtmp2
+    adrp x9, PAGE(tc_watch_dtmp2)
+    add x9, x9, LO12(tc_watch_dtmp2)
     ldr d1, [x9]                       // k
     fmov d2, #1.0
     fsub d2, d2, d0                    // 1-x
@@ -6572,27 +6660,27 @@ watch_build_one_ramp_full:
     fmov d1, #1.0
     fcmp d0, d1
     b.ge .Lwbrf_clamp
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     str d0, [x9]                       // save x
-    adrp x9, tc_watch_dtmp2
-    add x9, x9, :lo12:tc_watch_dtmp2
+    adrp x9, PAGE(tc_watch_dtmp2)
+    add x9, x9, LO12(tc_watch_dtmp2)
     ldr d1, [x9]                       // k
     bl pow                             // x^k
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     str d0, [x9]                       // save x^k
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]                       // x
     fmov d1, #1.0
     fsub d0, d1, d0                    // 1-x
-    adrp x9, tc_watch_dtmp2
-    add x9, x9, :lo12:tc_watch_dtmp2
+    adrp x9, PAGE(tc_watch_dtmp2)
+    add x9, x9, LO12(tc_watch_dtmp2)
     ldr d1, [x9]                       // k
     bl pow                             // (1-x)^k
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d1, [x9]                       // x^k
     fadd d2, d1, d0                    // x^k + (1-x)^k
     fdiv d0, d1, d2
@@ -6610,8 +6698,8 @@ watch_build_one_ramp_full:
     fmov d0, #1.0
 .Lwbrf_clamp_done:
     // save towards in a scratch slot (caller-saved d0 dies on snprintf)
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     str d0, [x9]
     // shade dst = base + step * SHADE_SZ
     mov x9, #SHADE_SZ
@@ -6619,13 +6707,13 @@ watch_build_one_ramp_full:
     add x28, x23, x9                   // dst
     // "\033[38;2;R;G;Bm"
     mov x0, x28
-    adrp x1, s_esc_38
-    add x1, x1, :lo12:s_esc_38
+    adrp x1, PAGE(s_esc_38)
+    add x1, x1, LO12(s_esc_38)
     bl wc_cat
     mov x19, x0                        // cursor AT the NUL (append in place)
     // r channel
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]
     mov x9, #255
     scvtf d1, x9
@@ -6643,8 +6731,8 @@ watch_build_one_ramp_full:
     strb w1, [x0], #1
     mov x19, x0
     // g
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]
     mov x9, #255
     scvtf d1, x9
@@ -6662,8 +6750,8 @@ watch_build_one_ramp_full:
     strb w1, [x0], #1
     mov x19, x0
     // b
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]
     mov x9, #255
     scvtf d1, x9
@@ -6732,8 +6820,8 @@ watch_ramp_distinct:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    adrp x9, tc_watch_ramps
-    add x9, x9, :lo12:tc_watch_ramps
+    adrp x9, PAGE(tc_watch_ramps)
+    add x9, x9, LO12(tc_watch_ramps)
     mov x10, #16
     mul x10, x0, x10
     add x9, x9, x10
@@ -6778,33 +6866,33 @@ watch_ramp_key_str:
     cmp x0, #1
     b.eq .Lwrks_down
     // "highlight" + (key-2)
-    adrp x0, tc_watch_scratch
-    add x0, x0, :lo12:tc_watch_scratch
-    adrp x1, s_highlight
-    add x1, x1, :lo12:s_highlight
+    adrp x0, PAGE(tc_watch_scratch)
+    add x0, x0, LO12(tc_watch_scratch)
+    adrp x1, PAGE(s_highlight)
+    add x1, x1, LO12(s_highlight)
     bl wc_cat
     sub x1, x19, #2
     bl watch_fmt_u64
     mov w2, #0
     strb w2, [x0]
-    adrp x0, tc_watch_scratch
-    add x0, x0, :lo12:tc_watch_scratch
+    adrp x0, PAGE(tc_watch_scratch)
+    add x0, x0, LO12(tc_watch_scratch)
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
 .Lwrks_up:
-    adrp x0, s_up
-    add x0, x0, :lo12:s_up
+    adrp x0, PAGE(s_up)
+    add x0, x0, LO12(s_up)
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
 .Lwrks_down:
-    adrp x0, s_down
-    add x0, x0, :lo12:s_down
+    adrp x0, PAGE(s_down)
+    add x0, x0, LO12(s_down)
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
-    .section .rodata
+    RODATA
     .p2align 3
 dbl_neg1:           .double -1.0
 s_collapse_mid2:    .asciz " with fade_k "
@@ -6831,25 +6919,25 @@ watch_compile_patterns:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // streamer mode: highlights = () (Python resolve_watch)
-    adrp x9, tc_watch_streamer
-    add x9, x9, :lo12:tc_watch_streamer
+    adrp x9, PAGE(tc_watch_streamer)
+    add x9, x9, LO12(tc_watch_streamer)
     ldr x9, [x9]
     cbz x9, .Lwcp_streamer_ok
-    adrp x9, tc_watch_highlight_on
-    add x9, x9, :lo12:tc_watch_highlight_on
+    adrp x9, PAGE(tc_watch_highlight_on)
+    add x9, x9, LO12(tc_watch_highlight_on)
     str xzr, [x9]
     b .Lwcp_done
 .Lwcp_streamer_ok:
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     ldr x20, [x19, #TC_O_HL_COUNT]
     cbz x20, .Lwcp_none
     mov x21, #0                        // rule index
 .Lwcp_rule:
     cmp x21, x20
     b.ge .Lwcp_done
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     add x9, x9, #TC_O_HL_ARR
     mov x10, #TC_HL_RULE_SZ
     mul x10, x21, x10
@@ -6859,8 +6947,8 @@ watch_compile_patterns:
 .Lwcp_pat:
     cmp x23, x22
     b.ge .Lwcp_rule_next
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     add x9, x9, #TC_O_HL_ARR
     mov x10, #TC_HL_RULE_SZ
     mul x10, x21, x10
@@ -6875,17 +6963,17 @@ watch_compile_patterns:
     mov x1, x0
     mov x0, x24
     mov w2, #0
-    adrp x3, tc_watch_scratch          // errcode
-    add x3, x3, :lo12:tc_watch_scratch
+    adrp x3, PAGE(tc_watch_scratch)          // errcode
+    add x3, x3, LO12(tc_watch_scratch)
     add x3, x3, #0
-    adrp x4, tc_watch_scratch2         // erroffset
-    add x4, x4, :lo12:tc_watch_scratch2
+    adrp x4, PAGE(tc_watch_scratch2)         // erroffset
+    add x4, x4, LO12(tc_watch_scratch2)
     mov x5, #0
     bl pcre2_compile_8
     cbz x0, .Lwcp_bad
     // store the code; create its match data once
-    adrp x9, tc_watch_patterns
-    add x9, x9, :lo12:tc_watch_patterns
+    adrp x9, PAGE(tc_watch_patterns)
+    add x9, x9, LO12(tc_watch_patterns)
     mov x10, #TC_HL_PAT_MAX
     mul x10, x21, x10
     add x10, x10, x23
@@ -6901,8 +6989,8 @@ watch_compile_patterns:
     mov x10, #TC_HL_PAT_MAX
     mul x10, x21, x10
     add x10, x10, x23                 // slot index (no call between here and store)
-    adrp x11, tc_watch_match_data
-    add x11, x11, :lo12:tc_watch_match_data
+    adrp x11, PAGE(tc_watch_match_data)
+    add x11, x11, LO12(tc_watch_match_data)
     str x9, [x11, x10, lsl #3]
 .Lwcp_md_skip:
     add x23, x23, #1
@@ -6912,20 +7000,20 @@ watch_compile_patterns:
     b .Lwcp_rule
 .Lwcp_bad:
     // "rule {index}: '{pattern}' is not a valid regex ({msg})"
-    adrp x19, tc_watch_errbuf
-    add x19, x19, :lo12:tc_watch_errbuf
+    adrp x19, PAGE(tc_watch_errbuf)
+    add x19, x19, LO12(tc_watch_errbuf)
     mov x23, x19
     mov x0, x23
-    adrp x1, s_rule_pre
-    add x1, x1, :lo12:s_rule_pre
+    adrp x1, PAGE(s_rule_pre)
+    add x1, x1, LO12(s_rule_pre)
     bl wc_cat
     mov x23, x0
     mov x0, x21
     bl watch_fmt_u64                   // rule index
     mov x23, x0
     mov x0, x23
-    adrp x1, s_rule_mid
-    add x1, x1, :lo12:s_rule_mid
+    adrp x1, PAGE(s_rule_mid)
+    add x1, x1, LO12(s_rule_mid)
     bl wc_cat
     mov x23, x0
     mov x0, x23
@@ -6933,48 +7021,48 @@ watch_compile_patterns:
     bl wc_cat                          // the pattern (single-quoted)
     mov x23, x0
     mov x0, x23
-    adrp x1, s_rule_bad_regex
-    add x1, x1, :lo12:s_rule_bad_regex
+    adrp x1, PAGE(s_rule_bad_regex)
+    add x1, x1, LO12(s_rule_bad_regex)
     bl wc_cat
     mov x23, x0
     // pcre2 error message
-    adrp x9, tc_watch_scratch
-    add x9, x9, :lo12:tc_watch_scratch
+    adrp x9, PAGE(tc_watch_scratch)
+    add x9, x9, LO12(tc_watch_scratch)
     ldr w0, [x9]                       // errcode
-    adrp x1, tc_watch_scratch2
-    add x1, x1, :lo12:tc_watch_scratch2
+    adrp x1, PAGE(tc_watch_scratch2)
+    add x1, x1, LO12(tc_watch_scratch2)
     mov x2, #512
     bl pcre2_get_error_message_8
     mov x0, x23
-    adrp x1, tc_watch_scratch2
-    add x1, x1, :lo12:tc_watch_scratch2
+    adrp x1, PAGE(tc_watch_scratch2)
+    add x1, x1, LO12(tc_watch_scratch2)
     bl wc_cat
     mov x23, x0
     mov x0, x23
-    adrp x1, s_rule_post
-    add x1, x1, :lo12:s_rule_post
+    adrp x1, PAGE(s_rule_post)
+    add x1, x1, LO12(s_rule_post)
     bl wc_cat
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_watch_errbuf
-    add x0, x0, :lo12:tc_watch_errbuf
+    adrp x0, PAGE(tc_watch_errbuf)
+    add x0, x0, LO12(tc_watch_errbuf)
     bl tc_report_fail                  // noreturn
 .Lwcp_none:
-    adrp x9, tc_watch_highlight_on
-    add x9, x9, :lo12:tc_watch_highlight_on
+    adrp x9, PAGE(tc_watch_highlight_on)
+    add x9, x9, LO12(tc_watch_highlight_on)
     str xzr, [x9]
 .Lwcp_done:
     // highlight_on = (TC_O_HL_COUNT > 0 and not streamer)
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x10, [x9, #TC_O_HL_COUNT]
-    adrp x11, tc_watch_streamer
-    add x11, x11, :lo12:tc_watch_streamer
+    adrp x11, PAGE(tc_watch_streamer)
+    add x11, x11, LO12(tc_watch_streamer)
     ldr x11, [x11]
     cbnz x11, .Lwcp_on_off
     cbz x10, .Lwcp_on_off
-    adrp x9, tc_watch_highlight_on
-    add x9, x9, :lo12:tc_watch_highlight_on
+    adrp x9, PAGE(tc_watch_highlight_on)
+    add x9, x9, LO12(tc_watch_highlight_on)
     mov x10, #1
     str x10, [x9]
 .Lwcp_on_off:
@@ -6999,16 +7087,16 @@ watch_reresolve_settings:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     mov x20, #TC_O_SRC
     add x20, x19, x20
     // channel (config-sourced only)
     ldr x21, [x20, #TC_SET_CHANNEL*8]
     cmp x21, #TC_SRC_CONFIG
     b.ne .Lwrr_channel_done
-    adrp x0, s_key_channel
-    add x0, x0, :lo12:s_key_channel
+    adrp x0, PAGE(s_key_channel)
+    add x0, x0, LO12(s_key_channel)
     mov x1, #TC_SEC_NONE
     bl tc_config_get
     cbz x0, .Lwrr_channel_done
@@ -7017,141 +7105,141 @@ watch_reresolve_settings:
 .Lwrr_channel_done:
     // interval
     mov x0, #TC_SET_INTERVAL
-    adrp x1, s_key_interval
-    add x1, x1, :lo12:s_key_interval
+    adrp x1, PAGE(s_key_interval)
+    add x1, x1, LO12(s_key_interval)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_FLOAT
     mov x4, #TC_O_INTERVAL
     bl watch_reresolve_one
     // min_interval
     mov x0, #TC_SET_MIN_INTERVAL
-    adrp x1, s_key_min_interval
-    add x1, x1, :lo12:s_key_min_interval
+    adrp x1, PAGE(s_key_min_interval)
+    add x1, x1, LO12(s_key_min_interval)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_FLOAT
     mov x4, #TC_O_MIN_INTERVAL
     bl watch_reresolve_one
     // hold
     mov x0, #TC_SET_HOLD
-    adrp x1, s_key_hold
-    add x1, x1, :lo12:s_key_hold
+    adrp x1, PAGE(s_key_hold)
+    add x1, x1, LO12(s_key_hold)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_FLOAT
     mov x4, #TC_O_HOLD
     bl watch_reresolve_one
     // min_redraw
     mov x0, #TC_SET_MIN_REDRAW
-    adrp x1, s_key_min_redraw
-    add x1, x1, :lo12:s_key_min_redraw
+    adrp x1, PAGE(s_key_min_redraw)
+    add x1, x1, LO12(s_key_min_redraw)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_FLOAT
     mov x4, #TC_O_MIN_REDRAW
     bl watch_reresolve_one
     // shades
     mov x0, #TC_SET_SHADES
-    adrp x1, s_key_shades
-    add x1, x1, :lo12:s_key_shades
+    adrp x1, PAGE(s_key_shades)
+    add x1, x1, LO12(s_key_shades)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_POS_INT
     mov x4, #TC_O_SHADES
     bl watch_reresolve_one
     // replay_steps
     mov x0, #TC_SET_REPLAY_STEPS
-    adrp x1, s_key_replay_steps
-    add x1, x1, :lo12:s_key_replay_steps
+    adrp x1, PAGE(s_key_replay_steps)
+    add x1, x1, LO12(s_key_replay_steps)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_INT
     mov x4, #TC_O_REPLAY_STEPS
     bl watch_reresolve_one
     // full_repaint
     mov x0, #TC_SET_FULL_REPAINT
-    adrp x1, s_key_full_repaint
-    add x1, x1, :lo12:s_key_full_repaint
+    adrp x1, PAGE(s_key_full_repaint)
+    add x1, x1, LO12(s_key_full_repaint)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_INT
     mov x4, #TC_O_FULL_REPAINT
     bl watch_reresolve_one
     // show_timing
     mov x0, #TC_SET_SHOW_TIMING
-    adrp x1, s_key_show_timing
-    add x1, x1, :lo12:s_key_show_timing
+    adrp x1, PAGE(s_key_show_timing)
+    add x1, x1, LO12(s_key_show_timing)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_BOOL
     mov x4, #TC_O_SHOW_TIMING
     bl watch_reresolve_one
     // tint_falling
     mov x0, #TC_SET_TINT_FALLING
-    adrp x1, s_key_tint_falling
-    add x1, x1, :lo12:s_key_tint_falling
+    adrp x1, PAGE(s_key_tint_falling)
+    add x1, x1, LO12(s_key_tint_falling)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_BOOL
     mov x4, #TC_O_TINT_FALLING
     bl watch_reresolve_one
     // fade_curve
     mov x0, #TC_SET_FADE_CURVE
-    adrp x1, s_key_fade_curve
-    add x1, x1, :lo12:s_key_fade_curve
+    adrp x1, PAGE(s_key_fade_curve)
+    add x1, x1, LO12(s_key_fade_curve)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_CURVE
     mov x4, #TC_O_FADE_CURVE
     bl watch_reresolve_one
     // fade_k
     mov x0, #TC_SET_FADE_K
-    adrp x1, s_key_fade_k
-    add x1, x1, :lo12:s_key_fade_k
+    adrp x1, PAGE(s_key_fade_k)
+    add x1, x1, LO12(s_key_fade_k)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_POS_FLOAT
     mov x4, #TC_O_FADE_K
     bl watch_reresolve_one
     // fade_up / fade_down (hex)
     mov x0, #TC_SET_FADE_UP
-    adrp x1, s_key_fade_up
-    add x1, x1, :lo12:s_key_fade_up
+    adrp x1, PAGE(s_key_fade_up)
+    add x1, x1, LO12(s_key_fade_up)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_HEX
     mov x4, #TC_O_FADE_UP_RGB
     bl watch_reresolve_hex
     mov x0, #TC_SET_FADE_DOWN
-    adrp x1, s_key_fade_down
-    add x1, x1, :lo12:s_key_fade_down
+    adrp x1, PAGE(s_key_fade_down)
+    add x1, x1, LO12(s_key_fade_down)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_HEX
     mov x4, #TC_O_FADE_DOWN_RGB
     bl watch_reresolve_hex
     // user_width
     mov x0, #TC_SET_USER_WIDTH
-    adrp x1, s_key_user_width
-    add x1, x1, :lo12:s_key_user_width
+    adrp x1, PAGE(s_key_user_width)
+    add x1, x1, LO12(s_key_user_width)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_NONNEG_INT
     mov x4, #TC_O_USER_WIDTH
     bl watch_reresolve_one
     // streamer_mode
     mov x0, #TC_SET_STREAMER_MODE
-    adrp x1, s_key_streamer_mode
-    add x1, x1, :lo12:s_key_streamer_mode
+    adrp x1, PAGE(s_key_streamer_mode)
+    add x1, x1, LO12(s_key_streamer_mode)
     mov x2, #TC_SEC_WATCH
     mov x3, #P_BOOL
     mov x4, #TC_O_STREAMER_MODE
     bl watch_reresolve_one
     // tail
     mov x0, #TC_SET_NOTIFY
-    adrp x1, s_key_notify
-    add x1, x1, :lo12:s_key_notify
+    adrp x1, PAGE(s_key_notify)
+    add x1, x1, LO12(s_key_notify)
     mov x2, #TC_SEC_TAIL
     mov x3, #P_BOOL
     mov x4, #TC_O_NOTIFY
     bl watch_reresolve_one
     mov x0, #TC_SET_MAX_EVENTS
-    adrp x1, s_key_max_events
-    add x1, x1, :lo12:s_key_max_events
+    adrp x1, PAGE(s_key_max_events)
+    add x1, x1, LO12(s_key_max_events)
     mov x2, #TC_SEC_TAIL
     mov x3, #P_POS_INT
     mov x4, #TC_O_MAX_EVENTS
     bl watch_reresolve_one
     mov x0, #TC_SET_SEED_LOOKBACK
-    adrp x1, s_key_seed_lookback
-    add x1, x1, :lo12:s_key_seed_lookback
+    adrp x1, PAGE(s_key_seed_lookback)
+    add x1, x1, LO12(s_key_seed_lookback)
     mov x2, #TC_SEC_TAIL
     mov x3, #P_POS_INT
     mov x4, #TC_O_SEED_LOOKBACK
@@ -7180,8 +7268,8 @@ watch_reresolve_one:
     mov x21, x2                        // section
     mov x22, x3                        // parser
     mov x23, x4                        // value offset
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     mov x10, #TC_O_SRC
     add x9, x9, x10
     ldr x10, [x9, x19, lsl #3]
@@ -7202,8 +7290,8 @@ watch_reresolve_one:
     bl watch_parse_for_store           // x0 = value
     cmp x1, #0
     b.ne .Lwrro_done                   // conversion error: keep (CLI validated)
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     str x0, [x9, x23]
     mov x10, #TC_O_SRC
     add x10, x9, x10
@@ -7225,8 +7313,8 @@ watch_reresolve_hex:
     mov x20, x1                        // key
     mov x21, x2                        // section
     mov x22, x4                        // rgb value offset
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     mov x10, #TC_O_SRC
     add x9, x9, x10
     ldr x10, [x9, x19, lsl #3]
@@ -7244,8 +7332,8 @@ watch_reresolve_hex:
     bl tc_parse_hex_colour             // x0 = rgb, x1 = ok
     cmp x1, #0
     b.ne .Lwrh_done
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     add x9, x9, x22
     lsr x10, x0, #16
     and x10, x10, #0xFF
@@ -7290,13 +7378,13 @@ watch_parse_for_store:
     ret
 .Lwpfs_nnf:
     mov x0, x20
-    adrp x1, tc_watch_scratch
-    add x1, x1, :lo12:tc_watch_scratch
+    adrp x1, PAGE(tc_watch_scratch)
+    add x1, x1, LO12(tc_watch_scratch)
     bl strtod                        // d0 = value
     fcmp d0, #0.0
     b.lt .Lwpfs_bad
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str d0, [x9]
     ldr x0, [x9]
     mov x1, #0
@@ -7305,13 +7393,13 @@ watch_parse_for_store:
     ret
 .Lwpfs_pf:
     mov x0, x20
-    adrp x1, tc_watch_scratch
-    add x1, x1, :lo12:tc_watch_scratch
+    adrp x1, PAGE(tc_watch_scratch)
+    add x1, x1, LO12(tc_watch_scratch)
     bl strtod
     fcmp d0, #0.0
     b.le .Lwpfs_bad
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str d0, [x9]
     ldr x0, [x9]
     mov x1, #0
@@ -7320,8 +7408,8 @@ watch_parse_for_store:
     ret
 .Lwpfs_pos:
     mov x0, x20
-    adrp x1, tc_watch_scratch
-    add x1, x1, :lo12:tc_watch_scratch
+    adrp x1, PAGE(tc_watch_scratch)
+    add x1, x1, LO12(tc_watch_scratch)
     bl strtol
     cmp x0, #0
     b.le .Lwpfs_bad
@@ -7331,8 +7419,8 @@ watch_parse_for_store:
     ret
 .Lwpfs_nonneg:
     mov x0, x20
-    adrp x1, tc_watch_scratch
-    add x1, x1, :lo12:tc_watch_scratch
+    adrp x1, PAGE(tc_watch_scratch)
+    add x1, x1, LO12(tc_watch_scratch)
     bl strtol
     cmp x0, #0
     b.lt .Lwpfs_bad
@@ -7364,8 +7452,8 @@ watch_parse_for_store:
 watch_parse_channel_value:
     stp x29, x30, [sp, #-16]!
     mov x1, x0
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_CHANNEL
     mov x2, #TC_O_CHANNEL_SZ
     bl tc_copy_str_cap
@@ -7387,32 +7475,32 @@ watch_launch_tints:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // explicit end -> no replay (nothing moves)
-    adrp x9, tc_watch_end_given
-    add x9, x9, :lo12:tc_watch_end_given
+    adrp x9, PAGE(tc_watch_end_given)
+    add x9, x9, LO12(tc_watch_end_given)
     ldr x9, [x9]
     cbnz x9, .Lwlt_done
     // no readers or no max_steps -> {}
-    adrp x9, tc_watch_reader_n
-    add x9, x9, :lo12:tc_watch_reader_n
+    adrp x9, PAGE(tc_watch_reader_n)
+    add x9, x9, LO12(tc_watch_reader_n)
     ldr x9, [x9]
     cbz x9, .Lwlt_done
-    adrp x9, tc_watch_replay_steps
-    add x9, x9, :lo12:tc_watch_replay_steps
+    adrp x9, PAGE(tc_watch_replay_steps)
+    add x9, x9, LO12(tc_watch_replay_steps)
     ldr x9, [x9]
     cbz x9, .Lwlt_done
     // steps = max(1, int(replay_horizon(hold, interval, steps) / interval))
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d0, [x9]
-    adrp x10, tc_watch_interval
-    add x10, x10, :lo12:tc_watch_interval
+    adrp x10, PAGE(tc_watch_interval)
+    add x10, x10, LO12(tc_watch_interval)
     ldr d1, [x10]
-    adrp x0, tc_watch_replay_steps
-    add x0, x0, :lo12:tc_watch_replay_steps
+    adrp x0, PAGE(tc_watch_replay_steps)
+    add x0, x0, LO12(tc_watch_replay_steps)
     ldr x0, [x0]
     bl watch_replay_horizon           // d0 = horizon
-    adrp x9, tc_watch_interval
-    add x9, x9, :lo12:tc_watch_interval
+    adrp x9, PAGE(tc_watch_interval)
+    add x9, x9, LO12(tc_watch_interval)
     ldr d1, [x9]
     fdiv d0, d0, d1
     fcvtzs x19, d0                    // int()
@@ -7422,33 +7510,33 @@ watch_launch_tints:
 .Lwlt_steps_ok:
     // now (monotonic)
     bl watch_monotonic
-    adrp x9, tc_watch_now
-    add x9, x9, :lo12:tc_watch_now
+    adrp x9, PAGE(tc_watch_now)
+    add x9, x9, LO12(tc_watch_now)
     str d0, [x9]
     // clear tints + previous
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     str xzr, [x9]
-    adrp x9, tc_watch_prev_n
-    add x9, x9, :lo12:tc_watch_prev_n
+    adrp x9, PAGE(tc_watch_prev_n)
+    add x9, x9, LO12(tc_watch_prev_n)
     str xzr, [x9]
     // window epochs
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x0, [x9, #TC_W_BEGIN_YMD]
     ldr x1, [x9, #TC_W_BEGIN_SOD]
     bl watch_ymd_sod_to_epoch
     mov x20, x0                        // begin_epoch
 
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
     bl watch_ymd_sod_to_epoch
     mov x21, x0                        // end_epoch
 
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x22, [x9, #TC_W_BEGIN_ROLLS]
     ldr x23, [x9, #TC_W_STATE_FILTER]
     // for step in range(steps, -1, -1)
@@ -7457,13 +7545,13 @@ watch_launch_tints:
     cmp x24, #0
     b.lt .Lwlt_done
     // back = step * interval
-    adrp x9, tc_watch_interval
-    add x9, x9, :lo12:tc_watch_interval
+    adrp x9, PAGE(tc_watch_interval)
+    add x9, x9, LO12(tc_watch_interval)
     ldr d0, [x9]
     scvtf d1, x24
     fmul d2, d1, d0                    // back
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str d2, [x9]                       // back (double)
     // at_end = end_epoch - back
     fcvtzs x9, d2
@@ -7474,21 +7562,21 @@ watch_launch_tints:
     sub x26, x20, x9                   // begin_rolls: begin - back
 .Lwlt_begin_done:
     // fold every reader's window into a scratch counts map
-    adrp x9, tc_watch_scratch
-    add x9, x9, :lo12:tc_watch_scratch
+    adrp x9, PAGE(tc_watch_scratch)
+    add x9, x9, LO12(tc_watch_scratch)
     mov x0, x9
     mov x1, #0
     mov x2, #2048
     bl memset
-    adrp x27, tc_watch_reader_n
-    add x27, x27, :lo12:tc_watch_reader_n
+    adrp x27, PAGE(tc_watch_reader_n)
+    add x27, x27, LO12(tc_watch_reader_n)
     ldr x27, [x27]
-    adrp x28, tc_watch_readers
-    add x28, x28, :lo12:tc_watch_readers
+    adrp x28, PAGE(tc_watch_readers)
+    add x28, x28, LO12(tc_watch_readers)
     ldr x28, [x28]
     // replay counts map: use tc_watch_scratch2 as {login[26], n u64} records
-    adrp x9, tc_watch_scratch2
-    add x9, x9, :lo12:tc_watch_scratch2
+    adrp x9, PAGE(tc_watch_scratch2)
+    add x9, x9, LO12(tc_watch_scratch2)
     mov x0, x9
     mov x1, #0
     mov x2, #1024
@@ -7544,40 +7632,40 @@ watch_launch_tints:
     // colorize this step: previous = tc_watch_prev, carried = tints,
     // now = now - back, wall = at_end (UTC epoch)
     mov x0, x25                        // at_end (wall)
-    adrp x1, tc_watch_hold
-    add x1, x1, :lo12:tc_watch_hold
+    adrp x1, PAGE(tc_watch_hold)
+    add x1, x1, LO12(tc_watch_hold)
     ldr d0, [x1]
-    adrp x1, tc_watch_dtmp2
-    add x1, x1, :lo12:tc_watch_dtmp2
+    adrp x1, PAGE(tc_watch_dtmp2)
+    add x1, x1, LO12(tc_watch_dtmp2)
     str d0, [x1]
-    adrp x1, tc_watch_choose_hold
-    add x1, x1, :lo12:tc_watch_choose_hold
+    adrp x1, PAGE(tc_watch_choose_hold)
+    add x1, x1, LO12(tc_watch_choose_hold)
     str d0, [x1]
-    adrp x1, tc_watch_choose_wall
-    add x1, x1, :lo12:tc_watch_choose_wall
+    adrp x1, PAGE(tc_watch_choose_wall)
+    add x1, x1, LO12(tc_watch_choose_wall)
     str x0, [x1]
     // replay now = now - back
-    adrp x0, tc_watch_now
-    add x0, x0, :lo12:tc_watch_now
+    adrp x0, PAGE(tc_watch_now)
+    add x0, x0, LO12(tc_watch_now)
     ldr d0, [x0]
-    adrp x0, tc_watch_dtmp
-    add x0, x0, :lo12:tc_watch_dtmp
+    adrp x0, PAGE(tc_watch_dtmp)
+    add x0, x0, LO12(tc_watch_dtmp)
     ldr d1, [x0]                       // back
     fsub d0, d0, d1
-    adrp x0, tc_watch_dtmp3
-    add x0, x0, :lo12:tc_watch_dtmp3
+    adrp x0, PAGE(tc_watch_dtmp3)
+    add x0, x0, LO12(tc_watch_dtmp3)
     str d0, [x0]                       // replay now
     bl watch_colorize_step
     // previous = the replay map (copy it into tc_watch_prev)
-    adrp x0, tc_watch_scratch2
-    add x0, x0, :lo12:tc_watch_scratch2
-    adrp x1, tc_watch_prev
-    add x1, x1, :lo12:tc_watch_prev
+    adrp x0, PAGE(tc_watch_scratch2)
+    add x0, x0, LO12(tc_watch_scratch2)
+    adrp x1, PAGE(tc_watch_prev)
+    add x1, x1, LO12(tc_watch_prev)
     mov x2, #1024
     bl memcpy_copy
     // prev_n = number of {login, n} records in the replay map
-    adrp x0, tc_watch_scratch2
-    add x0, x0, :lo12:tc_watch_scratch2
+    adrp x0, PAGE(tc_watch_scratch2)
+    add x0, x0, LO12(tc_watch_scratch2)
     mov x9, #0                         // count
 .Lwlt_cnt:
     cmp x9, #128
@@ -7590,8 +7678,8 @@ watch_launch_tints:
     add x9, x9, #1
     b .Lwlt_cnt
 .Lwlt_cnt_done:
-    adrp x10, tc_watch_prev_n
-    add x10, x10, :lo12:tc_watch_prev_n
+    adrp x10, PAGE(tc_watch_prev_n)
+    add x10, x10, LO12(tc_watch_prev_n)
     str x9, [x10]
     sub x24, x24, #1
     b .Lwlt_step
@@ -7617,8 +7705,8 @@ watch_replay_add:
     stp x16, x17, [sp, #-16]!
     mov x19, x0                        // n
     mov x20, x1                        // login
-    adrp x21, tc_watch_scratch2
-    add x21, x21, :lo12:tc_watch_scratch2
+    adrp x21, PAGE(tc_watch_scratch2)
+    add x21, x21, LO12(tc_watch_scratch2)
     mov x22, #0
 .Lwra_loop:
     cmp x22, #128
@@ -7684,19 +7772,19 @@ watch_colorize_step:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     // filter carried tints: keep when hold <= 0 or now - when < hold
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]                       // replay now
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwcs_keep_all
-    adrp x19, tc_watch_tint_count
-    add x19, x19, :lo12:tc_watch_tint_count
+    adrp x19, PAGE(tc_watch_tint_count)
+    add x19, x19, LO12(tc_watch_tint_count)
     ldr x19, [x19]
-    adrp x20, tc_watch_tints
-    add x20, x20, :lo12:tc_watch_tints
+    adrp x20, PAGE(tc_watch_tints)
+    add x20, x20, LO12(tc_watch_tints)
     mov x21, #0                        // out
     mov x22, #0                        // i
 .Lwcs_filter:
@@ -7728,13 +7816,13 @@ watch_colorize_step:
     add x22, x22, #1
     b .Lwcs_filter
 .Lwcs_filter_done:
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     str x21, [x9]
 .Lwcs_keep_all:
     // walk the replay map
-    adrp x19, tc_watch_scratch2
-    add x19, x19, :lo12:tc_watch_scratch2
+    adrp x19, PAGE(tc_watch_scratch2)
+    add x19, x19, LO12(tc_watch_scratch2)
     mov x20, #0                        // i
 .Lwcs_loop:
     cmp x20, #128
@@ -7747,8 +7835,8 @@ watch_colorize_step:
     ldr x10, [x19, #32]                // n
     add x0, x19, #0                    // login ptr
     mov x1, x10                        // count
-    adrp x2, tc_watch_scratch          // text ptr ("" — unused)
-    add x2, x2, :lo12:tc_watch_scratch
+    adrp x2, PAGE(tc_watch_scratch)          // text ptr ("" — unused)
+    add x2, x2, LO12(tc_watch_scratch)
     mov x3, x2
     mov w4, #0
     strb w4, [x3]                      // text = ""
@@ -7756,8 +7844,8 @@ watch_colorize_step:
     add x20, x20, #1
     mov x19, #0                        // reset (loop recomputes below)
     // recompute the base
-    adrp x19, tc_watch_scratch2
-    add x19, x19, :lo12:tc_watch_scratch2
+    adrp x19, PAGE(tc_watch_scratch2)
+    add x19, x19, LO12(tc_watch_scratch2)
     b .Lwcs_loop
 .Lwcs_done:
     ldp x25, x26, [sp], #16
@@ -7792,11 +7880,11 @@ watch_tint_find:
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // login
     mov x20, x1                        // len
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     ldr x10, [x9]
-    adrp x11, tc_watch_tints
-    add x11, x11, :lo12:tc_watch_tints
+    adrp x11, PAGE(tc_watch_tints)
+    add x11, x11, LO12(tc_watch_tints)
     mov x12, #0
 .Lwtf_loop:
     cmp x12, x10
@@ -7837,27 +7925,27 @@ watch_tint_set:
     mov x19, x0                        // login
     mov x20, x1                        // len
     mov x21, x2                        // dir
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     str d0, [x9]                       // when (double)
     mov x0, x19
     mov x1, x20
     bl watch_tint_find
     cbz x0, .Lwts_new
     strb w21, [x0, #TT_DIR]
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]
     str d0, [x0, #TT_WHEN]
     b .Lwts_done
 .Lwts_new:
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     ldr x10, [x9]
     cmp x10, #TINT_MAX
     b.ge .Lwts_done                    // full: drop (very unlikely)
-    adrp x11, tc_watch_tints
-    add x11, x11, :lo12:tc_watch_tints
+    adrp x11, PAGE(tc_watch_tints)
+    add x11, x11, LO12(tc_watch_tints)
     mov x12, #TT_SZ
     mul x12, x10, x12
     add x11, x11, x12
@@ -7874,13 +7962,13 @@ watch_tint_set:
     mov w14, #0
     strb w14, [x11, x13]
     strb w21, [x11, #TT_DIR]
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]
     str d0, [x11, #TT_WHEN]
     add x10, x10, #1
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     str x10, [x9]
 .Lwts_done:
     ldp x23, x24, [sp], #16
@@ -7899,11 +7987,11 @@ watch_tint_remove:
     bl watch_tint_find
     cbz x0, .Lwtr_done
     // shift the tail down
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     ldr x10, [x9]
-    adrp x11, tc_watch_tints
-    add x11, x11, :lo12:tc_watch_tints
+    adrp x11, PAGE(tc_watch_tints)
+    add x11, x11, LO12(tc_watch_tints)
     sub x10, x10, #1
     // index of the removed record
     sub x12, x0, x11
@@ -7933,8 +8021,8 @@ watch_tint_remove:
     add x14, x14, #1
     b .Lwtr_shift
 .Lwtr_store:
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     str x10, [x9]
 .Lwtr_done:
     ldp x19, x20, [sp], #16
@@ -7948,11 +8036,11 @@ watch_prev_find:
     stp x19, x20, [sp, #-16]!
     mov x19, x0
     mov x20, x1
-    adrp x9, tc_watch_prev_n
-    add x9, x9, :lo12:tc_watch_prev_n
+    adrp x9, PAGE(tc_watch_prev_n)
+    add x9, x9, LO12(tc_watch_prev_n)
     ldr x10, [x9]
-    adrp x11, tc_watch_prev
-    add x11, x11, :lo12:tc_watch_prev
+    adrp x11, PAGE(tc_watch_prev)
+    add x11, x11, LO12(tc_watch_prev)
     mov x12, #0
 .Lwpf_loop:
     cmp x12, x10
@@ -7991,11 +8079,11 @@ watch_build_prev:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x9, tc_watch_prev_n
-    add x9, x9, :lo12:tc_watch_prev_n
+    adrp x9, PAGE(tc_watch_prev_n)
+    add x9, x9, LO12(tc_watch_prev_n)
     str xzr, [x9]
-    adrp x19, tc_users
-    add x19, x19, :lo12:tc_users
+    adrp x19, PAGE(tc_users)
+    add x19, x19, LO12(tc_users)
     ldr x20, [x19, #TC_US_COUNT]
     ldr x21, [x19, #TC_US_ENTRIES]
     mov x22, #0                        // i
@@ -8015,13 +8103,13 @@ watch_build_prev:
     bl tc_count_column
     cbz x0, .Lwbp_next
     // append {login, count}
-    adrp x9, tc_watch_prev_n
-    add x9, x9, :lo12:tc_watch_prev_n
+    adrp x9, PAGE(tc_watch_prev_n)
+    add x9, x9, LO12(tc_watch_prev_n)
     ldr x10, [x9]
     cmp x10, #PREV_MAX
     b.ge .Lwbp_done
-    adrp x11, tc_watch_prev
-    add x11, x11, :lo12:tc_watch_prev
+    adrp x11, PAGE(tc_watch_prev)
+    add x11, x11, LO12(tc_watch_prev)
     mov x12, #PV_SZ
     mul x12, x10, x12
     add x11, x11, x12
@@ -8060,19 +8148,19 @@ watch_filter_tints:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwft_done
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]                       // now
-    adrp x19, tc_watch_tint_count
-    add x19, x19, :lo12:tc_watch_tint_count
+    adrp x19, PAGE(tc_watch_tint_count)
+    add x19, x19, LO12(tc_watch_tint_count)
     ldr x19, [x19]
-    adrp x20, tc_watch_tints
-    add x20, x20, :lo12:tc_watch_tints
+    adrp x20, PAGE(tc_watch_tints)
+    add x20, x20, LO12(tc_watch_tints)
     mov x21, #0                        // out
     mov x22, #0                        // i
 .Lwft_filter:
@@ -8104,8 +8192,8 @@ watch_filter_tints:
     add x22, x22, #1
     b .Lwft_filter
 .Lwft_store:
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     str x21, [x9]
 .Lwft_done:
     ldp x23, x24, [sp], #16
@@ -8123,16 +8211,16 @@ watch_fade_color:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0                        // key
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     str d0, [x9]                       // age
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwfc_indef
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]
     fcmp d0, d1                        // age >= hold?
     b.lt .Lwfc_index
@@ -8142,8 +8230,8 @@ watch_fade_color:
     ret
 .Lwfc_index:
     // shades = ramps[key]; hold / len(shades)
-    adrp x9, tc_watch_ramps
-    add x9, x9, :lo12:tc_watch_ramps
+    adrp x9, PAGE(tc_watch_ramps)
+    add x9, x9, LO12(tc_watch_ramps)
     mov x10, #16
     mul x10, x19, x10
     add x9, x9, x10
@@ -8151,12 +8239,12 @@ watch_fade_color:
     ldr x12, [x9, #8]                  // len
     // step = hold / len
     scvtf d1, x12
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d0, [x9]                       // hold
     fdiv d1, d0, d1                    // hold/len
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]                       // age
     fdiv d0, d0, d1                    // age / step
     fcvtzs x13, d0                     // int()
@@ -8173,8 +8261,8 @@ watch_fade_color:
     ret
 .Lwfc_indef:
     // hold <= 0: shades[0]
-    adrp x9, tc_watch_ramps
-    add x9, x9, :lo12:tc_watch_ramps
+    adrp x9, PAGE(tc_watch_ramps)
+    add x9, x9, LO12(tc_watch_ramps)
     mov x10, #16
     mul x10, x19, x10
     add x9, x9, x10
@@ -8197,15 +8285,15 @@ watch_choose:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0                        // login
-    adrp x9, tc_watch_highlight_on
-    add x9, x9, :lo12:tc_watch_highlight_on
+    adrp x9, PAGE(tc_watch_highlight_on)
+    add x9, x9, LO12(tc_watch_highlight_on)
     ldr x9, [x9]
     cbz x9, .Lwch_none
-    adrp x9, tc_watch_choose_wall
-    add x9, x9, :lo12:tc_watch_choose_wall
+    adrp x9, PAGE(tc_watch_choose_wall)
+    add x9, x9, LO12(tc_watch_choose_wall)
     ldr x20, [x9]                      // at_wall (epoch)
-    adrp x9, tc_watch_choose_hold
-    add x9, x9, :lo12:tc_watch_choose_hold
+    adrp x9, PAGE(tc_watch_choose_hold)
+    add x9, x9, LO12(tc_watch_choose_hold)
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwch_cut_none
@@ -8216,11 +8304,11 @@ watch_choose:
     mov x21, #-1                       // no cutoff
 .Lwch_cut_done:
     mov x22, #-1                       // best rule
-    adrp x23, tc_watch_reader_n
-    add x23, x23, :lo12:tc_watch_reader_n
+    adrp x23, PAGE(tc_watch_reader_n)
+    add x23, x23, LO12(tc_watch_reader_n)
     ldr x23, [x23]
-    adrp x24, tc_watch_readers
-    add x24, x24, :lo12:tc_watch_readers
+    adrp x24, PAGE(tc_watch_readers)
+    add x24, x24, LO12(tc_watch_readers)
     ldr x24, [x24]
     mov x25, #0                        // reader index
 .Lwch_rd:
@@ -8306,15 +8394,15 @@ watch_tint_apply:
     mov x20, x1                        // count
     mov x21, x2                        // text
     // now (double)
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     str d0, [x9]                       // now
     // previous?
-    adrp x9, tc_watch_prev_n
-    add x9, x9, :lo12:tc_watch_prev_n
+    adrp x9, PAGE(tc_watch_prev_n)
+    add x9, x9, LO12(tc_watch_prev_n)
     ldr x10, [x9]
     cbz x10, .Lwta_no_prev
     // before = prev_find(login)
@@ -8335,8 +8423,8 @@ watch_tint_apply:
     mov x1, x0
     mov x0, x19
     mov x2, #1                         // up
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]
     bl watch_tint_set
     b .Lwta_entry
@@ -8344,8 +8432,8 @@ watch_tint_apply:
     cmp x20, x22
     b.ge .Lwta_no_before
     // count < before: down only when tint_falling and the held dir is down
-    adrp x9, tc_watch_tint_falling
-    add x9, x9, :lo12:tc_watch_tint_falling
+    adrp x9, PAGE(tc_watch_tint_falling)
+    add x9, x9, LO12(tc_watch_tint_falling)
     ldr x9, [x9]
     cbz x9, .Lwta_no_before
     mov x0, x19
@@ -8366,8 +8454,8 @@ watch_tint_apply:
     mov x1, x0
     mov x0, x19
     mov x2, #2                         // down
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]
     bl watch_tint_set
     b .Lwta_entry
@@ -8391,8 +8479,8 @@ watch_tint_apply:
     ldrb w24, [x23, #TT_DIR]           // 1 = up, 2 = down
 .Lwta_palette_ok:
     // color = fade_color(palette, now - when, hold)
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d0, [x9]                       // now
     ldr d1, [x23, #TT_WHEN]
     fsub d0, d0, d1                    // age
@@ -8401,8 +8489,8 @@ watch_tint_apply:
     cbz x0, .Lwta_expired
     mov x25, x0                        // shade
     // build: {shade}{text}\033[0m
-    adrp x26, tc_watch_tintbuf
-    add x26, x26, :lo12:tc_watch_tintbuf
+    adrp x26, PAGE(tc_watch_tintbuf)
+    add x26, x26, LO12(tc_watch_tintbuf)
     mov x0, x26
     mov x1, x25
     bl wc_cat
@@ -8412,11 +8500,11 @@ watch_tint_apply:
     bl wc_cat
     mov x26, x0
     mov x0, x26
-    adrp x1, s_reset
-    add x1, x1, :lo12:s_reset
+    adrp x1, PAGE(s_reset)
+    add x1, x1, LO12(s_reset)
     bl wc_cat
-    adrp x0, tc_watch_tintbuf
-    add x0, x0, :lo12:tc_watch_tintbuf
+    adrp x0, PAGE(tc_watch_tintbuf)
+    add x0, x0, LO12(tc_watch_tintbuf)
     b .Lwta_out
 .Lwta_expired:
     // tints.pop(login); return text
@@ -8475,27 +8563,27 @@ watch_next_wait:
     stp x21, x22, [sp, #-16]!
     // elapsed = now - started
     bl watch_monotonic
-    adrp x9, tc_watch_started
-    add x9, x9, :lo12:tc_watch_started
+    adrp x9, PAGE(tc_watch_started)
+    add x9, x9, LO12(tc_watch_started)
     ldr d1, [x9]
     fsub d0, d0, d1
-    adrp x9, tc_watch_elapsed
-    add x9, x9, :lo12:tc_watch_elapsed
+    adrp x9, PAGE(tc_watch_elapsed)
+    add x9, x9, LO12(tc_watch_elapsed)
     str d0, [x9]
     // wait = interval - elapsed
-    adrp x9, tc_watch_interval
-    add x9, x9, :lo12:tc_watch_interval
+    adrp x9, PAGE(tc_watch_interval)
+    add x9, x9, LO12(tc_watch_interval)
     ldr d1, [x9]
     fsub d2, d1, d0
     // due = next_tint_change(now)
-    adrp x9, tc_watch_now
-    add x9, x9, :lo12:tc_watch_now
+    adrp x9, PAGE(tc_watch_now)
+    add x9, x9, LO12(tc_watch_now)
     ldr d0, [x9]
     bl watch_next_tint_change          // d0 = due or -1 (none)
     fcmp d0, #0.0
     b.lt .Lwnw_sleep
-    adrp x9, tc_watch_now
-    add x9, x9, :lo12:tc_watch_now
+    adrp x9, PAGE(tc_watch_now)
+    add x9, x9, LO12(tc_watch_now)
     ldr d1, [x9]
     fsub d0, d0, d1                    // due - now
     fcmp d0, d2
@@ -8523,21 +8611,21 @@ watch_next_tint_change:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     str d0, [x9]                       // now
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d1, [x9]
     fcmp d1, #0.0
     b.le .Lwntc_none
-    adrp x9, tc_watch_tint_count
-    add x9, x9, :lo12:tc_watch_tint_count
+    adrp x9, PAGE(tc_watch_tint_count)
+    add x9, x9, LO12(tc_watch_tint_count)
     ldr x10, [x9]
     cbz x10, .Lwntc_none
     // step = hold / max(1, shades)
-    adrp x9, tc_watch_shades
-    add x9, x9, :lo12:tc_watch_shades
+    adrp x9, PAGE(tc_watch_shades)
+    add x9, x9, LO12(tc_watch_shades)
     ldr x11, [x9]
     cmp x11, #1
     b.ge .Lwntc_shades_ok
@@ -8545,20 +8633,20 @@ watch_next_tint_change:
 .Lwntc_shades_ok:
     scvtf d2, x11
     fdiv d2, d1, d2                    // step
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     str d2, [x9]                       // step (double)
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     mov x10, #-1
     // encode "no soonest" as -1 bits in dtmp3
     scvtf d3, x10
     str d3, [x9]                       // soonest = -1 (sentinel)
-    adrp x19, tc_watch_tint_count
-    add x19, x19, :lo12:tc_watch_tint_count
+    adrp x19, PAGE(tc_watch_tint_count)
+    add x19, x19, LO12(tc_watch_tint_count)
     ldr x19, [x19]
-    adrp x20, tc_watch_tints
-    add x20, x20, :lo12:tc_watch_tints
+    adrp x20, PAGE(tc_watch_tints)
+    add x20, x20, LO12(tc_watch_tints)
     mov x21, #0                        // i
 .Lwntc_loop:
     cmp x21, x19
@@ -8567,26 +8655,26 @@ watch_next_tint_change:
     mul x9, x21, x9
     add x22, x20, x9
     ldr d0, [x22, #TT_WHEN]
-    adrp x9, tc_watch_dtmp4
-    add x9, x9, :lo12:tc_watch_dtmp4
+    adrp x9, PAGE(tc_watch_dtmp4)
+    add x9, x9, LO12(tc_watch_dtmp4)
     ldr d1, [x9]                       // now
     fsub d3, d1, d0                    // age
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d4, [x9]
     fcmp d3, d4
     b.ge .Lwntc_next                   // age >= hold: plain
     // k = int(age/step)
-    adrp x9, tc_watch_dtmp
-    add x9, x9, :lo12:tc_watch_dtmp
+    adrp x9, PAGE(tc_watch_dtmp)
+    add x9, x9, LO12(tc_watch_dtmp)
     ldr d2, [x9]                       // step
     fdiv d3, d3, d2
     fcvtzs x23, d3                     // int(age/step)
     add x23, x23, #1
     scvtf d3, x23
     fmul d3, d3, d2                    // (int+1)*step
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d4, [x9]
     fcmp d3, d4
     b.le .Lwntc_min_ok
@@ -8594,8 +8682,8 @@ watch_next_tint_change:
 .Lwntc_min_ok:
     fadd d3, d0, d3                    // due = when + ...
     // soonest = min(soonest, due)
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d4, [x9]
     fcmp d4, #0.0
     b.lt .Lwntc_first
@@ -8607,8 +8695,8 @@ watch_next_tint_change:
     add x21, x21, #1
     b .Lwntc_loop
 .Lwntc_done:
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     ldr d0, [x9]
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
@@ -8616,8 +8704,8 @@ watch_next_tint_change:
     ldp x29, x30, [sp], #16
     ret
 .Lwntc_none:
-    adrp x9, tc_watch_dtmp3
-    add x9, x9, :lo12:tc_watch_dtmp3
+    adrp x9, PAGE(tc_watch_dtmp3)
+    add x9, x9, LO12(tc_watch_dtmp3)
     mov x10, #-1
     scvtf d0, x10
     str d0, [x9]
@@ -8641,11 +8729,11 @@ watch_build_status:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     // blank line (append at the captured line count)
-    adrp x9, tc_frame_count
-    add x9, x9, :lo12:tc_frame_count
+    adrp x9, PAGE(tc_frame_count)
+    add x9, x9, LO12(tc_frame_count)
     ldr x10, [x9]
-    adrp x11, tc_watch_lines
-    add x11, x11, :lo12:tc_watch_lines
+    adrp x11, PAGE(tc_watch_lines)
+    add x11, x11, LO12(tc_watch_lines)
     ldr x11, [x11]
     ldr x12, [x11, x10, lsl #3]
     mov w13, #0
@@ -8656,35 +8744,35 @@ watch_build_status:
     ldr x12, [x11, x10, lsl #3]
     mov x19, x12                       // dst
     mov x0, x19
-    adrp x1, s_watching_pre
-    add x1, x1, :lo12:s_watching_pre
+    adrp x1, PAGE(s_watching_pre)
+    add x1, x1, LO12(s_watching_pre)
     bl wc_cat
     mov x19, x0
     mov x0, x19
-    adrp x1, s_every
-    add x1, x1, :lo12:s_every
+    adrp x1, PAGE(s_every)
+    add x1, x1, LO12(s_every)
     bl wc_cat
     mov x19, x0
     // interval %g
-    adrp x9, tc_watch_interval
-    add x9, x9, :lo12:tc_watch_interval
+    adrp x9, PAGE(tc_watch_interval)
+    add x9, x9, LO12(tc_watch_interval)
     ldr d0, [x9]
     mov x0, x19
     mov x1, #128
-    adrp x2, fmt_g
-    add x2, x2, :lo12:fmt_g
+    adrp x2, PAGE(fmt_g)
+    add x2, x2, LO12(fmt_g)
     bl snprintf
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
     mov x0, x19
-    adrp x1, s_s_paren
-    add x1, x1, :lo12:s_s_paren
+    adrp x1, PAGE(s_s_paren)
+    add x1, x1, LO12(s_s_paren)
     bl wc_cat
     mov x19, x0
     // interval source
-    adrp x9, tc_watch_interval_src
-    add x9, x9, :lo12:tc_watch_interval_src
+    adrp x9, PAGE(tc_watch_interval_src)
+    add x9, x9, LO12(tc_watch_interval_src)
     ldr x0, [x9]
     bl tc_source_str
     mov x2, x1
@@ -8693,45 +8781,45 @@ watch_build_status:
     bl wc_catn
     mov x19, x0
     mov x0, x19
-    adrp x1, s_hold_mid
-    add x1, x1, :lo12:s_hold_mid
+    adrp x1, PAGE(s_hold_mid)
+    add x1, x1, LO12(s_hold_mid)
     bl wc_cat
     mov x19, x0
     // held
-    adrp x9, tc_watch_hold
-    add x9, x9, :lo12:tc_watch_hold
+    adrp x9, PAGE(tc_watch_hold)
+    add x9, x9, LO12(tc_watch_hold)
     ldr d0, [x9]
     fcmp d0, #0.0
     b.le .Lwbs_indef
     mov x0, x19
     mov x1, #128
-    adrp x2, fmt_g
-    add x2, x2, :lo12:fmt_g
+    adrp x2, PAGE(fmt_g)
+    add x2, x2, LO12(fmt_g)
     bl snprintf
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
     mov x0, x19
-    adrp x1, s_hold_s
-    add x1, x1, :lo12:s_hold_s
+    adrp x1, PAGE(s_hold_s)
+    add x1, x1, LO12(s_hold_s)
     bl wc_cat
     mov x19, x0
     b .Lwbs_hold_done
 .Lwbs_indef:
     mov x0, x19
-    adrp x1, s_indefinite
-    add x1, x1, :lo12:s_indefinite
+    adrp x1, PAGE(s_indefinite)
+    add x1, x1, LO12(s_indefinite)
     bl wc_cat
     mov x19, x0
 .Lwbs_hold_done:
     mov x0, x19
-    adrp x1, s_open_paren
-    add x1, x1, :lo12:s_open_paren
+    adrp x1, PAGE(s_open_paren)
+    add x1, x1, LO12(s_open_paren)
     bl wc_cat
     mov x19, x0
     // hold source
-    adrp x9, tc_watch_hold_src
-    add x9, x9, :lo12:tc_watch_hold_src
+    adrp x9, PAGE(tc_watch_hold_src)
+    add x9, x9, LO12(tc_watch_hold_src)
     ldr x0, [x9]
     bl tc_source_str
     mov x2, x1
@@ -8740,84 +8828,84 @@ watch_build_status:
     bl wc_catn
     mov x19, x0
     mov x0, x19
-    adrp x1, s_close_paren2
-    add x1, x1, :lo12:s_close_paren2
+    adrp x1, PAGE(s_close_paren2)
+    add x1, x1, LO12(s_close_paren2)
     bl wc_cat
     mov x19, x0
     // show_timing
-    adrp x9, tc_watch_show_timing
-    add x9, x9, :lo12:tc_watch_show_timing
+    adrp x9, PAGE(tc_watch_show_timing)
+    add x9, x9, LO12(tc_watch_show_timing)
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
     mov x0, x19
-    adrp x1, s_tick_ms
-    add x1, x1, :lo12:s_tick_ms
+    adrp x1, PAGE(s_tick_ms)
+    add x1, x1, LO12(s_tick_ms)
     bl wc_cat
     mov x19, x0
     // elapsed*1000 %.0f
-    adrp x9, tc_watch_elapsed
-    add x9, x9, :lo12:tc_watch_elapsed
+    adrp x9, PAGE(tc_watch_elapsed)
+    add x9, x9, LO12(tc_watch_elapsed)
     ldr d0, [x9]
     ldr x10, =1000
     scvtf d1, x10
     fmul d0, d0, d1
     mov x0, x19
     mov x1, #128
-    adrp x2, fmt_0f
-    add x2, x2, :lo12:fmt_0f
+    adrp x2, PAGE(fmt_0f)
+    add x2, x2, LO12(fmt_0f)
     bl snprintf
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
     mov x0, x19
-    adrp x1, s_ms
-    add x1, x1, :lo12:s_ms
+    adrp x1, PAGE(s_ms)
+    add x1, x1, LO12(s_ms)
     bl wc_cat
     mov x19, x0
 .Lwbs_slower:
     // elapsed > interval?
-    adrp x9, tc_watch_elapsed
-    add x9, x9, :lo12:tc_watch_elapsed
+    adrp x9, PAGE(tc_watch_elapsed)
+    add x9, x9, LO12(tc_watch_elapsed)
     ldr d0, [x9]
-    adrp x9, tc_watch_interval
-    add x9, x9, :lo12:tc_watch_interval
+    adrp x9, PAGE(tc_watch_interval)
+    add x9, x9, LO12(tc_watch_interval)
     ldr d1, [x9]
     fcmp d0, d1
     b.le .Lwbs_post
     mov x0, x19
-    adrp x1, s_slower
-    add x1, x1, :lo12:s_slower
+    adrp x1, PAGE(s_slower)
+    add x1, x1, LO12(s_slower)
     bl wc_cat
     mov x19, x0
-    adrp x9, tc_watch_elapsed
-    add x9, x9, :lo12:tc_watch_elapsed
+    adrp x9, PAGE(tc_watch_elapsed)
+    add x9, x9, LO12(tc_watch_elapsed)
     ldr d0, [x9]
     ldr x10, =1000
     scvtf d1, x10
     fmul d0, d0, d1
     mov x0, x19
     mov x1, #128
-    adrp x2, fmt_0f
-    add x2, x2, :lo12:fmt_0f
+    adrp x2, PAGE(fmt_0f)
+    add x2, x2, LO12(fmt_0f)
     bl snprintf
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
     mov x0, x19
-    adrp x1, s_ms_slower
-    add x1, x1, :lo12:s_ms_slower
+    adrp x1, PAGE(s_ms_slower)
+    add x1, x1, LO12(s_ms_slower)
     bl wc_cat
     mov x19, x0
 .Lwbs_post:
     mov x0, x19
-    adrp x1, s_watching_post
-    add x1, x1, :lo12:s_watching_post
+    adrp x1, PAGE(s_watching_post)
+    add x1, x1, LO12(s_watching_post)
     bl wc_cat
     mov w1, #0
     strb w1, [x0]
     // bump the captured count
-    adrp x9, tc_frame_count
-    add x9, x9, :lo12:tc_frame_count
+    adrp x9, PAGE(tc_frame_count)
+    add x9, x9, LO12(tc_frame_count)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -8839,19 +8927,19 @@ watch_prepare_frame:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     // estimate the frame height
-    adrp x19, tc_plan_reported_n
-    add x19, x19, :lo12:tc_plan_reported_n
+    adrp x19, PAGE(tc_plan_reported_n)
+    add x19, x19, LO12(tc_plan_reported_n)
     ldr x20, [x19]
     cbz x20, .Lwpf_empty
     // header lines
-    adrp x21, tc_opts
-    add x21, x21, :lo12:tc_opts
+    adrp x21, PAGE(tc_opts)
+    add x21, x21, LO12(tc_opts)
     ldr x22, [x21, #TC_O_HEADER_MODE]
     mov x23, #0
     cmp x22, #TC_HDR_FULL
     b.ne .Lwpf_hdr_compact
-    adrp x22, tc_plan_hdr_count
-    add x22, x22, :lo12:tc_plan_hdr_count
+    adrp x22, PAGE(tc_plan_hdr_count)
+    add x22, x22, LO12(tc_plan_hdr_count)
     ldr x23, [x22]
     add x23, x23, #2                  // rows + files + blank
     b .Lwpf_hdr_done
@@ -8862,33 +8950,33 @@ watch_prepare_frame:
 .Lwpf_hdr_done:
     // table: header + rule + displayed + [others] + rule + footer
     add x23, x23, #2                  // header + rule
-    adrp x22, tc_plan_displayed_n
-    add x22, x22, :lo12:tc_plan_displayed_n
+    adrp x22, PAGE(tc_plan_displayed_n)
+    add x22, x22, LO12(tc_plan_displayed_n)
     ldr x22, [x22]
     add x23, x23, x22
-    adrp x22, tc_plan_hidden_n
-    add x22, x22, :lo12:tc_plan_hidden_n
+    adrp x22, PAGE(tc_plan_hidden_n)
+    add x22, x22, LO12(tc_plan_hidden_n)
     ldr x22, [x22]
     cbz x22, .Lwpf_no_others
     add x23, x23, #1
 .Lwpf_no_others:
     add x23, x23, #1                  // closing rule
     add x23, x23, #1                  // footer line
-    adrp x22, tc_plan_excl_appeared
-    add x22, x22, :lo12:tc_plan_excl_appeared
+    adrp x22, PAGE(tc_plan_excl_appeared)
+    add x22, x22, LO12(tc_plan_excl_appeared)
     ldr x22, [x22]
     cbz x22, .Lwpf_slack
     add x23, x23, #1                  // excluded line
     b .Lwpf_slack
 .Lwpf_empty:
     mov x23, #0
-    adrp x22, tc_opts
-    add x22, x22, :lo12:tc_opts
+    adrp x22, PAGE(tc_opts)
+    add x22, x22, LO12(tc_opts)
     ldr x22, [x22, #TC_O_HEADER_MODE]
     cmp x22, #TC_HDR_FULL
     b.ne .Lwpf_empty_compact
-    adrp x22, tc_plan_hdr_count
-    add x22, x22, :lo12:tc_plan_hdr_count
+    adrp x22, PAGE(tc_plan_hdr_count)
+    add x22, x22, LO12(tc_plan_hdr_count)
     ldr x23, [x22]
     add x23, x23, #2
     b .Lwpf_empty_done
@@ -8898,8 +8986,8 @@ watch_prepare_frame:
     mov x23, #2
 .Lwpf_empty_done:
     add x23, x23, #1                  // "No users met the threshold"
-    adrp x22, tc_plan_excl_appeared
-    add x22, x22, :lo12:tc_plan_excl_appeared
+    adrp x22, PAGE(tc_plan_excl_appeared)
+    add x22, x22, LO12(tc_plan_excl_appeared)
     ldr x22, [x22]
     cbz x22, .Lwpf_slack
     add x23, x23, #1
@@ -8908,8 +8996,8 @@ watch_prepare_frame:
     add x23, x23, #8                  // slack
     mov x19, x23                       // need
     // grow the line pointer array + storage
-    adrp x20, tc_watch_frame_cap
-    add x20, x20, :lo12:tc_watch_frame_cap
+    adrp x20, PAGE(tc_watch_frame_cap)
+    add x20, x20, LO12(tc_watch_frame_cap)
     ldr x21, [x20]
     cmp x19, x21
     b.le .Lwpf_alloc_done
@@ -8937,20 +9025,20 @@ watch_prepare_frame:
     add x23, x23, #1
     b .Lwpf_fill
 .Lwpf_fill_done:
-    adrp x9, tc_watch_lines
-    add x9, x9, :lo12:tc_watch_lines
+    adrp x9, PAGE(tc_watch_lines)
+    add x9, x9, LO12(tc_watch_lines)
     str x21, [x9]
-    adrp x9, tc_watch_linebuf
-    add x9, x9, :lo12:tc_watch_linebuf
+    adrp x9, PAGE(tc_watch_linebuf)
+    add x9, x9, LO12(tc_watch_linebuf)
     str x22, [x9]
     str x19, [x20]
 .Lwpf_alloc_done:
     // grow the painted storage
-    adrp x19, tc_watch_frame_cap
-    add x19, x19, :lo12:tc_watch_frame_cap
+    adrp x19, PAGE(tc_watch_frame_cap)
+    add x19, x19, LO12(tc_watch_frame_cap)
     ldr x19, [x19]
-    adrp x20, tc_watch_painted_cap
-    add x20, x20, :lo12:tc_watch_painted_cap
+    adrp x20, PAGE(tc_watch_painted_cap)
+    add x20, x20, LO12(tc_watch_painted_cap)
     ldr x21, [x20]
     cmp x19, x21
     b.le .Lwpf_paint_done
@@ -8977,38 +9065,38 @@ watch_prepare_frame:
     add x23, x23, #1
     b .Lwpf_pfill
 .Lwpf_pfill_done:
-    adrp x9, tc_watch_painted
-    add x9, x9, :lo12:tc_watch_painted
+    adrp x9, PAGE(tc_watch_painted)
+    add x9, x9, LO12(tc_watch_painted)
     str x21, [x9]
-    adrp x9, tc_watch_painted_block
-    add x9, x9, :lo12:tc_watch_painted_block
+    adrp x9, PAGE(tc_watch_painted_block)
+    add x9, x9, LO12(tc_watch_painted_block)
     str x22, [x9]
     str x19, [x20]
 .Lwpf_paint_done:
     // grow the burst buffer
-    adrp x19, tc_watch_frame_cap
-    add x19, x19, :lo12:tc_watch_frame_cap
+    adrp x19, PAGE(tc_watch_frame_cap)
+    add x19, x19, LO12(tc_watch_frame_cap)
     ldr x19, [x19]
     ldr x9, =FRAME_LINE_SZ
     add x19, x19, #1
     mul x19, x19, x9
     add x19, x19, #64
-    adrp x20, tc_watch_burst_cap
-    add x20, x20, :lo12:tc_watch_burst_cap
+    adrp x20, PAGE(tc_watch_burst_cap)
+    add x20, x20, LO12(tc_watch_burst_cap)
     ldr x21, [x20]
     cmp x19, x21
     b.le .Lwpf_burst_done
-    adrp x9, tc_watch_burst
-    add x9, x9, :lo12:tc_watch_burst
+    adrp x9, PAGE(tc_watch_burst)
+    add x9, x9, LO12(tc_watch_burst)
     ldr x0, [x9]
     mov x1, x19
     bl realloc
     cbz x0, .Lwpf_oom
-    adrp x9, tc_watch_burst
-    add x9, x9, :lo12:tc_watch_burst
+    adrp x9, PAGE(tc_watch_burst)
+    add x9, x9, LO12(tc_watch_burst)
     str x0, [x9]
-    adrp x9, tc_watch_burst_cap
-    add x9, x9, :lo12:tc_watch_burst_cap
+    adrp x9, PAGE(tc_watch_burst_cap)
+    add x9, x9, LO12(tc_watch_burst_cap)
     str x19, [x9]
 .Lwpf_burst_done:
     ldp x23, x24, [sp], #16
@@ -9017,8 +9105,8 @@ watch_prepare_frame:
     ldp x29, x30, [sp], #16
     ret
 .Lwpf_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -9027,15 +9115,15 @@ watch_prepare_frame:
     .p2align 2
 watch_free_plan:
     stp x29, x30, [sp, #-16]!
-    adrp x9, tc_plan_reported
-    add x9, x9, :lo12:tc_plan_reported
+    adrp x9, PAGE(tc_plan_reported)
+    add x9, x9, LO12(tc_plan_reported)
     ldr x0, [x9]
     cbz x0, .Lwfp2_reported_ok
     bl free
     str xzr, [x9]
 .Lwfp2_reported_ok:
-    adrp x9, tc_plan_excl_names
-    add x9, x9, :lo12:tc_plan_excl_names
+    adrp x9, PAGE(tc_plan_excl_names)
+    add x9, x9, LO12(tc_plan_excl_names)
     ldr x0, [x9]
     cbz x0, .Lwfp2_excl_ok
     bl free
@@ -9063,37 +9151,37 @@ watch_screen_paint:
     stp x27, x28, [sp, #-16]!
     bl watch_terminal_width
     mov x19, x0                        // width
-    adrp x9, tc_frame_count
-    add x9, x9, :lo12:tc_frame_count
+    adrp x9, PAGE(tc_frame_count)
+    add x9, x9, LO12(tc_frame_count)
     ldr x20, [x9]                      // frame line count
-    adrp x9, tc_watch_lines
-    add x9, x9, :lo12:tc_watch_lines
+    adrp x9, PAGE(tc_watch_lines)
+    add x9, x9, LO12(tc_watch_lines)
     ldr x21, [x9]                      // lines array
-    adrp x9, tc_watch_painted
-    add x9, x9, :lo12:tc_watch_painted
+    adrp x9, PAGE(tc_watch_painted)
+    add x9, x9, LO12(tc_watch_painted)
     ldr x22, [x9]                      // painted ptrs
-    adrp x9, tc_watch_painted_n
-    add x9, x9, :lo12:tc_watch_painted_n
+    adrp x9, PAGE(tc_watch_painted_n)
+    add x9, x9, LO12(tc_watch_painted_n)
     ldr x26, [x9]                      // old painted n
     // full = painted_n == 0 or width != screen_width or (full_every and
     // since_full >= full_every)
     mov x23, #0
     cbz x26, .Lwsp_full
-    adrp x9, tc_watch_screen_width
-    add x9, x9, :lo12:tc_watch_screen_width
+    adrp x9, PAGE(tc_watch_screen_width)
+    add x9, x9, LO12(tc_watch_screen_width)
     ldr x10, [x9]
     cmp x10, x19
     b.ne .Lwsp_full
-    adrp x9, tc_watch_full_repaint
-    add x9, x9, :lo12:tc_watch_full_repaint
+    adrp x9, PAGE(tc_watch_full_repaint)
+    add x9, x9, LO12(tc_watch_full_repaint)
     ldr x10, [x9]
     cbz x10, .Lwsp_diff
-    adrp x9, tc_watch_full_repaint
-    add x9, x9, :lo12:tc_watch_full_repaint
+    adrp x9, PAGE(tc_watch_full_repaint)
+    add x9, x9, LO12(tc_watch_full_repaint)
     ldr x11, [x9]
     cbz x11, .Lwsp_diff
-    adrp x9, tc_watch_since_full
-    add x9, x9, :lo12:tc_watch_since_full
+    adrp x9, PAGE(tc_watch_since_full)
+    add x9, x9, LO12(tc_watch_since_full)
     ldr x10, [x9]
     cmp x10, x11
     b.lt .Lwsp_diff
@@ -9102,8 +9190,8 @@ watch_screen_paint:
     mov x23, #1
 .Lwsp_diff:
     // build the burst
-    adrp x24, tc_watch_burst
-    add x24, x24, :lo12:tc_watch_burst
+    adrp x24, PAGE(tc_watch_burst)
+    add x24, x24, LO12(tc_watch_burst)
     ldr x24, [x24]
     mov x25, x24                       // cursor
     cbnz x23, .Lwsp_build_full
@@ -9124,8 +9212,8 @@ watch_screen_paint:
     mov x0, x25
     mov x1, #128
     add x3, x27, #1
-    adrp x2, s_home_fmt
-    add x2, x2, :lo12:s_home_fmt
+    adrp x2, PAGE(s_home_fmt)
+    add x2, x2, LO12(s_home_fmt)
     bl snprintf
     mov x0, x25
     bl tc_strlen
@@ -9135,8 +9223,8 @@ watch_screen_paint:
     bl burst_cat
     mov x25, x0
     mov x0, x25
-    adrp x1, s_clr_eol
-    add x1, x1, :lo12:s_clr_eol
+    adrp x1, PAGE(s_clr_eol)
+    add x1, x1, LO12(s_clr_eol)
     bl burst_cat
     mov x25, x0
 .Lwsp_diff_copy:
@@ -9162,23 +9250,23 @@ watch_screen_paint:
     mov x0, x25
     mov x1, #128
     mov x3, x9
-    adrp x2, s_home_fmt
-    add x2, x2, :lo12:s_home_fmt
+    adrp x2, PAGE(s_home_fmt)
+    add x2, x2, LO12(s_home_fmt)
     bl snprintf
     mov x0, x25
     bl tc_strlen
     add x25, x25, x0
     mov x0, x25
-    adrp x1, s_clr_below
-    add x1, x1, :lo12:s_clr_below
+    adrp x1, PAGE(s_clr_below)
+    add x1, x1, LO12(s_clr_below)
     bl burst_cat
     mov x25, x0
 .Lwsp_diff_done2:
     b .Lwsp_burst_done
 .Lwsp_build_full:
     mov x0, x25
-    adrp x1, s_full_pre
-    add x1, x1, :lo12:s_full_pre
+    adrp x1, PAGE(s_full_pre)
+    add x1, x1, LO12(s_full_pre)
     bl burst_cat
     mov x25, x0
     mov x27, #0
@@ -9194,8 +9282,8 @@ watch_screen_paint:
     bl burst_cat
     mov x25, x0
     mov x0, x25
-    adrp x1, s_line_k
-    add x1, x1, :lo12:s_line_k
+    adrp x1, PAGE(s_line_k)
+    add x1, x1, LO12(s_line_k)
     bl burst_cat
     mov x25, x0
     // copy into the painted slot
@@ -9208,8 +9296,8 @@ watch_screen_paint:
     b .Lwsp_full_row
 .Lwsp_full_done:
     mov x0, x25
-    adrp x1, s_full_post
-    add x1, x1, :lo12:s_full_post
+    adrp x1, PAGE(s_full_post)
+    add x1, x1, LO12(s_full_post)
     bl burst_cat
     mov x25, x0
 .Lwsp_burst_done:
@@ -9223,22 +9311,22 @@ watch_screen_paint:
     mov x2, x9
     bl write
 .Lwsp_no_write:
-    adrp x9, tc_watch_painted_n
-    add x9, x9, :lo12:tc_watch_painted_n
+    adrp x9, PAGE(tc_watch_painted_n)
+    add x9, x9, LO12(tc_watch_painted_n)
     str x20, [x9]
-    adrp x9, tc_watch_screen_width
-    add x9, x9, :lo12:tc_watch_screen_width
+    adrp x9, PAGE(tc_watch_screen_width)
+    add x9, x9, LO12(tc_watch_screen_width)
     str x19, [x9]
     cbnz x23, .Lwsp_full_reset
-    adrp x9, tc_watch_since_full
-    add x9, x9, :lo12:tc_watch_since_full
+    adrp x9, PAGE(tc_watch_since_full)
+    add x9, x9, LO12(tc_watch_since_full)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
     b .Lwsp_done
 .Lwsp_full_reset:
-    adrp x9, tc_watch_since_full
-    add x9, x9, :lo12:tc_watch_since_full
+    adrp x9, PAGE(tc_watch_since_full)
+    add x9, x9, LO12(tc_watch_since_full)
     str xzr, [x9]
 .Lwsp_done:
     ldp x27, x28, [sp], #16
@@ -9318,8 +9406,8 @@ watch_clip:
     cmp x0, x20
     b.le .Lwcl_ret                     // fits: return the original
     // walk
-    adrp x21, tc_watch_clipbuf
-    add x21, x21, :lo12:tc_watch_clipbuf
+    adrp x21, PAGE(tc_watch_clipbuf)
+    add x21, x21, LO12(tc_watch_clipbuf)
     mov x22, x21                       // out cursor
     mov x23, #0                        // shown
     mov x24, #0                        // index
@@ -9360,8 +9448,8 @@ watch_clip:
     // append ANSI_RESET when the text had an escape
     cbz x25, .Lwcl_nul
     mov x0, x22
-    adrp x1, s_reset
-    add x1, x1, :lo12:s_reset
+    adrp x1, PAGE(s_reset)
+    add x1, x1, LO12(s_reset)
     bl wc_cat
     mov x22, x0
 .Lwcl_nul:
@@ -9481,7 +9569,7 @@ watch_ansi_match:
 
     .text
 
-    .section .rodata
+    RODATA
 s_watch_fade_curve: .asciz "watch.fade_curve "
 s_shades_too_large: .asciz "watch.shades too large (max 64)"
 s_key_min_interval: .asciz "min_interval"
@@ -9500,5 +9588,5 @@ s_key_tint_falling: .asciz "tint_falling"
     .text
     .text
 
-    .section .rodata
+    RODATA
     .text

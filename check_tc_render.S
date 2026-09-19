@@ -11,11 +11,12 @@
 //              tc_cli.o tc_config.o tc_util.o tc_cache_stub.o toml.o
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
     .text
 
     .globl main
-    .type main, %function
+    FUNC_TYPE(main)
 main:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!

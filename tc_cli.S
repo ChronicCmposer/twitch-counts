@@ -67,8 +67,9 @@
 //    datetime; x3=year, x4=week then).
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
     .text
 
 // ----------------------------------------------------------------------------
@@ -183,28 +184,10 @@
     // tc_config_get cannot return array-of-tables (toml_raw_in only sees
     // kvals), so tc_resolve_highlights re-reads the config TOML directly via
     // tomlc99 and validates patterns with pcre2, the pattern tc_misc.S
-    // established.  These entry points are declared .weak so the parse-only
-    // test driver (tc-cli-test: tc_config_stub.o, no toml/pcre2) still
-    // links; the resolution path is only entered when TC_O_CONFIG_LOADED is
-    // set, which the stub never sets.  The full binary and tc-config-test
-    // link the real libraries, so the weak slots resolve to the strong
-    // definitions there.
-    .weak toml_parse_file
-    .weak toml_free
-    .weak toml_table_in
-    .weak toml_array_in
-    .weak toml_array_nelem
-    .weak toml_array_kind
-    .weak toml_table_at
-    .weak toml_key_exists
-    .weak toml_raw_in
-    .weak toml_raw_at
-    .weak toml_string_at
-    .weak toml_int_at
-    .weak toml_rtos
-    .weak pcre2_compile_8
-    .weak pcre2_code_free_8
-    .weak pcre2_get_error_message_8
+    // established.  Every driver that links tc_cli.o also links toml.o and
+    // libpcre2-8.a (the Makefile owns the driver links), so these are plain
+    // strong references; the resolution path is only entered when
+    // TC_O_CONFIG_LOADED is set, which tc_config_stub never sets.
 
 // ============================================================================
 // .bss
@@ -259,7 +242,7 @@ tc_argv_saved:      .skip 8
 // ============================================================================
     .p2align 2
     .global tc_cli_parse
-    .type tc_cli_parse, %function
+    FUNC_TYPE(tc_cli_parse)
 tc_cli_parse:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -273,33 +256,33 @@ tc_cli_parse:
     // basename(argv[0])
     ldr x0, [x20]
     bl tc_basename
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, #TC_O_PROG_PTR]
     bl tc_strlen
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, #TC_O_PROG_LEN]
 
     // clear private marks
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #TC_SET_COUNT
     bl tc_memzero
-    adrp x0, tc_cli_state
-    add x0, x0, :lo12:tc_cli_state
+    adrp x0, PAGE(tc_cli_state)
+    add x0, x0, LO12(tc_cli_state)
     mov x1, #8
     bl tc_memzero
-    adrp x0, tc_win_first
-    add x0, x0, :lo12:tc_win_first
+    adrp x0, PAGE(tc_win_first)
+    add x0, x0, LO12(tc_win_first)
     mov x1, #8
     bl tc_memzero
-    adrp x0, tc_opt_n
-    add x0, x0, :lo12:tc_opt_n
+    adrp x0, PAGE(tc_opt_n)
+    add x0, x0, LO12(tc_opt_n)
     mov x1, #8
     bl tc_memzero
-    adrp x0, tc_extras_n
-    add x0, x0, :lo12:tc_extras_n
+    adrp x0, PAGE(tc_extras_n)
+    add x0, x0, LO12(tc_extras_n)
     mov x1, #8
     bl tc_memzero
 
@@ -310,11 +293,11 @@ tc_cli_parse:
 
     // getopt_long over the cleaned argv.  getopt's argc counts argv[0], so
     // shift the cleaned tokens right by one and put the program name first.
-    adrp x0, tc_opt_n
-    add x0, x0, :lo12:tc_opt_n
+    adrp x0, PAGE(tc_opt_n)
+    add x0, x0, LO12(tc_opt_n)
     ldr x21, [x0]
-    adrp x0, tc_opt_argv
-    add x0, x0, :lo12:tc_opt_argv
+    adrp x0, PAGE(tc_opt_argv)
+    add x0, x0, LO12(tc_opt_argv)
     mov x1, x21
 .Lgl_shift:
     cbz x1, .Lgl_shift_done
@@ -327,27 +310,26 @@ tc_cli_parse:
     ldr x2, [x20]                   // argv[0] (the program name)
     str x2, [x0]
     add x21, x21, #1                // getopt argc = opt_n + 1
-    adrp x0, opterr
-    add x0, x0, :lo12:opterr
+    LOAD_EXTERN_DATA_ADDR x0, opterr
     str wzr, [x0]
 
-    adrp x19, tc_opt_argv
-    add x19, x19, :lo12:tc_opt_argv
+    adrp x19, PAGE(tc_opt_argv)
+    add x19, x19, LO12(tc_opt_argv)
     ldr x19, [x19, #8]
     mov x20, x19
 
 .Lgl_loop:
     cbz x21, .Lgl_done
     mov x0, x21
-    adrp x1, tc_opt_argv
-    add x1, x1, :lo12:tc_opt_argv
-    adrp x2, optstring
-    add x2, x2, :lo12:optstring
-    adrp x3, tc_longopts
-    add x3, x3, :lo12:tc_longopts
+    adrp x1, PAGE(tc_opt_argv)
+    add x1, x1, LO12(tc_opt_argv)
+    adrp x2, PAGE(optstring)
+    add x2, x2, LO12(optstring)
+    adrp x3, PAGE(tc_longopts)
+    add x3, x3, LO12(tc_longopts)
     mov x4, #0
-    adrp x19, tc_opt_argv
-    add x19, x19, :lo12:tc_opt_argv
+    adrp x19, PAGE(tc_opt_argv)
+    add x19, x19, LO12(tc_opt_argv)
     ldr x19, [x19, #8]
     mov x20, x19
 
@@ -363,8 +345,7 @@ tc_cli_parse:
 .Lgl_mapped:
     mov x22, x0
 .Lgl_have_optarg:
-    adrp x23, optarg
-    add x23, x23, :lo12:optarg
+    LOAD_EXTERN_DATA_ADDR x23, optarg
     ldr x23, [x23]
     cmp x22, #VAL_HELP
     b.eq .Ldo_help
@@ -374,8 +355,8 @@ tc_cli_parse:
     b .Lgl_loop
 .Lgl_done:
 
-    adrp x0, tc_extras_n
-    add x0, x0, :lo12:tc_extras_n
+    adrp x0, PAGE(tc_extras_n)
+    add x0, x0, LO12(tc_extras_n)
     ldr x0, [x0]
     cbnz x0, .Lunrecognized
 
@@ -393,8 +374,8 @@ tc_cli_parse:
     //     guard-skipped when the channel never resolved (Python returns []
     //     quietly at a prompt instead of "no channel given").
     //   * otherwise (report / watch): full resolution below.
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x0, [x0, #TC_O_FLAGS]
     tst x0, #TC_F_MANUAL
     b.ne .Lgl_done_ret
@@ -413,8 +394,8 @@ tc_cli_parse:
     bl tc_resolve_settings
     // skip the "no channel given" guard: aliases apply only when the channel
     // resolved to a real value (source != TC_SRC_DEFAULT).
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     mov x2, #TC_O_SRC
     add x2, x0, x2
     ldr x1, [x2, #TC_SET_CHANNEL*8]
@@ -434,18 +415,18 @@ tc_cli_parse:
     bl tc_print_help
 
 .Lunrecognized:
-    adrp x0, tc_extras
-    add x0, x0, :lo12:tc_extras
-    adrp x1, tc_extras_n
-    add x1, x1, :lo12:tc_extras_n
+    adrp x0, PAGE(tc_extras)
+    add x0, x0, LO12(tc_extras)
+    adrp x1, PAGE(tc_extras_n)
+    add x1, x1, LO12(tc_extras_n)
     ldr x1, [x1]
-    adrp x2, tc_scratch
-    add x2, x2, :lo12:tc_scratch
-    adrp x3, s_unrecognized
-    add x3, x3, :lo12:s_unrecognized
+    adrp x2, PAGE(tc_scratch)
+    add x2, x2, LO12(tc_scratch)
+    adrp x3, PAGE(s_unrecognized)
+    add x3, x3, LO12(s_unrecognized)
     bl tc_join_args_into
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_arg_error
 
 // ----------------------------------------------------------------------------
@@ -487,10 +468,10 @@ tc_basename:
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_prog_name
-    .type tc_prog_name, %function
+    FUNC_TYPE(tc_prog_name)
 tc_prog_name:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x0, [x0, #TC_O_PROG_PTR]
     ret
 
@@ -554,17 +535,17 @@ tc_arg_error:
     mov x19, x0
     mov x0, #STDERR
     bl tc_print_usage
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x0, [x0, #TC_O_PROG_PTR]
     bl tc_eputs
-    adrp x0, s_colon_err
-    add x0, x0, :lo12:s_colon_err
+    adrp x0, PAGE(s_colon_err)
+    add x0, x0, LO12(s_colon_err)
     bl tc_eputs
     mov x0, x19
     bl tc_eputs
-    adrp x0, s_newline
-    add x0, x0, :lo12:s_newline
+    adrp x0, PAGE(s_newline)
+    add x0, x0, LO12(s_newline)
     bl tc_eputs
     mov w0, #2
     bl exit
@@ -581,14 +562,14 @@ tc_print_usage:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x20, tc_opts
-    add x20, x20, :lo12:tc_opts
+    adrp x20, PAGE(tc_opts)
+    add x20, x20, LO12(tc_opts)
     ldr x21, [x20, #TC_O_PROG_PTR]
     ldr x22, [x20, #TC_O_PROG_LEN]
     mov x23, #0
     mov x0, x19
-    adrp x1, s_usage_prefix
-    add x1, x1, :lo12:s_usage_prefix
+    adrp x1, PAGE(s_usage_prefix)
+    add x1, x1, LO12(s_usage_prefix)
     bl tc_fd_puts
     add x23, x23, #7
     mov x0, x19
@@ -596,8 +577,8 @@ tc_print_usage:
     mov x2, x22
     bl tc_fd_write
     add x23, x23, x22
-    adrp x24, tc_usage_words
-    add x24, x24, :lo12:tc_usage_words
+    adrp x24, PAGE(tc_usage_words)
+    add x24, x24, LO12(tc_usage_words)
 .Lpu_loop:
     ldr x25, [x24], #8
     cbz x25, .Lpu_done
@@ -609,8 +590,8 @@ tc_print_usage:
     cmp x27, #TERM_WIDTH
     b.le .Lpu_same
     mov x0, x19
-    adrp x1, s_newline
-    add x1, x1, :lo12:s_newline
+    adrp x1, PAGE(s_newline)
+    add x1, x1, LO12(s_newline)
     mov x2, #1
     bl tc_fd_write
     mov x28, #8
@@ -618,8 +599,8 @@ tc_print_usage:
 .Lpu_indent:
     cbz x28, .Lpu_indent_done
     mov x0, x19
-    adrp x1, s_space
-    add x1, x1, :lo12:s_space
+    adrp x1, PAGE(s_space)
+    add x1, x1, LO12(s_space)
     mov x2, #1
     bl tc_fd_write
     sub x28, x28, #1
@@ -630,8 +611,8 @@ tc_print_usage:
     b .Lpu_word
 .Lpu_same:
     mov x0, x19
-    adrp x1, s_space
-    add x1, x1, :lo12:s_space
+    adrp x1, PAGE(s_space)
+    add x1, x1, LO12(s_space)
     mov x2, #1
     bl tc_fd_write
     add x23, x23, #1
@@ -644,8 +625,8 @@ tc_print_usage:
     b .Lpu_loop
 .Lpu_done:
     mov x0, x19
-    adrp x1, s_newline
-    add x1, x1, :lo12:s_newline
+    adrp x1, PAGE(s_newline)
+    add x1, x1, LO12(s_newline)
     mov x2, #1
     bl tc_fd_write
     ldp x27, x28, [sp], #16
@@ -697,15 +678,15 @@ tc_fd_puts:
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_print_help
-    .type tc_print_help, %function
+    FUNC_TYPE(tc_print_help)
 tc_print_help:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x0, #STDOUT
     bl tc_print_usage
-    adrp x0, help_body
-    add x0, x0, :lo12:help_body
+    adrp x0, PAGE(help_body)
+    add x0, x0, LO12(help_body)
     bl tc_puts
     mov w0, #0
     bl exit
@@ -775,8 +756,8 @@ tc_handle_opt:
     bl tc_set_flag
     b .Lho_done
 .Lho_json:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_WATCH_PRESENT
     b.ne .Lho_json_conflict
@@ -784,16 +765,16 @@ tc_handle_opt:
     bl tc_set_flag
     b .Lho_done
 .Lho_json_conflict:
-    adrp x0, s_canon_json
-    add x0, x0, :lo12:s_canon_json
-    adrp x1, s_canon_watch
-    add x1, x1, :lo12:s_canon_watch
+    adrp x0, PAGE(s_canon_json)
+    add x0, x0, LO12(s_canon_json)
+    adrp x1, PAGE(s_canon_watch)
+    add x1, x1, LO12(s_canon_watch)
     bl tc_arg_not_allowed
 .Lho_bcast:
     mov x0, #TC_F_EXCLUDE_BCAST
     bl tc_set_flag
-    adrp x1, tc_cli_given
-    add x1, x1, :lo12:tc_cli_given
+    adrp x1, PAGE(tc_cli_given)
+    add x1, x1, LO12(tc_cli_given)
     mov x2, #1
     strb w2, [x1, #TC_SET_EXCLUDE_BCAST]
     b .Lho_done
@@ -802,8 +783,8 @@ tc_handle_opt:
     bl tc_set_flag
     b .Lho_done
 .Lho_no_config:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_CONFIG_GIVEN
     b.ne .Lho_no_config_conflict
@@ -811,22 +792,22 @@ tc_handle_opt:
     bl tc_set_flag
     b .Lho_done
 .Lho_no_config_conflict:
-    adrp x0, s_canon_no_config
-    add x0, x0, :lo12:s_canon_no_config
-    adrp x1, s_canon_config
-    add x1, x1, :lo12:s_canon_config
+    adrp x0, PAGE(s_canon_no_config)
+    add x0, x0, LO12(s_canon_no_config)
+    adrp x1, PAGE(s_canon_config)
+    add x1, x1, LO12(s_canon_config)
     bl tc_arg_not_allowed
 .Lho_streamer:
     mov x0, #TC_F_STREAMER
     bl tc_set_flag
-    adrp x1, tc_cli_given
-    add x1, x1, :lo12:tc_cli_given
+    adrp x1, PAGE(tc_cli_given)
+    add x1, x1, LO12(tc_cli_given)
     mov x2, #1
     strb w2, [x1, #TC_SET_STREAMER_MODE]
     b .Lho_done
 .Lho_no_cache:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_REBUILD_CACHE
     b.ne .Lho_no_cache_conflict
@@ -834,14 +815,14 @@ tc_handle_opt:
     bl tc_set_flag
     b .Lho_done
 .Lho_no_cache_conflict:
-    adrp x0, s_canon_no_cache
-    add x0, x0, :lo12:s_canon_no_cache
-    adrp x1, s_canon_rebuild_cache
-    add x1, x1, :lo12:s_canon_rebuild_cache
+    adrp x0, PAGE(s_canon_no_cache)
+    add x0, x0, LO12(s_canon_no_cache)
+    adrp x1, PAGE(s_canon_rebuild_cache)
+    add x1, x1, LO12(s_canon_rebuild_cache)
     bl tc_arg_not_allowed
 .Lho_rebuild_cache:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CACHE
     b.ne .Lho_rebuild_conflict
@@ -849,10 +830,10 @@ tc_handle_opt:
     bl tc_set_flag
     b .Lho_done
 .Lho_rebuild_conflict:
-    adrp x0, s_canon_rebuild_cache
-    add x0, x0, :lo12:s_canon_rebuild_cache
-    adrp x1, s_canon_no_cache
-    add x1, x1, :lo12:s_canon_no_cache
+    adrp x0, PAGE(s_canon_rebuild_cache)
+    add x0, x0, LO12(s_canon_rebuild_cache)
+    adrp x1, PAGE(s_canon_no_cache)
+    add x1, x1, LO12(s_canon_no_cache)
     bl tc_arg_not_allowed
 .Lho_manual:
     mov x0, #TC_F_MANUAL
@@ -873,16 +854,16 @@ tc_handle_opt:
     mov x0, #TC_ST_UNKNOWN
 .Lho_state:
     mov x19, x0
-    adrp x0, tc_cli_state
-    add x0, x0, :lo12:tc_cli_state
+    adrp x0, PAGE(tc_cli_state)
+    add x0, x0, LO12(tc_cli_state)
     ldr x1, [x0]
     cbnz x1, .Lho_state_conflict
     str x19, [x0]
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     str x19, [x0, #TC_O_STATE_FILTER]
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, #TC_SET_STATE]
     b .Lho_done
@@ -891,28 +872,28 @@ tc_handle_opt:
     b.eq .Lho_sc_live
     cmp x19, #TC_ST_OFFLINE
     b.eq .Lho_sc_offline
-    adrp x0, s_canon_unknown
+    adrp x0, PAGE(s_canon_unknown)
     b .Lho_sc_y
 .Lho_sc_live:
-    adrp x0, s_canon_live
+    adrp x0, PAGE(s_canon_live)
     b .Lho_sc_y
 .Lho_sc_offline:
-    adrp x0, s_canon_offline
+    adrp x0, PAGE(s_canon_offline)
 .Lho_sc_y:
-    add x0, x0, :lo12:s_canon_live
+    add x0, x0, LO12(s_canon_live)
     cmp x1, #TC_ST_LIVE
     b.eq .Lho_sc_prev_live
     cmp x1, #TC_ST_OFFLINE
     b.eq .Lho_sc_prev_offline
-    adrp x1, s_canon_unknown
+    adrp x1, PAGE(s_canon_unknown)
     b .Lho_sc_emit
 .Lho_sc_prev_live:
-    adrp x1, s_canon_live
+    adrp x1, PAGE(s_canon_live)
     b .Lho_sc_emit
 .Lho_sc_prev_offline:
-    adrp x1, s_canon_offline
+    adrp x1, PAGE(s_canon_offline)
 .Lho_sc_emit:
-    add x1, x1, :lo12:s_canon_offline
+    add x1, x1, LO12(s_canon_offline)
     bl tc_arg_not_allowed
 
 .Lho_exclude:
@@ -941,23 +922,23 @@ tc_handle_opt:
     b .Lho_done
 
 .Lho_watch:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_JSON
     b.ne .Lho_watch_json_conflict
     mov x0, #TC_F_WATCH_PRESENT
     bl tc_set_flag
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, #TC_SET_INTERVAL]
     cbz x20, .Lho_watch_fc
     mov x0, x20
     bl tc_parse_nonnegative_float
     cbnz x1, .Lho_watch_bad
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, #TC_O_INTERVAL]
     ldr x2, [x1, #TC_O_FLAGS]
     orr x2, x2, #TC_F_WATCH_VALUE
@@ -965,48 +946,48 @@ tc_handle_opt:
     b .Lho_done
 .Lho_watch_fc:
     ldr x0, =TC_WATCH_FROM_CONFIG_BITS
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, #TC_O_INTERVAL]
     b .Lho_done
 .Lho_watch_bad:
-    adrp x0, s_canon_watch
-    add x0, x0, :lo12:s_canon_watch
+    adrp x0, PAGE(s_canon_watch)
+    add x0, x0, LO12(s_canon_watch)
     mov x2, #P_NONNEG_FLOAT
     mov x3, x1                      // actual status (1=parse, 2=range)
     mov x1, x20                     // display
     bl tc_emit_typed_err
 .Lho_watch_json_conflict:
-    adrp x0, s_canon_watch
-    add x0, x0, :lo12:s_canon_watch
-    adrp x1, s_canon_json
-    add x1, x1, :lo12:s_canon_json
+    adrp x0, PAGE(s_canon_watch)
+    add x0, x0, LO12(s_canon_watch)
+    adrp x1, PAGE(s_canon_json)
+    add x1, x1, LO12(s_canon_json)
     bl tc_arg_not_allowed
 
 .Lho_config:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_CONFIG
     b.ne .Lho_config_conflict
     mov x0, #TC_F_CONFIG_GIVEN
     bl tc_set_flag
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_CONFIG_PATH
     mov x1, x20
     mov x2, #TC_O_CONFIG_PATH_SZ
     bl tc_copy_str_cap
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, #TC_SET_CONFIG]
     b .Lho_done
 .Lho_config_conflict:
-    adrp x0, s_canon_config
-    add x0, x0, :lo12:s_canon_config
-    adrp x1, s_canon_no_config
-    add x1, x1, :lo12:s_canon_no_config
+    adrp x0, PAGE(s_canon_config)
+    add x0, x0, LO12(s_canon_config)
+    adrp x1, PAGE(s_canon_no_config)
+    add x1, x1, LO12(s_canon_no_config)
     bl tc_arg_not_allowed
 
 .Lho_begin:
@@ -1016,14 +997,14 @@ tc_handle_opt:
     bl tc_win_conflict_check
     mov x0, #TC_F_BEGIN_GIVEN
     bl tc_set_flag
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_BEGIN_RAW
     mov x1, x20
     mov x2, #TC_O_BEGIN_RAW_SZ
     bl tc_copy_str_cap
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, #TC_SET_BEGIN]
     b .Lho_done
@@ -1034,14 +1015,14 @@ tc_handle_opt:
     bl tc_win_conflict_check
     mov x0, #TC_F_SINCE_GIVEN
     bl tc_set_flag
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_SINCE_RAW
     mov x1, x20
     mov x2, #TC_O_SINCE_RAW_SZ
     bl tc_copy_str_cap
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, #TC_SET_SINCE]
     b .Lho_done
@@ -1053,19 +1034,19 @@ tc_handle_opt:
     mov x0, x20
     bl tc_parse_positive_int
     cbnz x1, .Lho_users_bad
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, #TC_O_USERS]
     mov x0, #TC_F_USERS_GIVEN
     bl tc_set_flag
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, #TC_SET_USERS]
     b .Lho_done
 .Lho_users_bad:
-    adrp x0, s_canon_users
-    add x0, x0, :lo12:s_canon_users
+    adrp x0, PAGE(s_canon_users)
+    add x0, x0, LO12(s_canon_users)
     mov x2, #P_POS_INT              // parser
     mov x3, x1                      // actual status (1=parse, 2=range)
     mov x1, x20                     // display
@@ -1084,8 +1065,8 @@ tc_handle_opt:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_set_flag:
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     ldr x2, [x1, #TC_O_FLAGS]
     orr x2, x2, x0
     str x2, [x1, #TC_O_FLAGS]
@@ -1104,8 +1085,8 @@ tc_win_conflict_check:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0                     // current val
-    adrp x20, tc_win_first
-    add x20, x20, :lo12:tc_win_first
+    adrp x20, PAGE(tc_win_first)
+    add x20, x20, LO12(tc_win_first)
     ldr x2, [x20]
     cbz x2, .Lwc_first
     cmp x2, x19
@@ -1121,8 +1102,8 @@ tc_win_conflict_check:
     mov x0, x19
     bl tc_arg_not_allowed
 .Lwc_first:
-    adrp x2, tc_win_first
-    add x2, x2, :lo12:tc_win_first
+    adrp x2, PAGE(tc_win_first)
+    add x2, x2, LO12(tc_win_first)
     str x19, [x2]
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -1141,16 +1122,16 @@ tc_val_canon:
     b.lt .Lvc_none
     cmp x0, #VAL_MAX
     b.gt .Lvc_none
-    adrp x1, tc_val_table
-    add x1, x1, :lo12:tc_val_table
+    adrp x1, PAGE(tc_val_table)
+    add x1, x1, LO12(tc_val_table)
     mov x2, #VT_REC_SZ
     mul x0, x0, x2
     add x0, x1, x0
     ldr x0, [x0, #VT_CANON]
     ret
 .Lvc_none:
-    adrp x0, s_unknown_opt
-    add x0, x0, :lo12:s_unknown_opt
+    adrp x0, PAGE(s_unknown_opt)
+    add x0, x0, LO12(s_unknown_opt)
     ret
 
 // ----------------------------------------------------------------------------
@@ -1166,13 +1147,13 @@ tc_arg_not_allowed:
     stp x27, x28, [sp, #-16]!
     mov x19, x0
     mov x20, x1
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     mov x2, x20
     bl tc_build_not_allowed
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     bl tc_arg_error
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -1197,8 +1178,8 @@ tc_build_not_allowed:
     mov x20, x1
     mov x21, x2
     mov x0, x19
-    adrp x1, s_arg_prefix
-    add x1, x1, :lo12:s_arg_prefix
+    adrp x1, PAGE(s_arg_prefix)
+    add x1, x1, LO12(s_arg_prefix)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -1206,8 +1187,8 @@ tc_build_not_allowed:
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_not_allowed
-    add x1, x1, :lo12:s_not_allowed
+    adrp x1, PAGE(s_not_allowed)
+    add x1, x1, LO12(s_not_allowed)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -1255,8 +1236,8 @@ tc_append_list:
     mov x22, x3
     mov x23, x4
     mov x24, x5
-    adrp x25, tc_opts
-    add x25, x25, :lo12:tc_opts
+    adrp x25, PAGE(tc_opts)
+    add x25, x25, LO12(tc_opts)
     add x0, x25, x20
     ldr x6, [x0]
     cmp x6, #TC_LIST_MAX
@@ -1276,8 +1257,8 @@ tc_append_list:
     ldr x6, [x0]
     orr x6, x6, x22
     str x6, [x0]
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
 .Lal_done:
     ldp x27, x28, [sp], #16
@@ -1325,14 +1306,14 @@ tc_handle_typed:
     stp x27, x28, [sp, #-16]!
     mov x19, x0
     mov x20, x1
-    adrp x21, tc_val_table
-    add x21, x21, :lo12:tc_val_table
+    adrp x21, PAGE(tc_val_table)
+    add x21, x21, LO12(tc_val_table)
     mov x22, #VT_REC_SZ
     mul x22, x19, x22
     add x21, x21, x22
     ldr x23, [x21, #VT_SET]
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     mov x1, #1
     strb w1, [x0, x23]
     ldr x1, [x21, #VT_FLAGS]
@@ -1351,13 +1332,13 @@ tc_handle_typed:
     b.eq .Lht_metrics
     cmp w24, #P_HEX
     b.eq .Lht_hex
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, x25]
     b .Lht_done
 .Lht_hex:
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, x25
     lsr x2, x0, #16
     and x2, x2, #0xFF
@@ -1375,13 +1356,13 @@ tc_handle_typed:
     b .Lht_done
 .Lht_metrics:
     // stage into tc_show_staging (the by-state merge re-lays the final list)
-    adrp x1, tc_metrics_tmp_n
-    add x1, x1, :lo12:tc_metrics_tmp_n
+    adrp x1, PAGE(tc_metrics_tmp_n)
+    add x1, x1, LO12(tc_metrics_tmp_n)
     ldr x2, [x1]
-    adrp x3, tc_metrics_tmp
-    add x3, x3, :lo12:tc_metrics_tmp
-    adrp x1, tc_show_staging
-    add x1, x1, :lo12:tc_show_staging
+    adrp x3, PAGE(tc_metrics_tmp)
+    add x3, x3, LO12(tc_metrics_tmp)
+    adrp x1, PAGE(tc_show_staging)
+    add x1, x1, LO12(tc_show_staging)
     mov x4, #0
 .Lht_mc:
     cmp x4, x2
@@ -1402,8 +1383,8 @@ tc_handle_typed:
     bl tc_emit_typed_err
 .Lht_string:
     ldr x25, [x21, #VT_STORE]
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, x25
     mov x1, x20
     mov x2, #512
@@ -1534,15 +1515,15 @@ tc_emit_typed_err:
     mov x20, x1
     mov x21, x2
     mov x22, x3
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x1, x19
     mov x2, x21
     mov x3, x20
     mov x4, x22
     bl tc_build_arg_msg
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_arg_error                // exit 2
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -1570,8 +1551,8 @@ tc_build_arg_msg:
     mov x23, x4
     mov x24, x19
     mov x0, x24
-    adrp x1, s_arg_prefix
-    add x1, x1, :lo12:s_arg_prefix
+    adrp x1, PAGE(s_arg_prefix)
+    add x1, x1, LO12(s_arg_prefix)
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
@@ -1579,8 +1560,8 @@ tc_build_arg_msg:
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
-    adrp x1, s_colon_space
-    add x1, x1, :lo12:s_colon_space
+    adrp x1, PAGE(s_colon_space)
+    add x1, x1, LO12(s_colon_space)
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
@@ -1622,8 +1603,8 @@ tc_emit_msg_body:
     b.lt .Lmb_fallback
     cmp x20, #18
     b.gt .Lmb_fallback
-    adrp x23, tc_msg_table
-    add x23, x23, :lo12:tc_msg_table
+    adrp x23, PAGE(tc_msg_table)
+    add x23, x23, LO12(tc_msg_table)
     mov x24, #24
     mul x24, x20, x24
     add x23, x23, x24
@@ -1639,8 +1620,8 @@ tc_emit_msg_body:
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -1648,8 +1629,8 @@ tc_emit_msg_body:
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -1668,13 +1649,13 @@ tc_emit_msg_body:
     cmp x22, #3
     b.eq .Lmb_dt_week
     mov x0, x19
-    adrp x1, s_dt_unrec_prefix
-    add x1, x1, :lo12:s_dt_unrec_prefix
+    adrp x1, PAGE(s_dt_unrec_prefix)
+    add x1, x1, LO12(s_dt_unrec_prefix)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -1682,13 +1663,13 @@ tc_emit_msg_body:
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_dt_unrec_suffix
-    add x1, x1, :lo12:s_dt_unrec_suffix
+    adrp x1, PAGE(s_dt_unrec_suffix)
+    add x1, x1, LO12(s_dt_unrec_suffix)
     bl tc_cat_cstr
     mov x19, x0
     b .Lmb_done
@@ -1696,16 +1677,16 @@ tc_emit_msg_body:
     // status 3: display = year (x2), status extra... week is not passed here;
     // the caller (tc_resolve_datetime_err) handles status 3 separately.
     mov x0, x19
-    adrp x1, s_week_no_prefix
-    add x1, x1, :lo12:s_week_no_prefix
+    adrp x1, PAGE(s_week_no_prefix)
+    add x1, x1, LO12(s_week_no_prefix)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
     mov x1, x21
     bl tc_format_u64
     mov x19, x0
-    adrp x1, s_week_in_iso
-    add x1, x1, :lo12:s_week_in_iso
+    adrp x1, PAGE(s_week_in_iso)
+    add x1, x1, LO12(s_week_in_iso)
     bl tc_cat_cstr
     mov x19, x0
     b .Lmb_done
@@ -1736,11 +1717,11 @@ tc_prepass:
     stp x27, x28, [sp, #-16]!
     mov x19, x0                     // argc
     mov x20, x1                     // argv
-    adrp x0, tc_argc_saved
-    add x0, x0, :lo12:tc_argc_saved
+    adrp x0, PAGE(tc_argc_saved)
+    add x0, x0, LO12(tc_argc_saved)
     str x19, [x0]
-    adrp x0, tc_argv_saved
-    add x0, x0, :lo12:tc_argv_saved
+    adrp x0, PAGE(tc_argv_saved)
+    add x0, x0, LO12(tc_argv_saved)
     str x20, [x0]
     mov x21, #1
     mov x22, #0                     // opt_n
@@ -1799,10 +1780,10 @@ tc_prepass:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_pp_emit:
-    adrp x1, tc_opt_argv
-    add x1, x1, :lo12:tc_opt_argv
-    adrp x2, tc_opt_n
-    add x2, x2, :lo12:tc_opt_n
+    adrp x1, PAGE(tc_opt_argv)
+    add x1, x1, LO12(tc_opt_argv)
+    adrp x2, PAGE(tc_opt_n)
+    add x2, x2, LO12(tc_opt_n)
     ldr x3, [x2]
     str x0, [x1, x3, lsl #3]
     add x3, x3, #1
@@ -1814,10 +1795,10 @@ tc_pp_emit:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_pp_extra:
-    adrp x1, tc_extras
-    add x1, x1, :lo12:tc_extras
-    adrp x2, tc_extras_n
-    add x2, x2, :lo12:tc_extras_n
+    adrp x1, PAGE(tc_extras)
+    add x1, x1, LO12(tc_extras)
+    adrp x2, PAGE(tc_extras_n)
+    add x2, x2, LO12(tc_extras_n)
     ldr x3, [x2]
     str x0, [x1, x3, lsl #3]
     add x3, x3, #1
@@ -1829,8 +1810,8 @@ tc_pp_extra:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_pp_slot:
-    adrp x1, tc_argstr
-    add x1, x1, :lo12:tc_argstr
+    adrp x1, PAGE(tc_argstr)
+    add x1, x1, LO12(tc_argstr)
     mov x2, #ARGSTR_SZ
     mul x0, x0, x2
     add x0, x1, x0
@@ -1841,8 +1822,8 @@ tc_pp_slot:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_opts_off:
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x0, x1, x0
     ret
 
@@ -1887,8 +1868,8 @@ tc_pp_long:
     // (getopt's longopts names have no dashes)
     add x23, x19, #2
     // exact match in tc_longopts
-    adrp x24, tc_longopts
-    add x24, x24, :lo12:tc_longopts
+    adrp x24, PAGE(tc_longopts)
+    add x24, x24, LO12(tc_longopts)
     mov x25, #0
 .Lpl_exact:
     ldr x26, [x24]
@@ -1905,8 +1886,8 @@ tc_pp_long:
     b .Lpl_have
 .Lpl_no_exact:
     // prefix matches
-    adrp x24, tc_longopts
-    add x24, x24, :lo12:tc_longopts
+    adrp x24, PAGE(tc_longopts)
+    add x24, x24, LO12(tc_longopts)
     mov x25, #0
     mov x27, #0
 .Lpl_pre:
@@ -1931,12 +1912,12 @@ tc_pp_long:
     cmp x25, #0
     b.eq .Lpl_unknown
     // ambiguous
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x1, x19
     bl tc_build_ambiguous
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_arg_error
 .Lpl_one:
     mov x26, x27
@@ -1955,14 +1936,14 @@ tc_pp_long:
     // takes a value
     cbnz x22, .Lpl_inline
     // space form: value from the next argv if value-like
-    adrp x24, tc_argc_saved
-    add x24, x24, :lo12:tc_argc_saved
+    adrp x24, PAGE(tc_argc_saved)
+    add x24, x24, LO12(tc_argc_saved)
     ldr x24, [x24]
     add x25, x20, #1
     cmp x25, x24
     b.ge .Lpl_no_value
-    adrp x24, tc_argv_saved
-    add x24, x24, :lo12:tc_argv_saved
+    adrp x24, PAGE(tc_argv_saved)
+    add x24, x24, LO12(tc_argv_saved)
     ldr x24, [x24]
     ldr x0, [x24, x25, lsl #3]
     bl tc_is_value_token
@@ -1980,8 +1961,8 @@ tc_pp_long:
     mov w2, #'='
     strb w2, [x23], #1
     mov x0, x23
-    adrp x24, tc_argv_saved
-    add x24, x24, :lo12:tc_argv_saved
+    adrp x24, PAGE(tc_argv_saved)
+    add x24, x24, LO12(tc_argv_saved)
     ldr x24, [x24]
     ldr x1, [x24, x25, lsl #3]
     bl tc_cat_cstr
@@ -2028,13 +2009,13 @@ tc_pp_long:
     add x0, x20, #1
     b .Lpl_ret
 .Lpl_bool_explicit:
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x26
     mov x2, x22
     bl tc_build_ignored_explicit
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     bl tc_arg_error
 .Lpl_no_value:
     cmp w27, #1
@@ -2121,8 +2102,8 @@ tc_build_ambiguous:
     mov x20, x1
     mov x21, x19
     mov x0, x21
-    adrp x1, s_ambiguous_prefix
-    add x1, x1, :lo12:s_ambiguous_prefix
+    adrp x1, PAGE(s_ambiguous_prefix)
+    add x1, x1, LO12(s_ambiguous_prefix)
     bl tc_cat_cstr
     mov x21, x0
     mov x0, x21
@@ -2130,13 +2111,13 @@ tc_build_ambiguous:
     bl tc_cat_cstr
     mov x21, x0
     mov x0, x21
-    adrp x1, s_ambiguous_mid
-    add x1, x1, :lo12:s_ambiguous_mid
+    adrp x1, PAGE(s_ambiguous_mid)
+    add x1, x1, LO12(s_ambiguous_mid)
     bl tc_cat_cstr
     mov x21, x0
     add x23, x20, #2                // token name without the leading "--"
-    adrp x24, tc_longopts
-    add x24, x24, :lo12:tc_longopts
+    adrp x24, PAGE(tc_longopts)
+    add x24, x24, LO12(tc_longopts)
     mov x25, #0
 .Lba:
     ldr x22, [x24]
@@ -2194,8 +2175,8 @@ tc_build_ignored_explicit:
     mov x21, x2
     mov x22, x19
     mov x0, x22
-    adrp x1, s_arg_prefix
-    add x1, x1, :lo12:s_arg_prefix
+    adrp x1, PAGE(s_arg_prefix)
+    add x1, x1, LO12(s_arg_prefix)
     bl tc_cat_cstr
     mov x22, x0
     ldr w0, [x20, #24]              // val
@@ -2205,8 +2186,8 @@ tc_build_ignored_explicit:
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, s_ignored_explicit
-    add x1, x1, :lo12:s_ignored_explicit
+    adrp x1, PAGE(s_ignored_explicit)
+    add x1, x1, LO12(s_ignored_explicit)
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
@@ -2214,8 +2195,8 @@ tc_build_ignored_explicit:
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
@@ -2239,17 +2220,17 @@ tc_arg_missing_value:
     ldr w0, [x19, #24]
     bl tc_val_canon
     mov x1, x0
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x2, x1
     mov x1, x0
     mov x0, x1
     mov x1, x2
-    adrp x2, s_expected_one
-    add x2, x2, :lo12:s_expected_one
+    adrp x2, PAGE(s_expected_one)
+    add x2, x2, LO12(s_expected_one)
     bl tc_build_simple_arg_msg
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_arg_error
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -2274,8 +2255,8 @@ tc_build_simple_arg_msg:
     mov x20, x1
     mov x21, x2
     mov x0, x19
-    adrp x1, s_arg_prefix
-    add x1, x1, :lo12:s_arg_prefix
+    adrp x1, PAGE(s_arg_prefix)
+    add x1, x1, LO12(s_arg_prefix)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -2283,8 +2264,8 @@ tc_build_simple_arg_msg:
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
-    adrp x1, s_colon_space
-    add x1, x1, :lo12:s_colon_space
+    adrp x1, PAGE(s_colon_space)
+    add x1, x1, LO12(s_colon_space)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -2323,8 +2304,8 @@ tc_pp_short:
     bl tc_short_lookup              // x0 = val or 0
     cbz x0, .Lps_unknown
     mov x23, x0                     // val
-    adrp x24, tc_val_table
-    add x24, x24, :lo12:tc_val_table
+    adrp x24, PAGE(tc_val_table)
+    add x24, x24, LO12(tc_val_table)
     mov x25, #VT_REC_SZ
     mul x25, x23, x25
     add x24, x24, x25
@@ -2340,13 +2321,13 @@ tc_pp_short:
     b .Lps_loop
 .Lps_bool_explicit:
     add x26, x26, #1
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x23
     mov x2, x26
     bl tc_build_ignored_short_explicit
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     bl tc_arg_error
 .Lps_unknown:
     // remainder "-<rest>" is unrecognized
@@ -2401,14 +2382,14 @@ tc_pp_short:
     b .Lps_ret
 .Lps_no_attached:
     // value from the next argv if value-like
-    adrp x26, tc_argc_saved
-    add x26, x26, :lo12:tc_argc_saved
+    adrp x26, PAGE(tc_argc_saved)
+    add x26, x26, LO12(tc_argc_saved)
     ldr x26, [x26]
     add x27, x20, #1
     cmp x27, x26
     b.ge .Lps_missing
-    adrp x26, tc_argv_saved
-    add x26, x26, :lo12:tc_argv_saved
+    adrp x26, PAGE(tc_argv_saved)
+    add x26, x26, LO12(tc_argv_saved)
     ldr x26, [x26]
     ldr x0, [x26, x27, lsl #3]
     bl tc_is_value_token
@@ -2424,8 +2405,8 @@ tc_pp_short:
     mov x0, x26
     add x0, x0, x22
     add x0, x0, #1
-    adrp x1, tc_argv_saved
-    add x1, x1, :lo12:tc_argv_saved
+    adrp x1, PAGE(tc_argv_saved)
+    add x1, x1, LO12(tc_argv_saved)
     ldr x1, [x1]
     ldr x1, [x1, x27, lsl #3]
     bl tc_cat_cstr
@@ -2440,13 +2421,13 @@ tc_pp_short:
     // required: missing value
     ldr x0, [x24, #VT_CANON]
     mov x1, x0
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
-    adrp x2, s_expected_one
-    add x2, x2, :lo12:s_expected_one
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
+    adrp x2, PAGE(s_expected_one)
+    add x2, x2, LO12(s_expected_one)
     bl tc_build_simple_arg_msg
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_arg_error
 .Lps_optional_noval:
     // "-w" no value: emit tok[0..p]
@@ -2499,8 +2480,8 @@ tc_copy_n:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_short_lookup:
-    adrp x1, tc_short_pairs
-    add x1, x1, :lo12:tc_short_pairs
+    adrp x1, PAGE(tc_short_pairs)
+    add x1, x1, LO12(tc_short_pairs)
 .Lsl:
     ldrb w2, [x1]
     cbz w2, .Lsl_none
@@ -2531,8 +2512,8 @@ tc_build_ignored_short_explicit:
     mov x21, x2
     mov x22, x19
     mov x0, x22
-    adrp x1, s_arg_prefix
-    add x1, x1, :lo12:s_arg_prefix
+    adrp x1, PAGE(s_arg_prefix)
+    add x1, x1, LO12(s_arg_prefix)
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x20
@@ -2542,8 +2523,8 @@ tc_build_ignored_short_explicit:
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, s_ignored_explicit
-    add x1, x1, :lo12:s_ignored_explicit
+    adrp x1, PAGE(s_ignored_explicit)
+    add x1, x1, LO12(s_ignored_explicit)
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
@@ -2551,8 +2532,8 @@ tc_build_ignored_short_explicit:
     bl tc_cat_cstr
     mov x22, x0
     mov x0, x22
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
@@ -2650,55 +2631,55 @@ tc_resolve_settings:
     b .Lrs_next
 .Lrs_config:
     // config path
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_CONFIG]
     cbz w1, .Lrs_config_default
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     mov x2, #TC_SRC_CLI_CONFIG
     str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
     b .Lrs_next
 .Lrs_config_default:
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CONFIG_PATH
-    adrp x0, s_default_config_path
-    add x0, x0, :lo12:s_default_config_path
+    adrp x0, PAGE(s_default_config_path)
+    add x0, x0, LO12(s_default_config_path)
 .Lcfg_inline:
     ldrb w2, [x0], #1
     strb w2, [x1], #1
     cbnz w2, .Lcfg_inline
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     mov x2, #TC_SRC_DEFAULT
     str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
     b .Lrs_next
 .Lrs_color:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_COLOR]
     cbnz w1, .Lrs_color_cli
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     mov x1, #TC_SRC_DEFAULT
     str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
     mov x1, #TC_COLOR_AUTO
     str x1, [x0, #TC_O_COLOR_MODE]
     b .Lrs_next
 .Lrs_color_cli:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     mov x1, #TC_SRC_CLI_COLOR
     str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
     b .Lrs_next
 .Lrs_state:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_STATE]
     cbz w1, .Lrs_state_generic
-    adrp x0, tc_cli_state
-    add x0, x0, :lo12:tc_cli_state
+    adrp x0, PAGE(tc_cli_state)
+    add x0, x0, LO12(tc_cli_state)
     ldr x1, [x0]
     cmp x1, #TC_ST_LIVE
     b.eq .Lrs_state_live
@@ -2712,8 +2693,8 @@ tc_resolve_settings:
 .Lrs_state_offline:
     mov x2, #TC_SRC_CLI_OFFLINE
 .Lrs_state_store:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     str x2, [x0, #TC_O_SRC + TC_SET_STATE*8]
     b .Lrs_next
 .Lrs_state_generic:
@@ -2722,8 +2703,8 @@ tc_resolve_settings:
     b .Lrs_next
 .Lrs_interval:
     // CLI numeric value?
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_WATCH_VALUE
     b.eq .Lrs_interval_generic
@@ -2731,19 +2712,19 @@ tc_resolve_settings:
     str x1, [x0, #TC_O_SRC + TC_SET_INTERVAL*8]
     b .Lrs_next
 .Lrs_interval_generic:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     strb wzr, [x0, #TC_SET_INTERVAL]    // ignore the from-config sentinel
     mov x0, x19
     bl tc_resolve_one
     b .Lrs_next
 .Lrs_streamer:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_STREAMER_MODE]
     cbz w1, .Lrs_streamer_generic
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     mov x1, #1
     str x1, [x0, #TC_O_STREAMER_MODE]
     mov x1, #TC_SRC_CLI_STREAMER
@@ -2754,12 +2735,12 @@ tc_resolve_settings:
     bl tc_resolve_one
     b .Lrs_next
 .Lrs_bcast:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_EXCLUDE_BCAST]
     cbz w1, .Lrs_bcast_generic
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     mov x1, #1
     str x1, [x0, #TC_O_EXCL_BCAST_VAL]
     mov x1, #TC_SRC_CLI_EXCLUDE_BCAST
@@ -2779,11 +2760,11 @@ tc_resolve_settings:
     b .Lrs
 .Lrs_done:
     // exclusion/inclusion provenance
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_EXCLUDE]
-    adrp x2, tc_opts
-    add x2, x2, :lo12:tc_opts
+    adrp x2, PAGE(tc_opts)
+    add x2, x2, LO12(tc_opts)
     cbz w1, .Lrs_excl_none
     mov x1, #TC_SRC_CLI_EXCLUDE
     str x1, [x2, #TC_O_SRC + TC_SET_EXCLUDE*8]
@@ -2791,11 +2772,11 @@ tc_resolve_settings:
 .Lrs_excl_none:
     str xzr, [x2, #TC_O_SRC + TC_SET_EXCLUDE*8]
 .Lrs_excl_done:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_INCLUDE]
-    adrp x2, tc_opts
-    add x2, x2, :lo12:tc_opts
+    adrp x2, PAGE(tc_opts)
+    add x2, x2, LO12(tc_opts)
     cbz w1, .Lrs_inc_none
     mov x1, #TC_SRC_CLI_INCLUDE
     str x1, [x2, #TC_O_SRC + TC_SET_INCLUDE*8]
@@ -2803,11 +2784,11 @@ tc_resolve_settings:
 .Lrs_inc_none:
     str xzr, [x2, #TC_O_SRC + TC_SET_INCLUDE*8]
 .Lrs_inc_done:
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_EXCLUDE_GROUP]
-    adrp x2, tc_opts
-    add x2, x2, :lo12:tc_opts
+    adrp x2, PAGE(tc_opts)
+    add x2, x2, LO12(tc_opts)
     cbz w1, .Lrs_eg_none
     mov x1, #TC_SRC_CLI_EXCLUDE_GROUP
     str x1, [x2, #TC_O_SRC + TC_SET_EXCLUDE_GROUP*8]
@@ -2835,14 +2816,14 @@ tc_resolve_one:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x20, tc_spec_table
-    add x20, x20, :lo12:tc_spec_table
+    adrp x20, PAGE(tc_spec_table)
+    add x20, x20, LO12(tc_spec_table)
     mov x21, #SP_REC_SZ
     mul x21, x19, x21
     add x20, x20, x21
     // CLI?
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, x19]
     cbz w1, .Lro_env
     ldr x1, [x20, #SP_CLI_SRC]
@@ -2867,8 +2848,8 @@ tc_resolve_one:
     cbz x22, .Lro_cfg_ok
     cmp x22, #TC_SEC_WATCH
     b.ne .Lro_cfg_ok
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_WATCH_PRESENT
     b.ne .Lro_cfg_ok
@@ -2892,13 +2873,13 @@ tc_resolve_one:
     // header default_when
     cmp x19, #TC_SET_HEADER
     b.ne .Lro_default_go
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_WATCH_PRESENT
     b.eq .Lro_default_go
-    adrp x21, s_default_compact
-    add x21, x21, :lo12:s_default_compact
+    adrp x21, PAGE(s_default_compact)
+    add x21, x21, LO12(s_default_compact)
     mov x22, #TC_SRC_DEFAULT_UNDER_WATCH
 .Lro_default_go:
     cbz x21, .Lro_default_none
@@ -2925,8 +2906,8 @@ tc_resolve_one:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_store_src:
-    adrp x2, tc_opts
-    add x2, x2, :lo12:tc_opts
+    adrp x2, PAGE(tc_opts)
+    add x2, x2, LO12(tc_opts)
     mov x3, #TC_O_SRC
     add x2, x2, x3
     mov x3, #8
@@ -2948,8 +2929,8 @@ tc_store_from_raw:
     mov x19, x0
     mov x20, x1
     mov x21, x2
-    adrp x22, tc_spec_table
-    add x22, x22, :lo12:tc_spec_table
+    adrp x22, PAGE(tc_spec_table)
+    add x22, x22, LO12(tc_spec_table)
     mov x23, #SP_REC_SZ
     mul x23, x19, x23
     add x22, x22, x23
@@ -2975,14 +2956,14 @@ tc_store_from_raw:
     cmp w23, #P_HEX
     b.eq .Lsfr_hex
     ldr x24, [x22, #SP_VALUE_OFF]
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     str x0, [x1, x24]
     b .Lsfr_done
 .Lsfr_hex:
     ldr x24, [x22, #SP_VALUE_OFF]
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, x24
     lsr x2, x0, #16
     and x2, x2, #0xFF
@@ -2993,21 +2974,21 @@ tc_store_from_raw:
     and x2, x0, #0xFF
     str w2, [x1, #8]
     ldr x25, [x22, #SP_RAW2_OFF]
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, x25
     mov x1, x20
     mov x2, #16
     bl tc_copy_str_cap
     b .Lsfr_done
 .Lsfr_metrics:
-    adrp x1, tc_metrics_tmp_n
-    add x1, x1, :lo12:tc_metrics_tmp_n
+    adrp x1, PAGE(tc_metrics_tmp_n)
+    add x1, x1, LO12(tc_metrics_tmp_n)
     ldr x2, [x1]
-    adrp x3, tc_metrics_tmp
-    add x3, x3, :lo12:tc_metrics_tmp
-    adrp x1, tc_show_staging
-    add x1, x1, :lo12:tc_show_staging
+    adrp x3, PAGE(tc_metrics_tmp)
+    add x3, x3, LO12(tc_metrics_tmp)
+    adrp x1, PAGE(tc_show_staging)
+    add x1, x1, LO12(tc_show_staging)
     mov x4, #0
 .Lsfr_mc:
     cmp x4, x2
@@ -3019,8 +3000,8 @@ tc_store_from_raw:
 .Lsfr_string:
     ldr x24, [x22, #SP_VALUE_OFF]
     ldr x25, [x22, #SP_VALUE_SZ]
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, x24
     mov x1, x20
     mov x2, x25
@@ -3051,16 +3032,16 @@ tc_resolve_err:
     mov x21, x2
     mov x22, x3
     mov x23, x4
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x24, x0
     mov x0, x24
     mov x1, x19
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
-    adrp x1, s_from_prefix
-    add x1, x1, :lo12:s_from_prefix
+    adrp x1, PAGE(s_from_prefix)
+    add x1, x1, LO12(s_from_prefix)
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x20
@@ -3073,8 +3054,8 @@ tc_resolve_err:
     bl tc_copy_n
     add x24, x24, x26
     mov x0, x24
-    adrp x1, s_from_suffix
-    add x1, x1, :lo12:s_from_suffix
+    adrp x1, PAGE(s_from_suffix)
+    add x1, x1, LO12(s_from_suffix)
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
@@ -3084,8 +3065,8 @@ tc_resolve_err:
     bl tc_emit_msg_body
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_fail
 
 // ============================================================================
@@ -3100,8 +3081,8 @@ tc_resolve_window:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // ---- end ---------------------------------------------------------------
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     ldrb w0, [x19, #TC_O_END_RAW]
     cbz w0, .Lrw_end_default
     add x0, x19, #TC_O_END_RAW
@@ -3110,36 +3091,36 @@ tc_resolve_window:
     cbz x2, .Lrw_end_ok
     // end conversion error
     ldr x1, [x19, #TC_O_SRC + TC_SET_END*8]
-    adrp x0, s_flag_end
-    add x0, x0, :lo12:s_flag_end
+    adrp x0, PAGE(s_flag_end)
+    add x0, x0, LO12(s_flag_end)
     mov x2, #P_DATETIME_EOD
     add x3, x19, #TC_O_END_RAW       // the raw end string (display)
     mov x4, x2                      // status
     bl tc_resolve_err
 .Lrw_end_ok:
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x0, [x19, #TC_W_END_YMD]
     str x1, [x19, #TC_W_END_SOD]
     b .Lrw_start
 .Lrw_end_default:
     bl tc_now
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x0, [x19, #TC_W_END_YMD]
     str x1, [x19, #TC_W_END_SOD]
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     mov x0, #TC_SRC_DEFAULT_NOW
     str x0, [x19, #TC_O_SRC + TC_SET_END*8]
 .Lrw_start:
     // ---- window start ------------------------------------------------------
-    adrp x0, tc_cli_given
-    add x0, x0, :lo12:tc_cli_given
+    adrp x0, PAGE(tc_cli_given)
+    add x0, x0, LO12(tc_cli_given)
     ldrb w1, [x0, #TC_SET_USERS]
     cbnz w1, .Lrw_users
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_BEGIN_GIVEN
     b.ne .Lrw_cli_begin
@@ -3148,28 +3129,28 @@ tc_resolve_window:
     b .Lrw_env
 .Lrw_cli_begin:
     mov x0, #TC_SRC_CLI_BEGIN
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_BEGIN_RAW
     mov x2, #TC_WIN_BEGIN
     bl tc_win_set
     b .Lrw_convert
 .Lrw_cli_since:
     mov x0, #TC_SRC_CLI_SINCE
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_SINCE_RAW
     mov x2, #TC_WIN_SINCE
     bl tc_win_set
     b .Lrw_convert
 .Lrw_env:
-    adrp x0, s_env_begin
-    add x0, x0, :lo12:s_env_begin
+    adrp x0, PAGE(s_env_begin)
+    add x0, x0, LO12(s_env_begin)
     bl tc_env_get
     mov x21, x0
     mov x22, x1
-    adrp x0, s_env_since
-    add x0, x0, :lo12:s_env_since
+    adrp x0, PAGE(s_env_since)
+    add x0, x0, LO12(s_env_since)
     bl tc_env_get
     mov x23, x0
     mov x24, x1
@@ -3190,18 +3171,18 @@ tc_resolve_window:
     bl tc_win_set
     b .Lrw_convert
 .Lrw_env_both:
-    adrp x0, s_mutex_env_begin
-    add x0, x0, :lo12:s_mutex_env_begin
+    adrp x0, PAGE(s_mutex_env_begin)
+    add x0, x0, LO12(s_mutex_env_begin)
     bl tc_fail
 .Lrw_cfg:
-    adrp x0, s_key_begin
-    add x0, x0, :lo12:s_key_begin
+    adrp x0, PAGE(s_key_begin)
+    add x0, x0, LO12(s_key_begin)
     mov x1, #TC_SEC_NONE
     bl tc_config_get
     mov x21, x0
     mov x22, x1
-    adrp x0, s_key_since
-    add x0, x0, :lo12:s_key_since
+    adrp x0, PAGE(s_key_since)
+    add x0, x0, LO12(s_key_since)
     mov x1, #TC_SEC_NONE
     bl tc_config_get
     mov x23, x0
@@ -3223,29 +3204,29 @@ tc_resolve_window:
     bl tc_win_set
     b .Lrw_convert
 .Lrw_cfg_both:
-    adrp x0, s_mutex_cfg_begin
-    add x0, x0, :lo12:s_mutex_cfg_begin
+    adrp x0, PAGE(s_mutex_cfg_begin)
+    add x0, x0, LO12(s_mutex_cfg_begin)
     bl tc_fail
 .Lrw_earliest:
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     mov x0, #TC_WIN_EARLIEST
     str x0, [x19, #TC_W_KIND]
     mov x0, #TC_SRC_DEFAULT_EARLIEST
     bl tc_source_str
-    adrp x1, tc_window
-    add x1, x1, :lo12:tc_window
+    adrp x1, PAGE(tc_window)
+    add x1, x1, LO12(tc_window)
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_common
 .Lrw_users:
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     mov x0, #TC_WIN_USERS
     str x0, [x19, #TC_W_KIND]
     mov x0, #1
     str x0, [x19, #TC_W_BEGIN_ROLLS]
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_USERS]
     str x1, [x19, #TC_W_USERS_REQ]
     // begin placeholder = end
@@ -3256,30 +3237,30 @@ tc_resolve_window:
     // compose "--users N" into TC_O_WIN_SRC
     mov x0, #TC_O_WIN_SRC
     bl tc_opts_off
-    adrp x1, s_users_prefix
-    add x1, x1, :lo12:s_users_prefix
+    adrp x1, PAGE(s_users_prefix)
+    add x1, x1, LO12(s_users_prefix)
     bl tc_cat_cstr
     mov x24, x0
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_USERS]
     mov x0, x24
     bl tc_format_u64
     mov x0, #TC_O_WIN_SRC
     bl tc_opts_off
-    adrp x1, tc_window
-    add x1, x1, :lo12:tc_window
+    adrp x1, PAGE(tc_window)
+    add x1, x1, LO12(tc_window)
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_common
 .Lrw_convert:
-    adrp x19, tc_win_kind
-    add x19, x19, :lo12:tc_win_kind
+    adrp x19, PAGE(tc_win_kind)
+    add x19, x19, LO12(tc_win_kind)
     ldr x20, [x19]
-    adrp x19, tc_win_raw
-    add x19, x19, :lo12:tc_win_raw
+    adrp x19, PAGE(tc_win_raw)
+    add x19, x19, LO12(tc_win_raw)
     ldr x21, [x19]
-    adrp x19, tc_win_src
-    add x19, x19, :lo12:tc_win_src
+    adrp x19, PAGE(tc_win_src)
+    add x19, x19, LO12(tc_win_src)
     ldr x22, [x19]
     cmp x20, #TC_WIN_SINCE
     b.eq .Lrw_since
@@ -3288,30 +3269,30 @@ tc_resolve_window:
     mov x1, #0
     bl tc_parse_datetime
     cbz x2, .Lrw_begin_ok
-    adrp x0, s_flag_begin
-    add x0, x0, :lo12:s_flag_begin
+    adrp x0, PAGE(s_flag_begin)
+    add x0, x0, LO12(s_flag_begin)
     mov x1, x22
     mov x2, #P_DATETIME
     mov x3, x21                     // the raw begin string (display)
     mov x4, x2                      // status
     bl tc_resolve_err
 .Lrw_begin_ok:
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x0, [x19, #TC_W_BEGIN_YMD]
     str x1, [x19, #TC_W_BEGIN_SOD]
     mov x0, x22
     bl tc_source_str
-    adrp x1, tc_window
-    add x1, x1, :lo12:tc_window
+    adrp x1, PAGE(tc_window)
+    add x1, x1, LO12(tc_window)
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_check
 .Lrw_since:
     mov x0, x21
     bl tc_parse_duration
     cbz x1, .Lrw_since_ok
-    adrp x0, s_flag_since
-    add x0, x0, :lo12:s_flag_since
+    adrp x0, PAGE(s_flag_since)
+    add x0, x0, LO12(s_flag_since)
     mov x1, x22
     mov x2, #P_DURATION
     mov x3, x21                     // the raw since string (display)
@@ -3320,8 +3301,8 @@ tc_resolve_window:
 .Lrw_since_ok:
     mov x25, x0                     // delta seconds (from tc_parse_duration)
     // begin = end - delta
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x23, [x19, #TC_W_END_YMD]
     ldr x24, [x19, #TC_W_END_SOD]
     mov x0, x23
@@ -3330,8 +3311,8 @@ tc_resolve_window:
     sub x25, x0, x25                // begin epoch
     mov x0, x25
     bl tc_epoch_to_ymd_sod
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     str x0, [x19, #TC_W_BEGIN_YMD]
     str x1, [x19, #TC_W_BEGIN_SOD]
     mov x0, #1
@@ -3356,18 +3337,18 @@ tc_resolve_window:
     bl tc_cat_cstr
     mov x24, x0
     mov x0, x24
-    adrp x1, s_before_end
-    add x1, x1, :lo12:s_before_end
+    adrp x1, PAGE(s_before_end)
+    add x1, x1, LO12(s_before_end)
     bl tc_cat_cstr
     mov x0, #TC_O_WIN_SRC
     bl tc_opts_off
-    adrp x1, tc_window
-    add x1, x1, :lo12:tc_window
+    adrp x1, PAGE(tc_window)
+    add x1, x1, LO12(tc_window)
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_check
 .Lrw_check:
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x20, [x19, #TC_W_BEGIN_YMD]
     ldr x21, [x19, #TC_W_BEGIN_SOD]
     ldr x22, [x19, #TC_W_END_YMD]
@@ -3383,12 +3364,12 @@ tc_resolve_window:
     cmp x24, x25
     b.le .Lrw_common
     // "begin (A) is after end (B)"
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x26, x0
     mov x0, x26
-    adrp x1, s_begin_paren
-    add x1, x1, :lo12:s_begin_paren
+    adrp x1, PAGE(s_begin_paren)
+    add x1, x1, LO12(s_begin_paren)
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
@@ -3397,8 +3378,8 @@ tc_resolve_window:
     bl tc_format_ymd_sod
     mov x26, x0
     mov x0, x26
-    adrp x1, s_is_after_end
-    add x1, x1, :lo12:s_is_after_end
+    adrp x1, PAGE(s_is_after_end)
+    add x1, x1, LO12(s_is_after_end)
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
@@ -3409,14 +3390,14 @@ tc_resolve_window:
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     bl tc_fail
 .Lrw_common:
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
-    adrp x20, tc_window
-    add x20, x20, :lo12:tc_window
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
+    adrp x20, PAGE(tc_window)
+    add x20, x20, LO12(tc_window)
     ldr x21, [x19, #TC_O_MIN_COUNT]
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -3431,14 +3412,14 @@ tc_resolve_window:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_win_set:
-    adrp x3, tc_win_kind
-    add x3, x3, :lo12:tc_win_kind
+    adrp x3, PAGE(tc_win_kind)
+    add x3, x3, LO12(tc_win_kind)
     str x2, [x3]
-    adrp x3, tc_win_raw
-    add x3, x3, :lo12:tc_win_raw
+    adrp x3, PAGE(tc_win_raw)
+    add x3, x3, LO12(tc_win_raw)
     str x1, [x3]
-    adrp x3, tc_win_src
-    add x3, x3, :lo12:tc_win_src
+    adrp x3, PAGE(tc_win_src)
+    add x3, x3, LO12(tc_win_src)
     str x0, [x3]
     ret
 
@@ -3453,8 +3434,8 @@ tc_choose_columns:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     // final = by-state base
     ldr x0, [x19, #TC_O_FLAGS]
     tst x0, #TC_F_BY_STATE
@@ -3476,10 +3457,10 @@ tc_choose_columns:
     // every field below 1400.  x28 is the columns base for both the dedupe
     // read and the append store.
     add x28, x19, #TC_O_COLUMNS
-    adrp x22, tc_show_staging
-    add x22, x22, :lo12:tc_show_staging
-    adrp x23, tc_metrics_tmp_n
-    add x23, x23, :lo12:tc_metrics_tmp_n
+    adrp x22, PAGE(tc_show_staging)
+    add x22, x22, LO12(tc_show_staging)
+    adrp x23, PAGE(tc_metrics_tmp_n)
+    add x23, x23, LO12(tc_metrics_tmp_n)
     ldr x23, [x23]                  // staged count
     mov x24, #0
 .Lcc_loop:
@@ -3518,13 +3499,13 @@ tc_choose_columns:
     mov x0, #TC_O_COLUMNS_SRC_BUF
     bl tc_opts_off
     mov x23, x0
-    adrp x1, s_by_state_label
-    add x1, x1, :lo12:s_by_state_label
+    adrp x1, PAGE(s_by_state_label)
+    add x1, x1, LO12(s_by_state_label)
     bl tc_cat_cstr
     mov x23, x0
     mov x0, x23
-    adrp x1, s_comma_space
-    add x1, x1, :lo12:s_comma_space
+    adrp x1, PAGE(s_comma_space)
+    add x1, x1, LO12(s_comma_space)
     bl tc_cat_cstr
     mov x23, x0
     mov x0, x22
@@ -3543,8 +3524,8 @@ tc_choose_columns:
     mov x0, #TC_O_COLUMNS_SRC_BUF
     bl tc_opts_off
     mov x23, x0
-    adrp x1, s_by_state_label
-    add x1, x1, :lo12:s_by_state_label
+    adrp x1, PAGE(s_by_state_label)
+    add x1, x1, LO12(s_by_state_label)
     bl tc_cat_cstr
     b .Lcc_src_store
 .Lcc_src_show_only:
@@ -3642,20 +3623,20 @@ tc_resolve_highlights:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     sub sp, sp, #16                     // [sp] = the current rule table slot
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     str xzr, [x19, #TC_O_HL_COUNT]    // default: no rules
     // ---- env TWITCH_WATCH_HIGHLIGHT ---------------------------------------
     // A string env value is never a list, so any non-empty value reproduces
     // Python's "must be a list of tables" (empty env is treated as unset by
     // tc_env_get, exactly like Python's `os.environ.get(n) not in (None, "")`).
-    adrp x0, s_env_watch_highlight
-    add x0, x0, :lo12:s_env_watch_highlight
+    adrp x0, PAGE(s_env_watch_highlight)
+    add x0, x0, LO12(s_env_watch_highlight)
     bl tc_env_get
     cbz x0, .Lrh_cfg
     mov x0, #TC_SRC_ENV_WATCH_HIGHLIGHT
-    adrp x1, s_hl_must_be_list
-    add x1, x1, :lo12:s_hl_must_be_list
+    adrp x1, PAGE(s_hl_must_be_list)
+    add x1, x1, LO12(s_hl_must_be_list)
     bl tc_hl_err                        // noreturn
 .Lrh_cfg:
     ldr x1, [x19, #TC_O_CONFIG_LOADED]
@@ -3671,13 +3652,13 @@ tc_resolve_highlights:
 .Lrh_open:
     // direct tomlc99 re-parse of the resolved config path
     add x0, x19, #TC_O_CONFIG_PATH
-    adrp x1, s_mode_r
-    add x1, x1, :lo12:s_mode_r
+    adrp x1, PAGE(s_mode_r)
+    add x1, x1, LO12(s_mode_r)
     bl fopen
     cbz x0, .Lrh_default
     mov x27, x0                         // FILE*
-    adrp x0, tc_hl_errbuf
-    add x0, x0, :lo12:tc_hl_errbuf
+    adrp x0, PAGE(tc_hl_errbuf)
+    add x0, x0, LO12(tc_hl_errbuf)
     mov w1, #0
     strb w1, [x0]                       // clear the parse error buffer
     mov x1, x0
@@ -3691,38 +3672,38 @@ tc_resolve_highlights:
     // ---- find the "highlight" key: [watch] table, then top level ----------
     cbz x22, .Lrh_search_root
     mov x0, x21
-    adrp x1, s_key_watch
-    add x1, x1, :lo12:s_key_watch
+    adrp x1, PAGE(s_key_watch)
+    add x1, x1, LO12(s_key_watch)
     bl toml_table_in
     cbz x0, .Lrh_search_root
     mov x22, x0                         // [watch] table
     mov x0, x22
-    adrp x1, s_key_highlight
-    add x1, x1, :lo12:s_key_highlight
+    adrp x1, PAGE(s_key_highlight)
+    add x1, x1, LO12(s_key_highlight)
     bl toml_array_in
     cbnz x0, .Lrh_have_array
     mov x0, x22
-    adrp x1, s_key_highlight
-    add x1, x1, :lo12:s_key_highlight
+    adrp x1, PAGE(s_key_highlight)
+    add x1, x1, LO12(s_key_highlight)
     bl toml_key_exists
     cbnz x0, .Lrh_not_array
 .Lrh_search_root:
     mov x20, #TC_SRC_CONFIG             // top-level source
     mov x0, x21
-    adrp x1, s_key_highlight
-    add x1, x1, :lo12:s_key_highlight
+    adrp x1, PAGE(s_key_highlight)
+    add x1, x1, LO12(s_key_highlight)
     bl toml_array_in
     cbnz x0, .Lrh_have_array
     mov x0, x21
-    adrp x1, s_key_highlight
-    add x1, x1, :lo12:s_key_highlight
+    adrp x1, PAGE(s_key_highlight)
+    add x1, x1, LO12(s_key_highlight)
     bl toml_key_exists
     cbz x0, .Lrh_default_free           // absent -> built-in default
 .Lrh_not_array:
     // the key exists but is a string/number/table: not a list/tuple
     mov x0, x20
-    adrp x1, s_hl_must_be_list
-    add x1, x1, :lo12:s_hl_must_be_list
+    adrp x1, PAGE(s_hl_must_be_list)
+    add x1, x1, LO12(s_hl_must_be_list)
     bl tc_hl_err                        // noreturn
 .Lrh_have_array:
     mov x23, x0                         // the highlight array
@@ -3747,32 +3728,32 @@ tc_resolve_highlights:
     mov x25, x0                         // the rule table
     str x25, [sp]                       // stash it (the pattern loop reuses x25)
     // the rule's slot in the frozen contract array
-    adrp x28, tc_opts
-    add x28, x28, :lo12:tc_opts
+    adrp x28, PAGE(tc_opts)
+    add x28, x28, LO12(tc_opts)
     add x28, x28, #TC_O_HL_ARR
     mov x0, #TC_HL_RULE_SZ
     mul x0, x24, x0
     add x28, x28, x0
     // ---- presence: needs both `color` and `match` --------------------------
     mov x0, x25
-    adrp x1, s_key_color
-    add x1, x1, :lo12:s_key_color
+    adrp x1, PAGE(s_key_color)
+    add x1, x1, LO12(s_key_color)
     bl toml_key_exists
     cbz x0, .Lrh_needs_both
     mov x0, x25
-    adrp x1, s_key_match
-    add x1, x1, :lo12:s_key_match
+    adrp x1, PAGE(s_key_match)
+    add x1, x1, LO12(s_key_match)
     bl toml_key_exists
     cbz x0, .Lrh_needs_both
     // ---- `match`: an array of patterns, or a single string -----------------
     mov x0, x25
-    adrp x1, s_key_match
-    add x1, x1, :lo12:s_key_match
+    adrp x1, PAGE(s_key_match)
+    add x1, x1, LO12(s_key_match)
     bl toml_array_in
     cbnz x0, .Lrh_match_array
     mov x0, x25
-    adrp x1, s_key_match
-    add x1, x1, :lo12:s_key_match
+    adrp x1, PAGE(s_key_match)
+    add x1, x1, LO12(s_key_match)
     bl toml_raw_in
     cbz x0, .Lrh_need_pattern           // a table match, or absent
     ldrb w1, [x0]
@@ -3783,12 +3764,12 @@ tc_resolve_highlights:
     b .Lrh_need_pattern                 // bare number/bool: not a string
 .Lrh_match_str:
     // single pattern: unquote via toml_rtos
-    adrp x0, tc_hl_dst
-    add x0, x0, :lo12:tc_hl_dst
+    adrp x0, PAGE(tc_hl_dst)
+    add x0, x0, LO12(tc_hl_dst)
     mov x22, x0                         // &dst
     mov x0, x25
-    adrp x1, s_key_match
-    add x1, x1, :lo12:s_key_match
+    adrp x1, PAGE(s_key_match)
+    add x1, x1, LO12(s_key_match)
     bl toml_raw_in
     mov x0, x0
     mov x1, x22
@@ -3798,8 +3779,8 @@ tc_resolve_highlights:
     mov x21, #0                         // pattern index 0
     mov x27, #1                         // pattern count 1
     mov x22, #0                         // no match array (single string)
-    adrp x0, tc_hl_pat_free
-    add x0, x0, :lo12:tc_hl_pat_free
+    adrp x0, PAGE(tc_hl_pat_free)
+    add x0, x0, LO12(tc_hl_pat_free)
     mov x1, #1
     str x1, [x0]                        // the unquoted string is malloc'd
     b .Lrh_pat_copy
@@ -3821,8 +3802,8 @@ tc_resolve_highlights:
     cbz w0, .Lrh_pat_raw
     mov x25, x1                         // malloc'd string
     mov x0, #1
-    adrp x1, tc_hl_pat_free
-    add x1, x1, :lo12:tc_hl_pat_free
+    adrp x1, PAGE(tc_hl_pat_free)
+    add x1, x1, LO12(tc_hl_pat_free)
     str x0, [x1]
     b .Lrh_pat_copy
 .Lrh_pat_raw:
@@ -3830,8 +3811,8 @@ tc_resolve_highlights:
     mov x1, x21
     bl toml_raw_at                      // x0 = raw text (into the parsed tree)
     mov x25, x0
-    adrp x0, tc_hl_pat_free
-    add x0, x0, :lo12:tc_hl_pat_free
+    adrp x0, PAGE(tc_hl_pat_free)
+    add x0, x0, LO12(tc_hl_pat_free)
     str xzr, [x0]
 .Lrh_pat_copy:
     // x25 = pattern text, x27 = pattern count, x21 = pattern index
@@ -3864,16 +3845,16 @@ tc_resolve_highlights:
     mul x2, x21, x2
     add x0, x0, x2
     mov w2, #0
-    adrp x3, tc_hl_errcode
-    add x3, x3, :lo12:tc_hl_errcode
-    adrp x4, tc_hl_erroff
-    add x4, x4, :lo12:tc_hl_erroff
+    adrp x3, PAGE(tc_hl_errcode)
+    add x3, x3, LO12(tc_hl_errcode)
+    adrp x4, PAGE(tc_hl_erroff)
+    add x4, x4, LO12(tc_hl_erroff)
     mov x5, #0
     bl pcre2_compile_8
     cbz x0, .Lrh_bad_regex
     bl pcre2_code_free_8                // validation only; tc_watch.S recompiles
-    adrp x0, tc_hl_pat_free
-    add x0, x0, :lo12:tc_hl_pat_free
+    adrp x0, PAGE(tc_hl_pat_free)
+    add x0, x0, LO12(tc_hl_pat_free)
     ldr x0, [x0]
     cbz x0, .Lrh_pat_next
     mov x0, x25
@@ -3889,14 +3870,14 @@ tc_resolve_highlights:
     ldr x25, [sp]                       // restore the rule table (x25 was the
                                         // pattern text during the pattern loop)
     mov x0, x25
-    adrp x1, s_key_color
-    add x1, x1, :lo12:s_key_color
+    adrp x1, PAGE(s_key_color)
+    add x1, x1, LO12(s_key_color)
     bl toml_raw_in
     cbnz x0, .Lrh_color_raw
     // not a kval: the 3-int tuple form Python's parse_hex_colour accepts
     mov x0, x25
-    adrp x1, s_key_color
-    add x1, x1, :lo12:s_key_color
+    adrp x1, PAGE(s_key_color)
+    add x1, x1, LO12(s_key_color)
     bl toml_array_in
     cbz x0, .Lrh_color_bad
     mov x22, x0                         // colour array
@@ -3932,8 +3913,8 @@ tc_resolve_highlights:
     cbnz x1, .Lrh_color_fail_plain
     b .Lrh_color_store
 .Lrh_color_unquote:
-    adrp x0, tc_hl_dst
-    add x0, x0, :lo12:tc_hl_dst
+    adrp x0, PAGE(tc_hl_dst)
+    add x0, x0, LO12(tc_hl_dst)
     mov x22, x0                         // &dst
     mov x0, x21
     mov x1, x22
@@ -3959,8 +3940,8 @@ tc_resolve_highlights:
     // ---- curve / k -----------------------------------------------------------
 .Lrh_curve:
     mov x0, x25
-    adrp x1, s_key_curve
-    add x1, x1, :lo12:s_key_curve
+    adrp x1, PAGE(s_key_curve)
+    add x1, x1, LO12(s_key_curve)
     bl toml_raw_in
     cbz x0, .Lrh_curve_none
     mov x21, x0
@@ -3974,8 +3955,8 @@ tc_resolve_highlights:
     cbnz x1, .Lrh_curve_fail_plain
     b .Lrh_curve_store
 .Lrh_curve_unquote:
-    adrp x0, tc_hl_dst
-    add x0, x0, :lo12:tc_hl_dst
+    adrp x0, PAGE(tc_hl_dst)
+    add x0, x0, LO12(tc_hl_dst)
     mov x22, x0
     mov x0, x21
     mov x1, x22
@@ -3997,8 +3978,8 @@ tc_resolve_highlights:
     b .Lrh_k
 .Lrh_k:
     mov x0, x25
-    adrp x1, s_key_k
-    add x1, x1, :lo12:s_key_k
+    adrp x1, PAGE(s_key_k)
+    add x1, x1, LO12(s_key_k)
     bl toml_raw_in
     cbz x0, .Lrh_k_none
     mov x21, x0
@@ -4013,8 +3994,8 @@ tc_resolve_highlights:
     mov x23, x1                         // status 1/2 (error path: x23 expendable)
     b .Lrh_k_fail_plain
 .Lrh_k_unquote:
-    adrp x0, tc_hl_dst
-    add x0, x0, :lo12:tc_hl_dst
+    adrp x0, PAGE(tc_hl_dst)
+    add x0, x0, LO12(tc_hl_dst)
     mov x22, x0
     mov x0, x21
     mov x1, x22
@@ -4035,8 +4016,8 @@ tc_resolve_highlights:
     str x21, [x28, #TC_HL_K]
     b .Lrh_k_done
 .Lrh_k_none:
-    adrp x0, tc_hl_dbl_neg1
-    add x0, x0, :lo12:tc_hl_dbl_neg1
+    adrp x0, PAGE(tc_hl_dbl_neg1)
+    add x0, x0, LO12(tc_hl_dbl_neg1)
     ldr x0, [x0]
     str x0, [x28, #TC_HL_K]             // -1.0 = inherit
 .Lrh_k_done:
@@ -4066,38 +4047,38 @@ tc_resolve_highlights:
 // ---- per-rule error exits ---------------------------------------------------
 .Lrh_too_many_rules:
     mov x0, x20
-    adrp x1, s_hl_too_many_rules
-    add x1, x1, :lo12:s_hl_too_many_rules
+    adrp x1, PAGE(s_hl_too_many_rules)
+    add x1, x1, LO12(s_hl_too_many_rules)
     bl tc_hl_err                        // noreturn
 .Lrh_expected_table:
     mov x0, x20
     mov x1, #0
-    adrp x2, s_hl_expected_table
-    add x2, x2, :lo12:s_hl_expected_table
+    adrp x2, PAGE(s_hl_expected_table)
+    add x2, x2, LO12(s_hl_expected_table)
     bl tc_hl_err_rule                   // noreturn
 .Lrh_needs_both:
     mov x0, x20
     mov x1, x24
-    adrp x2, s_hl_needs_both
-    add x2, x2, :lo12:s_hl_needs_both
+    adrp x2, PAGE(s_hl_needs_both)
+    add x2, x2, LO12(s_hl_needs_both)
     bl tc_hl_err_rule                   // noreturn
 .Lrh_need_pattern:
     mov x0, x20
     mov x1, x24
-    adrp x2, s_hl_need_pattern
-    add x2, x2, :lo12:s_hl_need_pattern
+    adrp x2, PAGE(s_hl_need_pattern)
+    add x2, x2, LO12(s_hl_need_pattern)
     bl tc_hl_err_rule                   // noreturn
 .Lrh_too_many_pats:
     mov x0, x20
     mov x1, x24
-    adrp x2, s_hl_too_many_pats
-    add x2, x2, :lo12:s_hl_too_many_pats
+    adrp x2, PAGE(s_hl_too_many_pats)
+    add x2, x2, LO12(s_hl_too_many_pats)
     bl tc_hl_err_rule                   // noreturn
 .Lrh_pat_long:
     mov x0, x20
     mov x1, x24
-    adrp x2, s_hl_pat_long
-    add x2, x2, :lo12:s_hl_pat_long
+    adrp x2, PAGE(s_hl_pat_long)
+    add x2, x2, LO12(s_hl_pat_long)
     bl tc_hl_err_rule                   // noreturn
 .Lrh_bad_regex:
     // "rule {i}: '{pat}' is not a valid regex ({pcre2 msg})"
@@ -4109,8 +4090,8 @@ tc_resolve_highlights:
     bl tc_hl_rule
     mov x26, x0
     mov x0, x26
-    adrp x1, s_q
-    add x1, x1, :lo12:s_q
+    adrp x1, PAGE(s_q)
+    add x1, x1, LO12(s_q)
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
@@ -4118,25 +4099,25 @@ tc_resolve_highlights:
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
-    adrp x1, s_hl_bad_regex_mid
-    add x1, x1, :lo12:s_hl_bad_regex_mid
+    adrp x1, PAGE(s_hl_bad_regex_mid)
+    add x1, x1, LO12(s_hl_bad_regex_mid)
     bl tc_cat_cstr
     mov x26, x0
-    adrp x0, tc_hl_errcode
-    add x0, x0, :lo12:tc_hl_errcode
+    adrp x0, PAGE(tc_hl_errcode)
+    add x0, x0, LO12(tc_hl_errcode)
     ldr w0, [x0]
-    adrp x1, tc_scratch2
-    add x1, x1, :lo12:tc_scratch2
+    adrp x1, PAGE(tc_scratch2)
+    add x1, x1, LO12(tc_scratch2)
     mov x2, #SCRATCH_SZ
     bl pcre2_get_error_message_8
     mov x0, x26
-    adrp x1, tc_scratch2
-    add x1, x1, :lo12:tc_scratch2
+    adrp x1, PAGE(tc_scratch2)
+    add x1, x1, LO12(tc_scratch2)
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
-    adrp x1, s_hl_bad_regex_post
-    add x1, x1, :lo12:s_hl_bad_regex_post
+    adrp x1, PAGE(s_hl_bad_regex_post)
+    add x1, x1, LO12(s_hl_bad_regex_post)
     bl tc_cat_cstr
     mov x26, x0
     mov x0, x26
@@ -4145,8 +4126,8 @@ tc_resolve_highlights:
     // colour is a table or a malformed array: fixed message (deviation text)
     mov x0, x20
     mov x1, x24
-    adrp x2, s_hl_color_bad
-    add x2, x2, :lo12:s_hl_color_bad
+    adrp x2, PAGE(s_hl_color_bad)
+    add x2, x2, LO12(s_hl_color_bad)
     bl tc_hl_err_rule                   // noreturn
 .Lrh_color_fail_plain:
     mov x0, x20
@@ -4174,8 +4155,8 @@ tc_resolve_highlights:
     mov x26, x0
     mov x0, x26
     mov x1, #P_HEX
-    adrp x2, tc_hl_dst
-    add x2, x2, :lo12:tc_hl_dst
+    adrp x2, PAGE(tc_hl_dst)
+    add x2, x2, LO12(tc_hl_dst)
     ldr x2, [x2]                        // display = unquoted colour
     mov x3, #1
     bl tc_emit_msg_body
@@ -4194,8 +4175,8 @@ tc_resolve_highlights:
     mov x26, x0
     mov x0, x26
     mov x1, #P_CURVE
-    adrp x2, tc_scratch2
-    add x2, x2, :lo12:tc_scratch2
+    adrp x2, PAGE(tc_scratch2)
+    add x2, x2, LO12(tc_scratch2)
     mov x3, #1
     bl tc_emit_msg_body
     mov x26, x0
@@ -4227,8 +4208,8 @@ tc_resolve_highlights:
     mov x26, x0
     mov x0, x26
     mov x1, #P_POS_FLOAT
-    adrp x2, tc_hl_dst
-    add x2, x2, :lo12:tc_hl_dst
+    adrp x2, PAGE(tc_hl_dst)
+    add x2, x2, LO12(tc_hl_dst)
     ldr x2, [x2]                        // display = unquoted k text
     mov x3, x23                         // status 1 or 2
     bl tc_emit_msg_body
@@ -4245,17 +4226,17 @@ tc_hl_begin:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     mov x19, x0                         // source id
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x20, x0
     mov x0, x20
-    adrp x1, s_flag_highlight
-    add x1, x1, :lo12:s_flag_highlight
+    adrp x1, PAGE(s_flag_highlight)
+    add x1, x1, LO12(s_flag_highlight)
     bl tc_cat_cstr
     mov x20, x0
     mov x0, x20
-    adrp x1, s_from_prefix
-    add x1, x1, :lo12:s_from_prefix
+    adrp x1, PAGE(s_from_prefix)
+    add x1, x1, LO12(s_from_prefix)
     bl tc_cat_cstr
     mov x20, x0
     mov x0, x19
@@ -4268,8 +4249,8 @@ tc_hl_begin:
     bl tc_copy_n
     add x20, x20, x22
     mov x0, x20
-    adrp x1, s_from_suffix
-    add x1, x1, :lo12:s_from_suffix
+    adrp x1, PAGE(s_from_suffix)
+    add x1, x1, LO12(s_from_suffix)
     bl tc_cat_cstr
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -4284,8 +4265,8 @@ tc_hl_rule:
     mov x19, x0                         // cursor
     mov x20, x1                         // rule index
     mov x0, x19
-    adrp x1, s_hl_rule_pre
-    add x1, x1, :lo12:s_hl_rule_pre
+    adrp x1, PAGE(s_hl_rule_pre)
+    add x1, x1, LO12(s_hl_rule_pre)
     bl tc_cat_cstr
     mov x19, x0
     mov x0, x19
@@ -4293,8 +4274,8 @@ tc_hl_rule:
     bl tc_hl_fmt_u64                    // appends digits, returns the END cursor
     mov x19, x0
     mov x0, x19
-    adrp x1, s_hl_rule_mid
-    add x1, x1, :lo12:s_hl_rule_mid
+    adrp x1, PAGE(s_hl_rule_mid)
+    add x1, x1, LO12(s_hl_rule_mid)
     bl tc_cat_cstr
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -4356,8 +4337,8 @@ tc_hl_fmt_u64:
 tc_hl_finish:
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     b tc_fail                           // noreturn tail call
 
     .p2align 2
@@ -4410,17 +4391,17 @@ tc_now:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x0, #CLOCK_REALTIME
-    adrp x1, tc_ts_buf
-    add x1, x1, :lo12:tc_ts_buf
+    adrp x1, PAGE(tc_ts_buf)
+    add x1, x1, LO12(tc_ts_buf)
     bl clock_gettime
-    adrp x19, tc_ts_buf
-    add x19, x19, :lo12:tc_ts_buf
+    adrp x19, PAGE(tc_ts_buf)
+    add x19, x19, LO12(tc_ts_buf)
     mov x0, x19
-    adrp x1, tc_tm_buf
-    add x1, x1, :lo12:tc_tm_buf
+    adrp x1, PAGE(tc_tm_buf)
+    add x1, x1, LO12(tc_tm_buf)
     bl localtime_r
-    adrp x19, tc_tm_buf
-    add x19, x19, :lo12:tc_tm_buf
+    adrp x19, PAGE(tc_tm_buf)
+    add x19, x19, LO12(tc_tm_buf)
     ldr w20, [x19, #20]
     add x20, x20, #1900
     ldr w21, [x19, #16]
@@ -4703,7 +4684,7 @@ tc_days_from_civil:
 // tc_civil_from_days(x0=z) -> x0=y, x1=m, x2=d
     .p2align 2
     .global tc_civil_from_days
-    .type tc_civil_from_days, %function
+    FUNC_TYPE(tc_civil_from_days)
 tc_civil_from_days:
     ldr x3, =719468
     add x3, x0, x3
@@ -4809,8 +4790,8 @@ tc_days_in_month:
     stp x27, x28, [sp, #-16]!
     cmp x1, #2
     b.eq .Ldim_feb
-    adrp x2, month_days
-    add x2, x2, :lo12:month_days
+    adrp x2, PAGE(month_days)
+    add x2, x2, LO12(month_days)
     sub x3, x1, #1
     ldrb w0, [x2, x3]
     ldp x27, x28, [sp], #16
@@ -5004,7 +4985,7 @@ tc_iso_week_count:
 // ============================================================================
     .p2align 2
     .global tc_parse_datetime
-    .type tc_parse_datetime, %function
+    FUNC_TYPE(tc_parse_datetime)
 tc_parse_datetime:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -5014,8 +4995,8 @@ tc_parse_datetime:
     stp x27, x28, [sp, #-16]!
     mov x19, x0
     mov x20, x1
-    adrp x0, tc_scratch
-    add x0, x0, :lo12:tc_scratch
+    adrp x0, PAGE(tc_scratch)
+    add x0, x0, LO12(tc_scratch)
     mov x1, x19
     bl tc_strip_copy
     mov x21, x0                     // stripped ptr
@@ -5551,7 +5532,7 @@ tc_parse_fixed_datetime:
 // ============================================================================
     .p2align 2
     .global tc_parse_duration
-    .type tc_parse_duration, %function
+    FUNC_TYPE(tc_parse_duration)
 tc_parse_duration:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -5560,8 +5541,8 @@ tc_parse_duration:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     mov x19, x0
@@ -5872,19 +5853,19 @@ tc_parse_float_core:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     mov x19, x0
     bl tc_remove_underscores
     mov x0, x19
-    adrp x1, tc_strtod_end
-    add x1, x1, :lo12:tc_strtod_end
+    adrp x1, PAGE(tc_strtod_end)
+    add x1, x1, LO12(tc_strtod_end)
     bl strtod
     fmov x20, d0
-    adrp x21, tc_strtod_end
-    add x21, x21, :lo12:tc_strtod_end
+    adrp x21, PAGE(tc_strtod_end)
+    add x21, x21, LO12(tc_strtod_end)
     ldr x22, [x21]
     cmp x22, x19
     b.eq .Lpfc_bad
@@ -6017,7 +5998,7 @@ tc_parse_positive_float:
 // tc_parse_state(x0=s) -> (x0=TC_ST_*, x1=status)
     .p2align 2
     .global tc_parse_state
-    .type tc_parse_state, %function
+    FUNC_TYPE(tc_parse_state)
 tc_parse_state:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6026,39 +6007,39 @@ tc_parse_state:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_state_live
-    add x21, x21, :lo12:s_state_live
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_state_live)
+    add x21, x21, LO12(s_state_live)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpst_live
-    adrp x21, s_state_offline
-    add x21, x21, :lo12:s_state_offline
+    adrp x21, PAGE(s_state_offline)
+    add x21, x21, LO12(s_state_offline)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpst_offline
-    adrp x21, s_state_unknown
-    add x21, x21, :lo12:s_state_unknown
+    adrp x21, PAGE(s_state_unknown)
+    add x21, x21, LO12(s_state_unknown)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpst_unknown
-    adrp x21, s_state_any
-    add x21, x21, :lo12:s_state_any
+    adrp x21, PAGE(s_state_any)
+    add x21, x21, LO12(s_state_any)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpst_any
-    adrp x21, s_state_all
-    add x21, x21, :lo12:s_state_all
+    adrp x21, PAGE(s_state_all)
+    add x21, x21, LO12(s_state_all)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6093,7 +6074,7 @@ tc_parse_state:
 // tc_parse_header(x0=s) -> (x0=TC_HDR_*, x1=status)
     .p2align 2
     .global tc_parse_header
-    .type tc_parse_header, %function
+    FUNC_TYPE(tc_parse_header)
 tc_parse_header:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6102,27 +6083,27 @@ tc_parse_header:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_hdr_full
-    add x21, x21, :lo12:s_hdr_full
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_hdr_full)
+    add x21, x21, LO12(s_hdr_full)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lph_full
-    adrp x21, s_hdr_compact
-    add x21, x21, :lo12:s_hdr_compact
+    adrp x21, PAGE(s_hdr_compact)
+    add x21, x21, LO12(s_hdr_compact)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lph_compact
-    adrp x21, s_hdr_none
-    add x21, x21, :lo12:s_hdr_none
+    adrp x21, PAGE(s_hdr_none)
+    add x21, x21, LO12(s_hdr_none)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6153,7 +6134,7 @@ tc_parse_header:
 // tc_parse_sort(x0=s) -> (x0=TC_M_*, x1=status)
     .p2align 2
     .global tc_parse_sort
-    .type tc_parse_sort, %function
+    FUNC_TYPE(tc_parse_sort)
 tc_parse_sort:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6162,51 +6143,51 @@ tc_parse_sort:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_metric_count
-    add x21, x21, :lo12:s_metric_count
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_metric_count)
+    add x21, x21, LO12(s_metric_count)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_count
-    adrp x21, s_metric_login
-    add x21, x21, :lo12:s_metric_login
+    adrp x21, PAGE(s_metric_login)
+    add x21, x21, LO12(s_metric_login)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_login
-    adrp x21, s_metric_live
-    add x21, x21, :lo12:s_metric_live
+    adrp x21, PAGE(s_metric_live)
+    add x21, x21, LO12(s_metric_live)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_live
-    adrp x21, s_metric_offline
-    add x21, x21, :lo12:s_metric_offline
+    adrp x21, PAGE(s_metric_offline)
+    add x21, x21, LO12(s_metric_offline)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_offline
-    adrp x21, s_metric_unknown
-    add x21, x21, :lo12:s_metric_unknown
+    adrp x21, PAGE(s_metric_unknown)
+    add x21, x21, LO12(s_metric_unknown)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_unknown
-    adrp x21, s_metric_offline_share
-    add x21, x21, :lo12:s_metric_offline_share
+    adrp x21, PAGE(s_metric_offline_share)
+    add x21, x21, LO12(s_metric_offline_share)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_os
-    adrp x21, s_metric_live_share
-    add x21, x21, :lo12:s_metric_live_share
+    adrp x21, PAGE(s_metric_live_share)
+    add x21, x21, LO12(s_metric_live_share)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6246,7 +6227,7 @@ tc_parse_sort:
 // tc_parse_curve(x0=s) -> (x0=TC_CURVE_*, x1=status)
     .p2align 2
     .global tc_parse_curve
-    .type tc_parse_curve, %function
+    FUNC_TYPE(tc_parse_curve)
 tc_parse_curve:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6255,39 +6236,39 @@ tc_parse_curve:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_curve_linear
-    add x21, x21, :lo12:s_curve_linear
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_curve_linear)
+    add x21, x21, LO12(s_curve_linear)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpc_linear
-    adrp x21, s_curve_power
-    add x21, x21, :lo12:s_curve_power
+    adrp x21, PAGE(s_curve_power)
+    add x21, x21, LO12(s_curve_power)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpc_power
-    adrp x21, s_curve_ease_out
-    add x21, x21, :lo12:s_curve_ease_out
+    adrp x21, PAGE(s_curve_ease_out)
+    add x21, x21, LO12(s_curve_ease_out)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpc_easeout
-    adrp x21, s_curve_bias
-    add x21, x21, :lo12:s_curve_bias
+    adrp x21, PAGE(s_curve_bias)
+    add x21, x21, LO12(s_curve_bias)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpc_bias
-    adrp x21, s_curve_ease_in_out
-    add x21, x21, :lo12:s_curve_ease_in_out
+    adrp x21, PAGE(s_curve_ease_in_out)
+    add x21, x21, LO12(s_curve_ease_in_out)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6321,7 +6302,7 @@ tc_parse_curve:
 // tc_parse_users_policy(x0=s) -> (x0=id, x1=status)
     .p2align 2
     .global tc_parse_users_policy
-    .type tc_parse_users_policy, %function
+    FUNC_TYPE(tc_parse_users_policy)
 tc_parse_users_policy:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6330,27 +6311,27 @@ tc_parse_users_policy:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_policy_at_least
-    add x21, x21, :lo12:s_policy_at_least
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_policy_at_least)
+    add x21, x21, LO12(s_policy_at_least)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpp_at_least
-    adrp x21, s_policy_at_most
-    add x21, x21, :lo12:s_policy_at_most
+    adrp x21, PAGE(s_policy_at_most)
+    add x21, x21, LO12(s_policy_at_most)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpp_at_most
-    adrp x21, s_policy_nearest
-    add x21, x21, :lo12:s_policy_nearest
+    adrp x21, PAGE(s_policy_nearest)
+    add x21, x21, LO12(s_policy_nearest)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6378,7 +6359,7 @@ tc_parse_users_policy:
 // tc_parse_bool(x0=s) -> (x0=0/1, x1=status)
     .p2align 2
     .global tc_parse_bool
-    .type tc_parse_bool, %function
+    FUNC_TYPE(tc_parse_bool)
 tc_parse_bool:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6387,50 +6368,50 @@ tc_parse_bool:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
     ldrb w0, [x20]
     cmp w0, #'1'
     b.eq .Lpb_true
     cmp w0, #'0'
     b.eq .Lpb_false
-    adrp x21, s_bool_true
-    add x21, x21, :lo12:s_bool_true
+    adrp x21, PAGE(s_bool_true)
+    add x21, x21, LO12(s_bool_true)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpb_true
-    adrp x21, s_bool_yes
-    add x21, x21, :lo12:s_bool_yes
+    adrp x21, PAGE(s_bool_yes)
+    add x21, x21, LO12(s_bool_yes)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpb_true
-    adrp x21, s_bool_on
-    add x21, x21, :lo12:s_bool_on
+    adrp x21, PAGE(s_bool_on)
+    add x21, x21, LO12(s_bool_on)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpb_true
-    adrp x21, s_bool_false
-    add x21, x21, :lo12:s_bool_false
+    adrp x21, PAGE(s_bool_false)
+    add x21, x21, LO12(s_bool_false)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpb_false
-    adrp x21, s_bool_no
-    add x21, x21, :lo12:s_bool_no
+    adrp x21, PAGE(s_bool_no)
+    add x21, x21, LO12(s_bool_no)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpb_false
-    adrp x21, s_bool_off
-    add x21, x21, :lo12:s_bool_off
+    adrp x21, PAGE(s_bool_off)
+    add x21, x21, LO12(s_bool_off)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6457,7 +6438,7 @@ tc_parse_bool:
 // tc_parse_hex_colour(x0=s) -> (x0=rgb packed, x1=status)
     .p2align 2
     .global tc_parse_hex_colour
-    .type tc_parse_hex_colour, %function
+    FUNC_TYPE(tc_parse_hex_colour)
 tc_parse_hex_colour:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6466,8 +6447,8 @@ tc_parse_hex_colour:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     mov x19, x0
@@ -6606,27 +6587,27 @@ tc_parse_color_choice:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_color_auto
-    add x21, x21, :lo12:s_color_auto
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_color_auto)
+    add x21, x21, LO12(s_color_auto)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcol_auto
-    adrp x21, s_color_always
-    add x21, x21, :lo12:s_color_always
+    adrp x21, PAGE(s_color_always)
+    add x21, x21, LO12(s_color_always)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcol_always
-    adrp x21, s_color_never
-    add x21, x21, :lo12:s_color_never
+    adrp x21, PAGE(s_color_never)
+    add x21, x21, LO12(s_color_never)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6661,51 +6642,51 @@ tc_parse_complete_choice:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     bl tc_lowercase
-    adrp x20, tc_scratch2
-    add x20, x20, :lo12:tc_scratch2
-    adrp x21, s_comp_channels
-    add x21, x21, :lo12:s_comp_channels
+    adrp x20, PAGE(tc_scratch2)
+    add x20, x20, LO12(tc_scratch2)
+    adrp x21, PAGE(s_comp_channels)
+    add x21, x21, LO12(s_comp_channels)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcom_channels
-    adrp x21, s_comp_groups
-    add x21, x21, :lo12:s_comp_groups
+    adrp x21, PAGE(s_comp_groups)
+    add x21, x21, LO12(s_comp_groups)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcom_groups
-    adrp x21, s_comp_dates
-    add x21, x21, :lo12:s_comp_dates
+    adrp x21, PAGE(s_comp_dates)
+    add x21, x21, LO12(s_comp_dates)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcom_dates
-    adrp x21, s_comp_weeks
-    add x21, x21, :lo12:s_comp_weeks
+    adrp x21, PAGE(s_comp_weeks)
+    add x21, x21, LO12(s_comp_weeks)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcom_weeks
-    adrp x21, s_comp_periods
-    add x21, x21, :lo12:s_comp_periods
+    adrp x21, PAGE(s_comp_periods)
+    add x21, x21, LO12(s_comp_periods)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcom_periods
-    adrp x21, s_comp_users
-    add x21, x21, :lo12:s_comp_users
+    adrp x21, PAGE(s_comp_users)
+    add x21, x21, LO12(s_comp_users)
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpcom_users
-    adrp x21, s_comp_includes
-    add x21, x21, :lo12:s_comp_includes
+    adrp x21, PAGE(s_comp_includes)
+    add x21, x21, LO12(s_comp_includes)
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -6747,7 +6728,7 @@ tc_parse_complete_choice:
 // ============================================================================
     .p2align 2
     .global tc_parse_metrics
-    .type tc_parse_metrics, %function
+    FUNC_TYPE(tc_parse_metrics)
 tc_parse_metrics:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6756,13 +6737,13 @@ tc_parse_metrics:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_scratch2
-    add x0, x0, :lo12:tc_scratch2
+    adrp x0, PAGE(tc_scratch2)
+    add x0, x0, LO12(tc_scratch2)
     mov x1, x19
     bl tc_strip_copy
     mov x19, x0
-    adrp x20, tc_metrics_tmp
-    add x20, x20, :lo12:tc_metrics_tmp
+    adrp x20, PAGE(tc_metrics_tmp)
+    add x20, x20, LO12(tc_metrics_tmp)
     mov x21, #0
     mov x22, x19
 .Lpm_skip:
@@ -6831,8 +6812,8 @@ tc_parse_metrics:
     mov x2, x22
     b .Lpm_ret
 .Lpm_done:
-    adrp x0, tc_metrics_tmp_n
-    add x0, x0, :lo12:tc_metrics_tmp_n
+    adrp x0, PAGE(tc_metrics_tmp_n)
+    add x0, x0, LO12(tc_metrics_tmp_n)
     str x21, [x0]
     mov x0, x21
     mov x1, #0
@@ -6856,38 +6837,38 @@ tc_metric_id:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0
-    adrp x20, s_metric_count
-    add x20, x20, :lo12:s_metric_count
+    adrp x20, PAGE(s_metric_count)
+    add x20, x20, LO12(s_metric_count)
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_count
-    adrp x20, s_metric_live
-    add x20, x20, :lo12:s_metric_live
+    adrp x20, PAGE(s_metric_live)
+    add x20, x20, LO12(s_metric_live)
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_live
-    adrp x20, s_metric_offline
-    add x20, x20, :lo12:s_metric_offline
+    adrp x20, PAGE(s_metric_offline)
+    add x20, x20, LO12(s_metric_offline)
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_offline
-    adrp x20, s_metric_unknown
-    add x20, x20, :lo12:s_metric_unknown
+    adrp x20, PAGE(s_metric_unknown)
+    add x20, x20, LO12(s_metric_unknown)
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_unknown
-    adrp x20, s_metric_offline_share
-    add x20, x20, :lo12:s_metric_offline_share
+    adrp x20, PAGE(s_metric_offline_share)
+    add x20, x20, LO12(s_metric_offline_share)
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_os
-    adrp x20, s_metric_live_share
-    add x20, x20, :lo12:s_metric_live_share
+    adrp x20, PAGE(s_metric_live_share)
+    add x20, x20, LO12(s_metric_live_share)
     mov x0, x19
     mov x1, x20
     bl tc_streq
@@ -6919,7 +6900,7 @@ tc_metric_id:
 // ============================================================================
     .p2align 2
     .global tc_source_str
-    .type tc_source_str, %function
+    FUNC_TYPE(tc_source_str)
 tc_source_str:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6938,15 +6919,15 @@ tc_source_str:
     b.lt .Lss_none
     cmp x19, #TC_SRC_COUNT
     b.ge .Lss_none
-    adrp x0, tc_source_table
-    add x0, x0, :lo12:tc_source_table
+    adrp x0, PAGE(tc_source_table)
+    add x0, x0, LO12(tc_source_table)
     ldr x0, [x0, x19, lsl #3]
     cbz x0, .Lss_none
     mov x1, x0
     bl tc_strlen
     mov x1, x0
-    adrp x2, tc_source_table
-    add x2, x2, :lo12:tc_source_table
+    adrp x2, PAGE(tc_source_table)
+    add x2, x2, LO12(tc_source_table)
     ldr x0, [x2, x19, lsl #3]
     b .Lss_ret
 .Lss_dyn_win:
@@ -6985,7 +6966,7 @@ tc_source_str:
     .data
 chbuf:
     .skip 1
-    .section .rodata
+    RODATA
     .p2align 3
 
 s_newline:      .asciz "\n"

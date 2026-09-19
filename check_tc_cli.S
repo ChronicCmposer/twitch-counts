@@ -6,8 +6,9 @@
 //   checks those exit codes + stderr directly.
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
     .text
 
     .globl main
@@ -25,10 +26,10 @@ main:
     bl tc_cli_parse                 // exits 2/1 on errors
 
     // ---- channel -----------------------------------------------------------
-    adrp x0, fmt_channel
-    add x0, x0, :lo12:fmt_channel
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x0, PAGE(fmt_channel)
+    add x0, x0, LO12(fmt_channel)
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CHANNEL
     bl printf
     // channel source
@@ -37,17 +38,17 @@ main:
     bl tc_source_str                // x0=ptr, x1=len
     mov x21, x0
     mov x22, x1
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
     bl printf
 
     // ---- logs_dir ----------------------------------------------------------
-    adrp x0, fmt_logs_dir
-    add x0, x0, :lo12:fmt_logs_dir
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x0, PAGE(fmt_logs_dir)
+    add x0, x0, LO12(fmt_logs_dir)
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_LOGS_DIR
     bl printf
     mov x0, #TC_SET_LOGS_DIR
@@ -55,19 +56,19 @@ main:
     bl tc_source_str
     mov x21, x0
     mov x22, x1
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
     bl printf
 
     // ---- window ------------------------------------------------------------
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x20, [x19, #TC_W_BEGIN_YMD]
     ldr x21, [x19, #TC_W_BEGIN_SOD]
-    adrp x0, fmt_begin
-    add x0, x0, :lo12:fmt_begin
+    adrp x0, PAGE(fmt_begin)
+    add x0, x0, LO12(fmt_begin)
     mov x1, x20
     mov x2, x21
     bl printf
@@ -77,15 +78,15 @@ main:
     mov x21, x1
     ldr x0, [x19, #TC_W_START_SRC]
     mov x22, x0
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x21
     mov x2, x22
     bl printf
     ldr x20, [x19, #TC_W_END_YMD]
     ldr x21, [x19, #TC_W_END_SOD]
-    adrp x0, fmt_end
-    add x0, x0, :lo12:fmt_end
+    adrp x0, PAGE(fmt_end)
+    add x0, x0, LO12(fmt_end)
     mov x1, x20
     mov x2, x21
     bl printf
@@ -95,63 +96,63 @@ main:
     bl tc_source_str
     mov x21, x0
     mov x22, x1
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
     bl printf
     // window kind
     ldr x1, [x19, #TC_W_KIND]
-    adrp x0, fmt_kind
-    add x0, x0, :lo12:fmt_kind
+    adrp x0, PAGE(fmt_kind)
+    add x0, x0, LO12(fmt_kind)
     bl printf
 
     // ---- numeric settings ---------------------------------------------------
-    adrp x19, tc_opts
-    add x19, x19, :lo12:tc_opts
+    adrp x19, PAGE(tc_opts)
+    add x19, x19, LO12(tc_opts)
     ldr x1, [x19, #TC_O_MIN_COUNT]
-    adrp x0, fmt_min_count
-    add x0, x0, :lo12:fmt_min_count
+    adrp x0, PAGE(fmt_min_count)
+    add x0, x0, LO12(fmt_min_count)
     bl printf
     mov x0, #TC_SET_MIN_COUNT
     bl tc_load_src_id
     bl tc_source_str
     mov x21, x0
     mov x22, x1
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
     bl printf
 
     ldr x1, [x19, #TC_O_TOP]
-    adrp x0, fmt_top
-    add x0, x0, :lo12:fmt_top
+    adrp x0, PAGE(fmt_top)
+    add x0, x0, LO12(fmt_top)
     bl printf
 
     ldr x1, [x19, #TC_O_STATE_FILTER]
-    adrp x0, fmt_state
-    add x0, x0, :lo12:fmt_state
+    adrp x0, PAGE(fmt_state)
+    add x0, x0, LO12(fmt_state)
     bl printf
     mov x0, #TC_SET_STATE
     bl tc_load_src_id
     bl tc_source_str
     mov x21, x0
     mov x22, x1
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
     bl printf
 
     ldr x1, [x19, #TC_O_SORT]
-    adrp x0, fmt_sort
-    add x0, x0, :lo12:fmt_sort
+    adrp x0, PAGE(fmt_sort)
+    add x0, x0, LO12(fmt_sort)
     bl printf
 
     // columns
-    adrp x0, fmt_columns
-    add x0, x0, :lo12:fmt_columns
+    adrp x0, PAGE(fmt_columns)
+    add x0, x0, LO12(fmt_columns)
     ldr x1, [x19, #TC_O_COLUMN_COUNT]
     ldr x2, [x19, #TC_O_COLUMNS + 0]
     ldr x3, [x19, #TC_O_COLUMNS + 8]
@@ -165,57 +166,57 @@ main:
     mov x21, x0
     bl tc_strlen_local
     mov x22, x1
-    adrp x0, fmt_src
-    add x0, x0, :lo12:fmt_src
+    adrp x0, PAGE(fmt_src)
+    add x0, x0, LO12(fmt_src)
     mov x1, x22
     mov x2, x21
     bl printf
     b .Lcols_done
 .Lcols_none:
-    adrp x0, fmt_src_none
-    add x0, x0, :lo12:fmt_src_none
+    adrp x0, PAGE(fmt_src_none)
+    add x0, x0, LO12(fmt_src_none)
     bl printf
 .Lcols_done:
 
     ldr x1, [x19, #TC_O_HEADER_MODE]
-    adrp x0, fmt_header
-    add x0, x0, :lo12:fmt_header
+    adrp x0, PAGE(fmt_header)
+    add x0, x0, LO12(fmt_header)
     bl printf
 
     ldr x1, [x19, #TC_O_FLAGS]
     and x1, x1, #TC_F_JSON
     lsr x1, x1, #3
-    adrp x0, fmt_json
-    add x0, x0, :lo12:fmt_json
+    adrp x0, PAGE(fmt_json)
+    add x0, x0, LO12(fmt_json)
     bl printf
 
     ldr x1, [x19, #TC_O_FLAGS]
     and x1, x1, #TC_F_WATCH_PRESENT
     lsr x1, x1, #4
-    adrp x0, fmt_watch
-    add x0, x0, :lo12:fmt_watch
+    adrp x0, PAGE(fmt_watch)
+    add x0, x0, LO12(fmt_watch)
     bl printf
 
     ldr x1, [x19, #TC_O_USERS]
-    adrp x0, fmt_users
-    add x0, x0, :lo12:fmt_users
+    adrp x0, PAGE(fmt_users)
+    add x0, x0, LO12(fmt_users)
     bl printf
 
     ldr x1, [x19, #TC_O_FLAGS]
-    adrp x0, fmt_flags
-    add x0, x0, :lo12:fmt_flags
+    adrp x0, PAGE(fmt_flags)
+    add x0, x0, LO12(fmt_flags)
     bl printf
 
-    adrp x0, fmt_config
-    add x0, x0, :lo12:fmt_config
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x0, PAGE(fmt_config)
+    add x0, x0, LO12(fmt_config)
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     add x1, x1, #TC_O_CONFIG_PATH
     bl printf
 
     ldr x1, [x19, #TC_O_COLOR_MODE]
-    adrp x0, fmt_color
-    add x0, x0, :lo12:fmt_color
+    adrp x0, PAGE(fmt_color)
+    add x0, x0, LO12(fmt_color)
     bl printf
 
     mov w0, #0
@@ -227,8 +228,8 @@ main:
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_load_src_id:
-    adrp x1, tc_opts
-    add x1, x1, :lo12:tc_opts
+    adrp x1, PAGE(tc_opts)
+    add x1, x1, LO12(tc_opts)
     mov x2, #TC_O_SRC
     add x1, x1, x2
     mov x2, #8
@@ -250,7 +251,7 @@ tc_strlen_local:
     ret
 
 // ----------------------------------------------------------------------------
-    .section .rodata
+    RODATA
 fmt_channel:    .asciz "channel=%s\n"
 fmt_logs_dir:   .asciz "logs_dir=%s\n"
 fmt_begin:      .asciz "begin=%lld %lld\n"

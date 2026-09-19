@@ -96,8 +96,9 @@
 //      connection; tc_count_final uses whatever tc_cache.S has open.
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
     .text
 
 // ----------------------------------------------------------------------------
@@ -169,7 +170,7 @@ tc_core_g_unk:      .skip 8
 // ============================================================================
 // .rodata — message literals (lengths via label arithmetic where it matters)
 // ============================================================================
-    .section .rodata
+    RODATA
 s_dir_not_found:    .asciz "logs directory not found: "
 s_no_logs_pre:      .asciz "no logs for channel '"
 s_no_logs_mid:      .asciz "' in "
@@ -196,7 +197,7 @@ month_days:         .byte 31,28,31,30,31,30,31,31,30,31,30,31
 // ============================================================================
     .p2align 2
     .global tc_count_run
-    .type tc_count_run, %function
+    FUNC_TYPE(tc_count_run)
 tc_count_run:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -217,10 +218,10 @@ tc_count_run:
 // ============================================================================
     .p2align 2
     .global tc_channel_name
-    .type tc_channel_name, %function
+    FUNC_TYPE(tc_channel_name)
 tc_channel_name:
-    adrp x0, tc_core_name
-    add x0, x0, :lo12:tc_core_name
+    adrp x0, PAGE(tc_core_name)
+    add x0, x0, LO12(tc_core_name)
     ret
 
 // ============================================================================
@@ -230,18 +231,18 @@ tc_channel_name:
 // ============================================================================
     .p2align 2
     .global tc_count_column
-    .type tc_count_column, %function
+    FUNC_TYPE(tc_count_column)
 tc_count_column:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x1, tc_users
-    add x1, x1, :lo12:tc_users
+    adrp x1, PAGE(tc_users)
+    add x1, x1, LO12(tc_users)
     ldr x2, [x1, #TC_US_ENTRIES]
     mov x3, #TC_US_ENTRY_SZ
     mul x3, x0, x3
     add x2, x2, x3                  // entry ptr
-    adrp x3, tc_window
-    add x3, x3, :lo12:tc_window
+    adrp x3, PAGE(tc_window)
+    add x3, x3, LO12(tc_window)
     ldr x4, [x3, #TC_W_STATE_FILTER]
     cmp x4, #TC_ST_LIVE
     b.eq .Lcc_live
@@ -278,10 +279,10 @@ tc_count_column:
 // ============================================================================
     .p2align 2
     .global tc_user_state
-    .type tc_user_state, %function
+    FUNC_TYPE(tc_user_state)
 tc_user_state:
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     ldr x3, [x2, #TC_US_ENTRIES]
     mov x4, #TC_US_ENTRY_SZ
     mul x4, x0, x4
@@ -307,8 +308,8 @@ tc_user_state:
 // ============================================================================
     .p2align 2
 tc_eff_threshold:
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
     cmp x2, #TC_M_OFFLINE_SHARE
@@ -350,7 +351,7 @@ tc_eff_threshold:
 // ============================================================================
     .p2align 2
     .global tc_resolve_channel
-    .type tc_resolve_channel, %function
+    FUNC_TYPE(tc_resolve_channel)
 tc_resolve_channel:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -359,21 +360,21 @@ tc_resolve_channel:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // lowercased channel for matching
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_CHANNEL
-    adrp x1, tc_core_chlower
-    add x1, x1, :lo12:tc_core_chlower
+    adrp x1, PAGE(tc_core_chlower)
+    add x1, x1, LO12(tc_core_chlower)
     bl lowercase_copy
     // open the logs dir
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x0, x0, #TC_O_LOGS_DIR
     bl opendir
     cbz x0, .Lrc_dir_notfound
     mov x19, x0                        // DIR*
-    adrp x20, tc_core_dname_count
-    add x20, x20, :lo12:tc_core_dname_count
+    adrp x20, PAGE(tc_core_dname_count)
+    add x20, x20, LO12(tc_core_dname_count)
     str xzr, [x20]
 .Lrc_list:
     mov x0, x19
@@ -410,13 +411,13 @@ tc_resolve_channel:
     b .Lrc_nlen
 .Lrc_nlen_done:
     // copy into the arena
-    adrp x6, tc_core_darena
-    add x6, x6, :lo12:tc_core_darena
+    adrp x6, PAGE(tc_core_darena)
+    add x6, x6, LO12(tc_core_darena)
     mov x7, #DNAME_SZ
     mul x7, x3, x7
     add x6, x6, x7
-    adrp x8, tc_core_dnames
-    add x8, x8, :lo12:tc_core_dnames
+    adrp x8, PAGE(tc_core_dnames)
+    add x8, x8, LO12(tc_core_dnames)
     str x6, [x8, x3, lsl #3]
     mov x9, #0
 .Lrc_copy:
@@ -442,11 +443,11 @@ tc_resolve_channel:
 .Lrc_find:
     cmp x21, x19
     b.ge .Lrc_no_channel
-    adrp x22, tc_core_dnames
-    add x22, x22, :lo12:tc_core_dnames
+    adrp x22, PAGE(tc_core_dnames)
+    add x22, x22, LO12(tc_core_dnames)
     ldr x22, [x22, x21, lsl #3]        // name
-    adrp x1, tc_core_chlower
-    add x1, x1, :lo12:tc_core_chlower
+    adrp x1, PAGE(tc_core_chlower)
+    add x1, x1, LO12(tc_core_chlower)
     mov x0, x22
     bl tc_ascii_casecmp
     cbz x0, .Lrc_found
@@ -454,24 +455,24 @@ tc_resolve_channel:
     b .Lrc_find
 .Lrc_found:
     // x22 = the real directory name
-    adrp x0, tc_core_name
-    add x0, x0, :lo12:tc_core_name
+    adrp x0, PAGE(tc_core_name)
+    add x0, x0, LO12(tc_core_name)
     mov x1, x22
     bl tc_copy_str
     // dirpath = logs_dir + "/" + name
-    adrp x0, tc_core_dirpath
-    add x0, x0, :lo12:tc_core_dirpath
+    adrp x0, PAGE(tc_core_dirpath)
+    add x0, x0, LO12(tc_core_dirpath)
     mov x23, x0
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x1, x0, #TC_O_LOGS_DIR
     mov x0, x23
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
     mov x23, x0
-    adrp x1, tc_core_name
-    add x1, x1, :lo12:tc_core_name
+    adrp x1, PAGE(tc_core_name)
+    add x1, x1, LO12(tc_core_name)
     mov x0, x23
     bl tc_cat_cstr
     ldp x27, x28, [sp], #16
@@ -484,54 +485,54 @@ tc_resolve_channel:
 
 .Lrc_dir_notfound:
     // "logs directory not found: <dir>"
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     mov x19, x0
-    adrp x1, s_dir_not_found
-    add x1, x1, :lo12:s_dir_not_found
+    adrp x1, PAGE(s_dir_not_found)
+    add x1, x1, LO12(s_dir_not_found)
     bl tc_cat_cstr
     mov x19, x0
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x1, x0, #TC_O_LOGS_DIR
     mov x0, x19
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     bl tc_fail
 
 .Lrc_no_channel:
     // "no logs for channel '<ch>' in <dir>\navailable: <join|(none)>"
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     mov x19, x0
-    adrp x1, s_no_logs_pre
-    add x1, x1, :lo12:s_no_logs_pre
+    adrp x1, PAGE(s_no_logs_pre)
+    add x1, x1, LO12(s_no_logs_pre)
     bl tc_cat_cstr
     mov x19, x0
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x1, x0, #TC_O_CHANNEL
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
-    adrp x1, s_no_logs_mid
-    add x1, x1, :lo12:s_no_logs_mid
+    adrp x1, PAGE(s_no_logs_mid)
+    add x1, x1, LO12(s_no_logs_mid)
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     add x1, x0, #TC_O_LOGS_DIR
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
     mov w2, #'\n'
     strb w2, [x19], #1
-    adrp x1, s_avail
-    add x1, x1, :lo12:s_avail
+    adrp x1, PAGE(s_avail)
+    add x1, x1, LO12(s_avail)
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
@@ -539,8 +540,8 @@ tc_resolve_channel:
     cbz x20, .Lrc_avail_none
     mov x21, #0
 .Lrc_avail_loop:
-    adrp x22, tc_core_dnames
-    add x22, x22, :lo12:tc_core_dnames
+    adrp x22, PAGE(tc_core_dnames)
+    add x22, x22, LO12(tc_core_dnames)
     ldr x22, [x22, x21, lsl #3]
     mov x0, x19
     mov x1, x22
@@ -556,16 +557,16 @@ tc_resolve_channel:
     mov x21, x23
     b .Lrc_avail_loop
 .Lrc_avail_none:
-    adrp x1, s_none_paren
-    add x1, x1, :lo12:s_none_paren
+    adrp x1, PAGE(s_none_paren)
+    add x1, x1, LO12(s_none_paren)
     mov x0, x19
     bl tc_cat_cstr
     mov x19, x0
 .Lrc_avail_done:
     mov w2, #0
     strb w2, [x19]
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     bl tc_fail
 
 // ============================================================================
@@ -579,13 +580,13 @@ tc_build_listing:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_listing
-    add x19, x19, :lo12:tc_listing
+    adrp x19, PAGE(tc_listing)
+    add x19, x19, LO12(tc_listing)
     str xzr, [x19, #TC_L_COUNT]
     str xzr, [x19, #TC_L_CAP]
     str xzr, [x19, #TC_L_ENTRIES]
-    adrp x0, tc_core_dirpath
-    add x0, x0, :lo12:tc_core_dirpath
+    adrp x0, PAGE(tc_core_dirpath)
+    add x0, x0, LO12(tc_core_dirpath)
     bl opendir
     cbz x0, .Lbl_cant_open
     mov x20, x0                        // DIR*
@@ -661,26 +662,26 @@ tc_build_listing:
     ret
 
 .Lbl_cant_open:
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     mov x19, x0
-    adrp x1, s_cant_open_dir
-    add x1, x1, :lo12:s_cant_open_dir
+    adrp x1, PAGE(s_cant_open_dir)
+    add x1, x1, LO12(s_cant_open_dir)
     bl tc_cat_cstr
     mov x19, x0
-    adrp x1, tc_core_dirpath
-    add x1, x1, :lo12:tc_core_dirpath
+    adrp x1, PAGE(tc_core_dirpath)
+    add x1, x1, LO12(tc_core_dirpath)
     mov x0, x19
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     bl tc_fail
 
 .Lbl_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -822,8 +823,8 @@ parse_log_filename:
     .p2align 2
 days_in_month:
     sub x1, x1, #1
-    adrp x2, month_days
-    add x2, x2, :lo12:month_days
+    adrp x2, PAGE(month_days)
+    add x2, x2, LO12(month_days)
     ldrb w0, [x2, x1]
     cmp x1, #1                         // February
     b.ne .Ldim_out
@@ -863,8 +864,8 @@ tc_complete_window:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x20, [x19, #TC_W_KIND]
     cmp x20, #TC_WIN_EARLIEST
     b.eq .Lcw_earliest
@@ -872,26 +873,26 @@ tc_complete_window:
     b.eq .Lcw_users
     b .Lcw_fill
 .Lcw_earliest:
-    adrp x21, tc_listing
-    add x21, x21, :lo12:tc_listing
+    adrp x21, PAGE(tc_listing)
+    add x21, x21, LO12(tc_listing)
     ldr x22, [x21, #TC_L_COUNT]
     cbnz x22, .Lcw_earliest_ok
     // "no log files found in <dirpath>"
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     mov x23, x0
-    adrp x1, s_no_files_pre
-    add x1, x1, :lo12:s_no_files_pre
+    adrp x1, PAGE(s_no_files_pre)
+    add x1, x1, LO12(s_no_files_pre)
     bl tc_cat_cstr
     mov x23, x0
-    adrp x1, tc_core_dirpath
-    add x1, x1, :lo12:tc_core_dirpath
+    adrp x1, PAGE(tc_core_dirpath)
+    add x1, x1, LO12(tc_core_dirpath)
     mov x0, x23
     bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     bl tc_fail
 .Lcw_earliest_ok:
     ldr x23, [x21, #TC_L_ENTRIES]
@@ -904,8 +905,8 @@ tc_complete_window:
     bl tc_size_users
     b .Lcw_fill
 .Lcw_fill:
-    adrp x20, tc_opts
-    add x20, x20, :lo12:tc_opts
+    adrp x20, PAGE(tc_opts)
+    add x20, x20, LO12(tc_opts)
     ldr x21, [x20, #TC_O_MIN_COUNT]
     str x21, [x19, #TC_W_THRESHOLD]
     ldr x21, [x20, #TC_O_STATE_FILTER]
@@ -928,8 +929,8 @@ tc_window_begin_after_end_check:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, tc_window
-    add x19, x19, :lo12:tc_window
+    adrp x19, PAGE(tc_window)
+    add x19, x19, LO12(tc_window)
     ldr x0, [x19, #TC_W_BEGIN_YMD]
     ldr x1, [x19, #TC_W_BEGIN_SOD]
     bl tc_ymd_sod_to_epoch
@@ -940,11 +941,11 @@ tc_window_begin_after_end_check:
     mov x21, x0
     cmp x20, x21
     b.le .Lwae_done
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     mov x22, x0
-    adrp x1, s_begin_paren
-    add x1, x1, :lo12:s_begin_paren
+    adrp x1, PAGE(s_begin_paren)
+    add x1, x1, LO12(s_begin_paren)
     bl tc_cat_cstr
     mov x22, x0
     ldr x1, [x19, #TC_W_BEGIN_YMD]
@@ -954,8 +955,8 @@ tc_window_begin_after_end_check:
     mov x2, x22                          // format into the scratch cursor
     bl fmt_ymd_sod
     mov x22, x0
-    adrp x1, s_is_after_end
-    add x1, x1, :lo12:s_is_after_end
+    adrp x1, PAGE(s_is_after_end)
+    add x1, x1, LO12(s_is_after_end)
     mov x0, x22
     bl tc_cat_cstr
     mov x22, x0
@@ -969,8 +970,8 @@ tc_window_begin_after_end_check:
     strb w1, [x0], #1
     mov w1, #0
     strb w1, [x0]
-    adrp x0, tc_core_scratch
-    add x0, x0, :lo12:tc_core_scratch
+    adrp x0, PAGE(tc_core_scratch)
+    add x0, x0, LO12(tc_core_scratch)
     bl tc_fail
 .Lwae_done:
     ldp x23, x24, [sp], #16
@@ -992,15 +993,15 @@ tc_size_users:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // end_epoch
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
     mov x19, x0                        // end_epoch
     // requested / ceiling
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x20, [x9, #TC_O_USERS]
     ldr x21, [x9, #TC_O_USERS_MAX]
     cmp x21, #1
@@ -1081,8 +1082,8 @@ tc_size_users:
     bl tc_reported_width
     mov x27, x0                        // under
     // ---- policy ----
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x9, [x9, #TC_O_USERS_POLICY]
     cmp x9, #TC_POLICY_AT_MOST
     b.eq .Lsu_at_most
@@ -1121,14 +1122,14 @@ tc_size_users:
     mov x2, x23                       // found = widest
     b .Lsu_apply
 .Lsu_apply:
-    adrp x9, tc_window
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)
+    add x9, x9, LO12(tc_window)
     str x1, [x9, #TC_W_USERS_WIDTH]
     str x2, [x9, #TC_W_USERS_FOUND]
     sub x0, x19, x1                   // begin = end - width
     bl tc_epoch_to_ymd_sod
-    adrp x9, tc_window                // reload: the call clobbered x9
-    add x9, x9, :lo12:tc_window
+    adrp x9, PAGE(tc_window)                // reload: the call clobbered x9
+    add x9, x9, LO12(tc_window)
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
     ldp x27, x28, [sp], #16
@@ -1155,8 +1156,8 @@ tc_reported_width:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0                        // seconds
-    adrp x20, tc_window
-    add x20, x20, :lo12:tc_window
+    adrp x20, PAGE(tc_window)
+    add x20, x20, LO12(tc_window)
     ldr x0, [x20, #TC_W_END_YMD]
     ldr x1, [x20, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
@@ -1167,8 +1168,8 @@ tc_reported_width:
     bl tc_count_final
     bl tc_eff_threshold
     mov x21, x0                        // eff
-    adrp x22, tc_users
-    add x22, x22, :lo12:tc_users
+    adrp x22, PAGE(tc_users)
+    add x22, x22, LO12(tc_users)
     ldr x23, [x22, #TC_US_COUNT]
     ldr x24, [x22, #TC_US_ENTRIES]
     mov x25, #0                        // n
@@ -1219,23 +1220,23 @@ tc_count_final:
     sub sp, sp, #CF_FRAME_SZ
     bl tc_reset_count
     bl tc_seed_state                    // x0 = 0/1/2
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     str x0, [x9]
-    adrp x19, tc_listing
-    add x19, x19, :lo12:tc_listing
+    adrp x19, PAGE(tc_listing)
+    add x19, x19, LO12(tc_listing)
     ldr x19, [x19, #TC_L_COUNT]        // count
-    adrp x20, tc_listing
-    add x20, x20, :lo12:tc_listing
+    adrp x20, PAGE(tc_listing)
+    add x20, x20, LO12(tc_listing)
     ldr x20, [x20, #TC_L_ENTRIES]      // entries
-    adrp x21, tc_window
-    add x21, x21, :lo12:tc_window
+    adrp x21, PAGE(tc_window)
+    add x21, x21, LO12(tc_window)
     ldr x22, [x21, #TC_W_BEGIN_YMD]
     ldr x23, [x21, #TC_W_BEGIN_SOD]
     ldr x24, [x21, #TC_W_END_YMD]
     ldr x25, [x21, #TC_W_END_SOD]
-    adrp x26, tc_tally
-    add x26, x26, :lo12:tc_tally
+    adrp x26, PAGE(tc_tally)
+    add x26, x26, LO12(tc_tally)
     mov x27, #0                         // i
 .Lcf_loop:
     cmp x27, x19
@@ -1267,10 +1268,10 @@ tc_count_final:
     str x11, [sp, #CF_LO]
     str x12, [sp, #CF_HI]
     // build the file path
-    adrp x0, tc_core_fpath
-    add x0, x0, :lo12:tc_core_fpath
-    adrp x1, tc_core_dirpath
-    add x1, x1, :lo12:tc_core_dirpath
+    adrp x0, PAGE(tc_core_fpath)
+    add x0, x0, LO12(tc_core_fpath)
+    adrp x1, PAGE(tc_core_dirpath)
+    add x1, x1, LO12(tc_core_dirpath)
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1283,12 +1284,12 @@ tc_count_final:
     // module stats the path and returns 0 = parse normally, 1 = reused (x1 =
     // cached exit_state; counts already applied to tc_users + totals), 2 =
     // stat failed (record unreadable + reset state, like Python's skip()).
-    adrp x0, tc_core_fpath
-    add x0, x0, :lo12:tc_core_fpath
+    adrp x0, PAGE(tc_core_fpath)
+    add x0, x0, LO12(tc_core_fpath)
     ldr x1, [sp, #CF_LO]
     ldr x2, [sp, #CF_HI]
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     ldr x3, [x9]
     ldr x4, [sp, #CF_ENTRY]
     ldr x4, [x4, #TC_L_YMD]
@@ -1298,8 +1299,8 @@ tc_count_final:
     cmp w0, #2
     b.eq .Lcf_cache_unreadable
     // read the whole file
-    adrp x0, tc_core_fpath
-    add x0, x0, :lo12:tc_core_fpath
+    adrp x0, PAGE(tc_core_fpath)
+    add x0, x0, LO12(tc_core_fpath)
     bl tc_read_file                     // x0=status, x1=buf, x2=len
     cbnz x0, .Lcf_unreadable
     // ok: buf = x1, len = x2 -> keep them in the frame across calls
@@ -1319,8 +1320,8 @@ tc_count_final:
     str x11, [x26, #TC_T_PARSED]
     // ---- Phase 6: write the whole day to the rollup (no-op unless the
     // cache module stashed this file's snapshot) ----
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     ldr x0, [x9]
     bl tc_cache_put_day
     b .Lcf_free
@@ -1334,12 +1335,12 @@ tc_count_final:
     add x0, x0, #TC_L_NAME
     cmp x9, #1
     b.eq .Lcf_too_large
-    adrp x1, s_cannot_read
-    add x1, x1, :lo12:s_cannot_read
+    adrp x1, PAGE(s_cannot_read)
+    add x1, x1, LO12(s_cannot_read)
     b .Lcf_record
 .Lcf_too_large:
-    adrp x1, s_too_large
-    add x1, x1, :lo12:s_too_large
+    adrp x1, PAGE(s_too_large)
+    add x1, x1, LO12(s_too_large)
 .Lcf_record:
     bl record_unreadable
     ldr x10, [sp, #CF_BUF]
@@ -1347,8 +1348,8 @@ tc_count_final:
     mov x0, x10
     bl free
 .Lcf_state_reset:
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     str xzr, [x9]
     b .Lcf_next
 .Lcf_free:
@@ -1366,8 +1367,8 @@ tc_count_final:
     ldr x11, [x26, #TC_T_REUSED]
     add x11, x11, #1
     str x11, [x26, #TC_T_REUSED]
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     str x1, [x9]
     b .Lcf_next
 .Lcf_cache_unreadable:
@@ -1375,11 +1376,11 @@ tc_count_final:
     // exactly like Python's skip().
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
-    adrp x1, s_cannot_read
-    add x1, x1, :lo12:s_cannot_read
+    adrp x1, PAGE(s_cannot_read)
+    add x1, x1, LO12(s_cannot_read)
     bl record_unreadable
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     str xzr, [x9]
     b .Lcf_next
 .Lcf_done:
@@ -1400,23 +1401,23 @@ tc_count_final:
     .p2align 2
 tc_reset_count:
     stp x29, x30, [sp, #-16]!
-    adrp x0, tc_core_g_live
-    add x0, x0, :lo12:tc_core_g_live
+    adrp x0, PAGE(tc_core_g_live)
+    add x0, x0, LO12(tc_core_g_live)
     mov x1, #0
     str x1, [x0]
     str x1, [x0, #8]
     str x1, [x0, #16]
-    adrp x0, tc_core_cur_state
-    add x0, x0, :lo12:tc_core_cur_state
+    adrp x0, PAGE(tc_core_cur_state)
+    add x0, x0, LO12(tc_core_cur_state)
     str x1, [x0]
-    adrp x0, tc_tally
-    add x0, x0, :lo12:tc_tally
+    adrp x0, PAGE(tc_tally)
+    add x0, x0, LO12(tc_tally)
     mov x1, #TC_TALLY_SIZE
     bl tc_memzero_own
-    adrp x0, tc_tally
-    add x0, x0, :lo12:tc_tally
-    adrp x1, tc_users
-    add x1, x1, :lo12:tc_users
+    adrp x0, PAGE(tc_tally)
+    add x0, x0, LO12(tc_tally)
+    adrp x1, PAGE(tc_users)
+    add x1, x1, LO12(tc_users)
     str x1, [x0, #TC_T_USERS_PTR]
     str xzr, [x1, #TC_US_COUNT]
     ldp x29, x30, [sp], #16
@@ -1435,10 +1436,10 @@ tc_finish_tally:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_tally
-    add x19, x19, :lo12:tc_tally
-    adrp x20, tc_core_g_live
-    add x20, x20, :lo12:tc_core_g_live
+    adrp x19, PAGE(tc_tally)
+    add x19, x19, LO12(tc_tally)
+    adrp x20, PAGE(tc_core_g_live)
+    add x20, x20, LO12(tc_core_g_live)
     ldr x21, [x20]
     ldr x22, [x20, #8]
     ldr x23, [x20, #16]
@@ -1449,8 +1450,8 @@ tc_finish_tally:
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 8]
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 16]
     str xzr, [x19, #TC_T_MESSAGES]
-    adrp x24, tc_users
-    add x24, x24, :lo12:tc_users
+    adrp x24, PAGE(tc_users)
+    add x24, x24, LO12(tc_users)
     ldr x25, [x24, #TC_US_COUNT]
     ldr x26, [x24, #TC_US_ENTRIES]
     mov x27, #0                         // i
@@ -1511,8 +1512,8 @@ tc_finish_tally:
 // ============================================================================
     .p2align 2
 record_unreadable:
-    adrp x2, tc_tally
-    add x2, x2, :lo12:tc_tally
+    adrp x2, PAGE(tc_tally)
+    add x2, x2, LO12(tc_tally)
     ldr x3, [x2, #TC_T_UNR_COUNT]
     ldr x4, =TC_T_UNR_MAX
     cmp x3, x4
@@ -1565,12 +1566,12 @@ tc_seed_state:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x19, tc_listing
-    add x19, x19, :lo12:tc_listing
+    adrp x19, PAGE(tc_listing)
+    add x19, x19, LO12(tc_listing)
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
-    adrp x22, tc_window
-    add x22, x22, :lo12:tc_window
+    adrp x22, PAGE(tc_window)
+    add x22, x22, LO12(tc_window)
     ldr x23, [x22, #TC_W_BEGIN_YMD]
     mov x24, #0                         // idx
 .Lss_find:
@@ -1591,8 +1592,8 @@ tc_seed_state:
     sub x24, x24, #1                     // newest file before begin.date()
     cmp x24, #0
     b.lt .Lss_none2
-    adrp x25, tc_opts
-    add x25, x25, :lo12:tc_opts
+    adrp x25, PAGE(tc_opts)
+    add x25, x25, LO12(tc_opts)
     ldr x26, [x25, #TC_O_SEED_LOOKBACK]
     sub x27, x24, x26
     add x27, x27, #1                     // limit = start - (lookback - 1)
@@ -1608,10 +1609,10 @@ tc_seed_state:
     mul x9, x24, x9
     add x9, x21, x9                      // entry
     // build the file path
-    adrp x0, tc_core_fpath
-    add x0, x0, :lo12:tc_core_fpath
-    adrp x1, tc_core_dirpath
-    add x1, x1, :lo12:tc_core_dirpath
+    adrp x0, PAGE(tc_core_fpath)
+    add x0, x0, LO12(tc_core_fpath)
+    adrp x1, PAGE(tc_core_dirpath)
+    add x1, x1, LO12(tc_core_dirpath)
     bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
@@ -1619,8 +1620,8 @@ tc_seed_state:
     add x1, x9, #TC_L_NAME
     mov x0, x10
     bl tc_cat_cstr
-    adrp x0, tc_core_fpath
-    add x0, x0, :lo12:tc_core_fpath
+    adrp x0, PAGE(tc_core_fpath)
+    add x0, x0, LO12(tc_core_fpath)
     bl tc_read_file                      // x0=status, x1=buf, x2=len
     cbnz x0, .Lss_next
     // keep buf/len on the stack: scan_markers may clobber x9-x17
@@ -1905,15 +1906,15 @@ line_is_marker:
     b.ne .Llim_no
     mov x0, x19
     mov x1, x20
-    adrp x2, lit_is_live
-    add x2, x2, :lo12:lit_is_live
+    adrp x2, PAGE(lit_is_live)
+    add x2, x2, LO12(lit_is_live)
     mov x3, #8
     bl marker_match
     cbnz x0, .Llim_live
     mov x0, x19
     mov x1, x20
-    adrp x2, lit_is_offline
-    add x2, x2, :lo12:lit_is_offline
+    adrp x2, PAGE(lit_is_offline)
+    add x2, x2, LO12(lit_is_offline)
     mov x3, #15
     bl marker_match
     cbnz x0, .Llim_off
@@ -1999,8 +2000,8 @@ process_lines:
     add x20, x19, x1                    // end
     mov x21, x2                         // lo
     mov x22, x3                         // hi
-    adrp x23, tc_core_cur_state
-    add x23, x23, :lo12:tc_core_cur_state
+    adrp x23, PAGE(tc_core_cur_state)
+    add x23, x23, LO12(tc_core_cur_state)
     ldr x23, [x23]                      // cur_state (0/1/2)
     // one past the last '\n'
     mov x24, x19
@@ -2053,8 +2054,8 @@ process_lines:
     add x24, x26, #1
     b .Lpl_loop
 .Lpl_done:
-    adrp x9, tc_core_cur_state
-    add x9, x9, :lo12:tc_core_cur_state
+    adrp x9, PAGE(tc_core_cur_state)
+    add x9, x9, LO12(tc_core_cur_state)
     str x23, [x9]
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
@@ -2199,20 +2200,20 @@ process_message:
 .Lpm_state_set:
     mov x0, x24
     mov x1, x25
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     bl find_user                        // x0 = index or -1
     cmp x0, #0
     b.ge .Lpm_have_user
     mov x0, x24
     mov x1, x25
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     bl add_user                         // x0 = index
 .Lpm_have_user:
     // entry = users.entries + index*50
-    adrp x9, tc_users
-    add x9, x9, :lo12:tc_users
+    adrp x9, PAGE(tc_users)
+    add x9, x9, LO12(tc_users)
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
@@ -2226,8 +2227,8 @@ process_message:
     ldr x11, [x10, #TC_US_LIVE]
     add x11, x11, #1
     str x11, [x10, #TC_US_LIVE]
-    adrp x12, tc_core_g_live
-    add x12, x12, :lo12:tc_core_g_live
+    adrp x12, PAGE(tc_core_g_live)
+    add x12, x12, LO12(tc_core_g_live)
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2236,8 +2237,8 @@ process_message:
     ldr x11, [x10, #TC_US_OFFLINE]
     add x11, x11, #1
     str x11, [x10, #TC_US_OFFLINE]
-    adrp x12, tc_core_g_off
-    add x12, x12, :lo12:tc_core_g_off
+    adrp x12, PAGE(tc_core_g_off)
+    add x12, x12, LO12(tc_core_g_off)
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2246,8 +2247,8 @@ process_message:
     ldr x11, [x10, #TC_US_UNKNOWN]
     add x11, x11, #1
     str x11, [x10, #TC_US_UNKNOWN]
-    adrp x12, tc_core_g_unk
-    add x12, x12, :lo12:tc_core_g_unk
+    adrp x12, PAGE(tc_core_g_unk)
+    add x12, x12, LO12(tc_core_g_unk)
     ldr x13, [x12]
     add x13, x13, #1
     str x13, [x12]
@@ -2288,8 +2289,8 @@ speaker_login:
     b .Lsl_login
 .Lsl_login_ok:
     // lowercase into login_buf
-    adrp x4, tc_core_login
-    add x4, x4, :lo12:tc_core_login
+    adrp x4, PAGE(tc_core_login)
+    add x4, x4, LO12(tc_core_login)
     mov x2, #0
 .Lsl_lower:
     cmp x2, x1
@@ -2369,8 +2370,8 @@ speaker_login:
 .Lsl_left_ok:
     cbz x7, .Lsl_fail
     // login = right (already lowercase); copy into login_buf
-    adrp x8, tc_core_login
-    add x8, x8, :lo12:tc_core_login
+    adrp x8, PAGE(tc_core_login)
+    add x8, x8, LO12(tc_core_login)
     mov x2, #0
 .Lsl_copy:
     cmp x2, x4
@@ -2441,7 +2442,7 @@ is_lower_login_char:
 // ============================================================================
     .p2align 2
     .global find_user
-    .type find_user, %function
+    FUNC_TYPE(find_user)
 find_user:
     ldr x3, [x2, #TC_US_ENTRIES]
     ldr x4, [x2, #TC_US_COUNT]
@@ -2480,7 +2481,7 @@ find_user:
 // ============================================================================
     .p2align 2
     .global add_user
-    .type add_user, %function
+    FUNC_TYPE(add_user)
 add_user:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -2543,8 +2544,8 @@ add_user:
     ldp x29, x30, [sp], #16
     ret
 .Lau_oom:
-    adrp x0, s_oom
-    add x0, x0, :lo12:s_oom
+    adrp x0, PAGE(s_oom)
+    add x0, x0, LO12(s_oom)
     bl tc_fail
 
 // ============================================================================
@@ -2556,7 +2557,7 @@ add_user:
 // ============================================================================
     .p2align 2
     .global tc_reuse_apply
-    .type tc_reuse_apply, %function
+    FUNC_TYPE(tc_reuse_apply)
 tc_reuse_apply:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -2565,8 +2566,8 @@ tc_reuse_apply:
     mov x20, x1                         // len
     mov x21, x2                         // state
     mov x22, x3                         // n
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     mov x0, x19
     mov x1, x20
     bl find_user                        // x0 = index or -1
@@ -2574,13 +2575,13 @@ tc_reuse_apply:
     b.ge .Lrua_have
     mov x0, x19
     mov x1, x20
-    adrp x2, tc_users
-    add x2, x2, :lo12:tc_users
+    adrp x2, PAGE(tc_users)
+    add x2, x2, LO12(tc_users)
     bl add_user                         // x0 = index
 .Lrua_have:
     // entry = users.entries + index*50
-    adrp x9, tc_users
-    add x9, x9, :lo12:tc_users
+    adrp x9, PAGE(tc_users)
+    add x9, x9, LO12(tc_users)
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
@@ -2594,8 +2595,8 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_LIVE]
     add x11, x11, x22
     str x11, [x10, #TC_US_LIVE]
-    adrp x12, tc_core_g_live
-    add x12, x12, :lo12:tc_core_g_live
+    adrp x12, PAGE(tc_core_g_live)
+    add x12, x12, LO12(tc_core_g_live)
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2604,8 +2605,8 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_OFFLINE]
     add x11, x11, x22
     str x11, [x10, #TC_US_OFFLINE]
-    adrp x12, tc_core_g_off
-    add x12, x12, :lo12:tc_core_g_off
+    adrp x12, PAGE(tc_core_g_off)
+    add x12, x12, LO12(tc_core_g_off)
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2614,8 +2615,8 @@ tc_reuse_apply:
     ldr x11, [x10, #TC_US_UNKNOWN]
     add x11, x11, x22
     str x11, [x10, #TC_US_UNKNOWN]
-    adrp x12, tc_core_g_unk
-    add x12, x12, :lo12:tc_core_g_unk
+    adrp x12, PAGE(tc_core_g_unk)
+    add x12, x12, LO12(tc_core_g_unk)
     ldr x13, [x12]
     add x13, x13, x22
     str x13, [x12]
@@ -2635,10 +2636,10 @@ sort_dnames:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, tc_core_dnames
-    add x19, x19, :lo12:tc_core_dnames
-    adrp x20, tc_core_dname_count
-    add x20, x20, :lo12:tc_core_dname_count
+    adrp x19, PAGE(tc_core_dnames)
+    add x19, x19, LO12(tc_core_dnames)
+    adrp x20, PAGE(tc_core_dname_count)
+    add x20, x20, LO12(tc_core_dname_count)
     ldr x20, [x20]
     mov x21, #1
 .Lsd_outer:
@@ -2680,8 +2681,8 @@ sort_listing:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
-    adrp x19, tc_listing
-    add x19, x19, :lo12:tc_listing
+    adrp x19, PAGE(tc_listing)
+    add x19, x19, LO12(tc_listing)
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #1
@@ -2692,8 +2693,8 @@ sort_listing:
     mov x23, #TC_L_ENTRY_SZ
     mul x23, x22, x23
     add x23, x21, x23
-    adrp x24, tc_core_list_key
-    add x24, x24, :lo12:tc_core_list_key
+    adrp x24, PAGE(tc_core_list_key)
+    add x24, x24, LO12(tc_core_list_key)
     mov x9, #0
 .Lsl_save:
     cmp x9, #TC_L_ENTRY_SZ

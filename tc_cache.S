@@ -126,8 +126,9 @@
 //    errno-based failures); the differential normalizes this text.
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
     .text
 
 // ----------------------------------------------------------------------------
@@ -234,7 +235,7 @@ tc_cache_scratch2:  .skip SCRATCH_SZ // mkdir path scratch
 // ----------------------------------------------------------------------------
 // .rodata — SQL and message literals
 // ----------------------------------------------------------------------------
-    .section .rodata
+    RODATA
 s_step_connect:     .asciz "connect"
 s_step_migrate:     .asciz "migrate"
 s_step_register:    .asciz "register"
@@ -334,7 +335,7 @@ s_fp_parts:
 // ============================================================================
     .p2align 2
     .global tc_cache_open
-    .type tc_cache_open, %function
+    FUNC_TYPE(tc_cache_open)
 tc_cache_open:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -343,27 +344,27 @@ tc_cache_open:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     // ---- reset session state ----
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     str xzr, [x9]
-    adrp x9, tc_cache_problem
-    add x9, x9, :lo12:tc_cache_problem
+    adrp x9, PAGE(tc_cache_problem)
+    add x9, x9, LO12(tc_cache_problem)
     str xzr, [x9]
-    adrp x9, tc_cache_reason
-    add x9, x9, :lo12:tc_cache_reason
+    adrp x9, PAGE(tc_cache_reason)
+    add x9, x9, LO12(tc_cache_reason)
     str xzr, [x9]
-    adrp x9, tc_cache_path_ptr
-    add x9, x9, :lo12:tc_cache_path_ptr
+    adrp x9, PAGE(tc_cache_path_ptr)
+    add x9, x9, LO12(tc_cache_path_ptr)
     str xzr, [x9]
-    adrp x9, tc_cache_swept
-    add x9, x9, :lo12:tc_cache_swept
+    adrp x9, PAGE(tc_cache_swept)
+    add x9, x9, LO12(tc_cache_swept)
     str xzr, [x9]
-    adrp x9, tc_cache_hits
-    add x9, x9, :lo12:tc_cache_hits
+    adrp x9, PAGE(tc_cache_hits)
+    add x9, x9, LO12(tc_cache_hits)
     str xzr, [x9]
     // ---- flags ----
-    adrp x9, tc_opts
-    add x9, x9, :lo12:tc_opts
+    adrp x9, PAGE(tc_opts)
+    add x9, x9, LO12(tc_opts)
     ldr x10, [x9, #TC_O_FLAGS]
     tst x10, #TC_F_NO_CACHE
     b.ne .Lco_no_cache
@@ -378,63 +379,63 @@ tc_cache_open:
     bl tc_resolve_channel
     // ---- resolve the cache path ----
     bl resolve_cache_path
-    adrp x9, tc_cache_path
-    add x9, x9, :lo12:tc_cache_path
+    adrp x9, PAGE(tc_cache_path)
+    add x9, x9, LO12(tc_cache_path)
     ldrb w10, [x9]
     cbz w10, .Lco_no_path           // no default location; not a fault
-    adrp x9, tc_cache_path_ptr
-    add x9, x9, :lo12:tc_cache_path_ptr
-    adrp x10, tc_cache_path
-    add x10, x10, :lo12:tc_cache_path
+    adrp x9, PAGE(tc_cache_path_ptr)
+    add x9, x9, LO12(tc_cache_path_ptr)
+    adrp x10, PAGE(tc_cache_path)
+    add x10, x10, LO12(tc_cache_path)
     str x10, [x9]
     // ---- existed = stat(path) == 0 (Python os.path.exists before connect)
     mov x0, x10
-    adrp x1, tc_cache_stat
-    add x1, x1, :lo12:tc_cache_stat
+    adrp x1, PAGE(tc_cache_stat)
+    add x1, x1, LO12(tc_cache_stat)
     bl stat
     cmp w0, #0
     cset x20, eq                    // x20 = existed 0/1
     // ---- mkdir -p dirname(path) ----
-    adrp x0, tc_cache_path
-    add x0, x0, :lo12:tc_cache_path
+    adrp x0, PAGE(tc_cache_path)
+    add x0, x0, LO12(tc_cache_path)
     bl mkdir_cache_dir
     // ---- channel + fingerprint ----
     bl tc_channel_name
-    adrp x9, tc_cache_channel
-    add x9, x9, :lo12:tc_cache_channel
+    adrp x9, PAGE(tc_cache_channel)
+    add x9, x9, LO12(tc_cache_channel)
     str x0, [x9]
     bl fingerprint_build
     // ---- step "connect": open + WAL + begin + schema ----
-    adrp x0, tc_cache_path
-    add x0, x0, :lo12:tc_cache_path
-    adrp x1, tc_cache_db
-    add x1, x1, :lo12:tc_cache_db
+    adrp x0, PAGE(tc_cache_path)
+    add x0, x0, LO12(tc_cache_path)
+    adrp x1, PAGE(tc_cache_db)
+    add x1, x1, LO12(tc_cache_db)
     ldr x2, =OPEN_FLAGS
     mov x3, #0
     bl sqlite3_open_v2
     cbnz w0, .Lco_fail_connect
-    adrp x0, s_pragma_wal
-    add x0, x0, :lo12:s_pragma_wal
+    adrp x0, PAGE(s_pragma_wal)
+    add x0, x0, LO12(s_pragma_wal)
     bl db_exec
     cbnz w0, .Lco_fail_connect
-    adrp x0, s_begin
-    add x0, x0, :lo12:s_begin
+    adrp x0, PAGE(s_begin)
+    add x0, x0, LO12(s_begin)
     bl db_exec
     cbnz w0, .Lco_fail_connect
-    adrp x0, s_sql_meta
-    add x0, x0, :lo12:s_sql_meta
+    adrp x0, PAGE(s_sql_meta)
+    add x0, x0, LO12(s_sql_meta)
     bl db_exec
     cbnz w0, .Lco_fail_connect
-    adrp x0, s_sql_generation
-    add x0, x0, :lo12:s_sql_generation
+    adrp x0, PAGE(s_sql_generation)
+    add x0, x0, LO12(s_sql_generation)
     bl db_exec
     cbnz w0, .Lco_fail_connect
-    adrp x0, s_sql_file
-    add x0, x0, :lo12:s_sql_file
+    adrp x0, PAGE(s_sql_file)
+    add x0, x0, LO12(s_sql_file)
     bl db_exec
     cbnz w0, .Lco_fail_connect
-    adrp x0, s_sql_counts
-    add x0, x0, :lo12:s_sql_counts
+    adrp x0, PAGE(s_sql_counts)
+    add x0, x0, LO12(s_sql_counts)
     bl db_exec
     cbnz w0, .Lco_fail_connect
     // ---- step "migrate" ----
@@ -445,11 +446,11 @@ tc_cache_open:
     bl register_step                 // x0 = 0 ok (reason OR'd into tc_cache_tmp)
     cbnz x0, .Lco_open_done
     // move the composed reason (migrate or generation) into place
-    adrp x9, tc_cache_tmp_reason
-    add x9, x9, :lo12:tc_cache_tmp_reason
+    adrp x9, PAGE(tc_cache_tmp_reason)
+    add x9, x9, LO12(tc_cache_tmp_reason)
     ldr x10, [x9]
-    adrp x9, tc_cache_reason
-    add x9, x9, :lo12:tc_cache_reason
+    adrp x9, PAGE(tc_cache_reason)
+    add x9, x9, LO12(tc_cache_reason)
     str x10, [x9]
     // ---- step "sweep" ----
     bl sweep_step                   // x0 = 0 ok
@@ -458,14 +459,14 @@ tc_cache_open:
     cbz x19, .Lco_commit
     bl purge_step                   // x0 = 0 ok
     cbnz x0, .Lco_open_done
-    adrp x9, tc_cache_reason
-    add x9, x9, :lo12:tc_cache_reason
-    adrp x10, s_reason_rebuild
-    add x10, x10, :lo12:s_reason_rebuild
+    adrp x9, PAGE(tc_cache_reason)
+    add x9, x9, LO12(tc_cache_reason)
+    adrp x10, PAGE(s_reason_rebuild)
+    add x10, x10, LO12(s_reason_rebuild)
     str x10, [x9]
 .Lco_commit:
-    adrp x0, s_commit
-    add x0, x0, :lo12:s_commit
+    adrp x0, PAGE(s_commit)
+    add x0, x0, LO12(s_commit)
     bl db_exec
     cbnz w0, .Lco_fail_commit
 .Lco_open_done:
@@ -493,21 +494,21 @@ tc_cache_open:
     ldp x29, x30, [sp], #16
     ret
 .Lco_fail_connect:
-    adrp x0, s_step_connect
-    add x0, x0, :lo12:s_step_connect
+    adrp x0, PAGE(s_step_connect)
+    add x0, x0, LO12(s_step_connect)
     bl cache_fail_sqlite
     b .Lco_open_done
 .Lco_fail_commit:
     // Python's commit sits after the sweep (or the rebuild purge); name it
     // whichever step was active.
     cbz x19, .Lco_fail_commit_sweep
-    adrp x0, s_step_rebuild
-    add x0, x0, :lo12:s_step_rebuild
+    adrp x0, PAGE(s_step_rebuild)
+    add x0, x0, LO12(s_step_rebuild)
     bl cache_fail_sqlite
     b .Lco_open_done
 .Lco_fail_commit_sweep:
-    adrp x0, s_step_sweep
-    add x0, x0, :lo12:s_step_sweep
+    adrp x0, PAGE(s_step_sweep)
+    add x0, x0, LO12(s_step_sweep)
     bl cache_fail_sqlite
     b .Lco_open_done
 
@@ -516,11 +517,11 @@ tc_cache_open:
 // ============================================================================
     .p2align 2
     .global tc_cache_close
-    .type tc_cache_close, %function
+    FUNC_TYPE(tc_cache_close)
 tc_cache_close:
     stp x29, x30, [sp, #-16]!
-    adrp x0, tc_cache_db
-    add x0, x0, :lo12:tc_cache_db
+    adrp x0, PAGE(tc_cache_db)
+    add x0, x0, LO12(tc_cache_db)
     ldr x1, [x0]
     cbz x1, .Lcc_done
     str xzr, [x0]
@@ -535,10 +536,10 @@ tc_cache_close:
 // ============================================================================
     .p2align 2
     .global tc_cache_used
-    .type tc_cache_used, %function
+    FUNC_TYPE(tc_cache_used)
 tc_cache_used:
-    adrp x0, tc_cache_db
-    add x0, x0, :lo12:tc_cache_db
+    adrp x0, PAGE(tc_cache_db)
+    add x0, x0, LO12(tc_cache_db)
     ldr x0, [x0]
     cmp x0, #0
     cset x0, ne
@@ -550,25 +551,25 @@ tc_cache_used:
 // ============================================================================
     .p2align 2
     .global tc_cache_status
-    .type tc_cache_status, %function
+    FUNC_TYPE(tc_cache_status)
 tc_cache_status:
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     ldr x0, [x9]
     cmp x0, #0
     cset x0, ne
-    adrp x9, tc_tally
-    add x9, x9, :lo12:tc_tally
+    adrp x9, PAGE(tc_tally)
+    add x9, x9, LO12(tc_tally)
     ldr x1, [x9, #TC_T_REUSED]
     ldr x2, [x9, #TC_T_PARSED]
-    adrp x9, tc_cache_problem
-    add x9, x9, :lo12:tc_cache_problem
+    adrp x9, PAGE(tc_cache_problem)
+    add x9, x9, LO12(tc_cache_problem)
     ldr x3, [x9]
-    adrp x9, tc_cache_reason
-    add x9, x9, :lo12:tc_cache_reason
+    adrp x9, PAGE(tc_cache_reason)
+    add x9, x9, LO12(tc_cache_reason)
     ldr x4, [x9]
-    adrp x9, tc_cache_path_ptr
-    add x9, x9, :lo12:tc_cache_path_ptr
+    adrp x9, PAGE(tc_cache_path_ptr)
+    add x9, x9, LO12(tc_cache_path_ptr)
     ldr x5, [x9]
     ret
 
@@ -578,7 +579,7 @@ tc_cache_status:
 // ============================================================================
     .p2align 2
     .global tc_cache_day
-    .type tc_cache_day, %function
+    FUNC_TYPE(tc_cache_day)
 tc_cache_day:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -595,14 +596,14 @@ tc_cache_day:
     // defensively (put_day/discard_day are no-ops without a stash)
     bl cache_drop_stash
     // cache open?
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     ldr x9, [x9]
     cbz x9, .Lcd_nocache
     // stat the file
     mov x0, x19
-    adrp x1, tc_cache_stat
-    add x1, x1, :lo12:tc_cache_stat
+    adrp x1, PAGE(tc_cache_stat)
+    add x1, x1, LO12(tc_cache_stat)
     bl stat
     cbnz w0, .Lcd_statfail
     // whole_day? (lo == 0 and hi == 86399)
@@ -618,17 +619,17 @@ tc_cache_day:
     b.eq .Lcd_hit
     // miss: stash the stat + enter state and snapshot the user table so the
     // put (after parsing) can write the whole-day counts.
-    adrp x9, tc_cache_stash_ymd
-    add x9, x9, :lo12:tc_cache_stash_ymd
+    adrp x9, PAGE(tc_cache_stash_ymd)
+    add x9, x9, LO12(tc_cache_stash_ymd)
     str x23, [x9]
-    adrp x9, tc_cache_stash_size
-    add x9, x9, :lo12:tc_cache_stash_size
-    adrp x10, tc_cache_stat
-    add x10, x10, :lo12:tc_cache_stat
+    adrp x9, PAGE(tc_cache_stash_size)
+    add x9, x9, LO12(tc_cache_stash_size)
+    adrp x10, PAGE(tc_cache_stat)
+    add x10, x10, LO12(tc_cache_stat)
     ldr x11, [x10, #ST_SIZE]
     str x11, [x9]
-    adrp x9, tc_cache_stash_mtime
-    add x9, x9, :lo12:tc_cache_stash_mtime
+    adrp x9, PAGE(tc_cache_stash_mtime)
+    add x9, x9, LO12(tc_cache_stash_mtime)
     ldr x11, [x10, #ST_MTIM_SEC]
     movz x12, #0xCA00, lsl #0
     movk x12, #0x3B9A, lsl #16      // 1000000000
@@ -636,11 +637,11 @@ tc_cache_day:
     ldr x12, [x10, #ST_MTIM_NSEC]
     add x11, x11, x12
     str x11, [x9]
-    adrp x9, tc_cache_stash_enter
-    add x9, x9, :lo12:tc_cache_stash_enter
+    adrp x9, PAGE(tc_cache_stash_enter)
+    add x9, x9, LO12(tc_cache_stash_enter)
     str x22, [x9]
-    adrp x9, tc_cache_stash
-    add x9, x9, :lo12:tc_cache_stash
+    adrp x9, PAGE(tc_cache_stash)
+    add x9, x9, LO12(tc_cache_stash)
     mov x10, #1
     str x10, [x9]
     bl snapshot_users
@@ -672,7 +673,7 @@ tc_cache_day:
 // ============================================================================
     .p2align 2
     .global tc_cache_put_day
-    .type tc_cache_put_day, %function
+    FUNC_TYPE(tc_cache_put_day)
 tc_cache_put_day:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -681,41 +682,41 @@ tc_cache_put_day:
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
     mov x19, x0                     // exit_state
-    adrp x9, tc_cache_stash
-    add x9, x9, :lo12:tc_cache_stash
+    adrp x9, PAGE(tc_cache_stash)
+    add x9, x9, LO12(tc_cache_stash)
     ldr x9, [x9]
     cbz x9, .Lcp_done               // nothing stashed
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     ldr x9, [x9]
     cbz x9, .Lcp_discard
-    adrp x9, tc_cache_snap
-    add x9, x9, :lo12:tc_cache_snap
+    adrp x9, PAGE(tc_cache_snap)
+    add x9, x9, LO12(tc_cache_snap)
     ldr x9, [x9]
     cbz x9, .Lcp_discard
     // ---- date string ----
-    adrp x9, tc_cache_stash_ymd
-    add x9, x9, :lo12:tc_cache_stash_ymd
+    adrp x9, PAGE(tc_cache_stash_ymd)
+    add x9, x9, LO12(tc_cache_stash_ymd)
     ldr x0, [x9]
-    adrp x1, tc_cache_scratch
-    add x1, x1, :lo12:tc_cache_scratch
+    adrp x1, PAGE(tc_cache_scratch)
+    add x1, x1, LO12(tc_cache_scratch)
     bl fmt_date
-    adrp x20, tc_cache_scratch
-    add x20, x20, :lo12:tc_cache_scratch     // date ptr
+    adrp x20, PAGE(tc_cache_scratch)
+    add x20, x20, LO12(tc_cache_scratch)     // date ptr
     // ---- DELETE counts for this (fp, channel, date) ----
-    adrp x0, s_sql_del_day_counts
-    add x0, x0, :lo12:s_sql_del_day_counts
+    adrp x0, PAGE(s_sql_del_day_counts)
+    add x0, x0, LO12(s_sql_del_day_counts)
     bl prepare_stmt                 // x0 = stmt or 0
     cbz x0, .Lcp_discard
     mov x21, x0                     // stmt
-    adrp x0, tc_cache_fp
-    add x0, x0, :lo12:tc_cache_fp
+    adrp x0, PAGE(tc_cache_fp)
+    add x0, x0, LO12(tc_cache_fp)
     mov x2, x0
     mov x0, x21
     mov x1, #1
     bl bind_text_stmt
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     mov x0, x21
     mov x1, #2
@@ -729,20 +730,20 @@ tc_cache_put_day:
     mov x0, x21
     bl sqlite3_finalize
     // ---- INSERT counts rows (delta of the user table since the snapshot) ----
-    adrp x0, s_sql_ins_count
-    add x0, x0, :lo12:s_sql_ins_count
+    adrp x0, PAGE(s_sql_ins_count)
+    add x0, x0, LO12(s_sql_ins_count)
     bl prepare_stmt
     cbz x0, .Lcp_discard
     mov x21, x0                     // counts stmt
-    adrp x22, tc_users
-    add x22, x22, :lo12:tc_users
+    adrp x22, PAGE(tc_users)
+    add x22, x22, LO12(tc_users)
     ldr x23, [x22, #TC_US_COUNT]    // new_n
     ldr x24, [x22, #TC_US_ENTRIES]  // entries
-    adrp x25, tc_cache_snap
-    add x25, x25, :lo12:tc_cache_snap
+    adrp x25, PAGE(tc_cache_snap)
+    add x25, x25, LO12(tc_cache_snap)
     ldr x25, [x25]                  // snap value (the malloc'd array)
-    adrp x26, tc_cache_snap_n
-    add x26, x26, :lo12:tc_cache_snap_n
+    adrp x26, PAGE(tc_cache_snap_n)
+    add x26, x26, LO12(tc_cache_snap_n)
     ldr x26, [x26]                  // snap_n
     mov x27, #0                     // i
 .Lcp_user_loop:
@@ -779,13 +780,13 @@ tc_cache_put_day:
     // bind fingerprint, channel, date, login
     mov x0, x21
     mov x1, #1
-    adrp x2, tc_cache_fp
-    add x2, x2, :lo12:tc_cache_fp
+    adrp x2, PAGE(tc_cache_fp)
+    add x2, x2, LO12(tc_cache_fp)
     bl bind_text_stmt
     mov x0, x21
     mov x1, #2
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     bl bind_text_stmt
     mov x0, x21
@@ -801,8 +802,8 @@ tc_cache_put_day:
     cbz x9, .Lcp_no_live
     mov x0, x21
     mov x1, #5
-    adrp x2, s_state_live
-    add x2, x2, :lo12:s_state_live
+    adrp x2, PAGE(s_state_live)
+    add x2, x2, LO12(s_state_live)
     bl bind_text_stmt
     mov x0, x21
     mov x1, #6
@@ -818,8 +819,8 @@ tc_cache_put_day:
     cbz x9, .Lcp_no_off
     mov x0, x21
     mov x1, #5
-    adrp x2, s_state_offline
-    add x2, x2, :lo12:s_state_offline
+    adrp x2, PAGE(s_state_offline)
+    add x2, x2, LO12(s_state_offline)
     bl bind_text_stmt
     mov x0, x21
     mov x1, #6
@@ -835,8 +836,8 @@ tc_cache_put_day:
     cbz x9, .Lcp_no_unk
     mov x0, x21
     mov x1, #5
-    adrp x2, s_state_unknown
-    add x2, x2, :lo12:s_state_unknown
+    adrp x2, PAGE(s_state_unknown)
+    add x2, x2, LO12(s_state_unknown)
     bl bind_text_stmt
     mov x0, x21
     mov x1, #6
@@ -854,20 +855,20 @@ tc_cache_put_day:
     mov x0, x21
     bl sqlite3_finalize
     // ---- INSERT OR REPLACE INTO file ----
-    adrp x0, s_sql_ins_file
-    add x0, x0, :lo12:s_sql_ins_file
+    adrp x0, PAGE(s_sql_ins_file)
+    add x0, x0, LO12(s_sql_ins_file)
     bl prepare_stmt
     cbz x0, .Lcp_discard
     mov x21, x0
     mov x0, x21
     mov x1, #1
-    adrp x2, tc_cache_fp
-    add x2, x2, :lo12:tc_cache_fp
+    adrp x2, PAGE(tc_cache_fp)
+    add x2, x2, LO12(tc_cache_fp)
     bl bind_text_stmt
     mov x0, x21
     mov x1, #2
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     bl bind_text_stmt
     mov x0, x21
@@ -876,19 +877,19 @@ tc_cache_put_day:
     bl bind_text_stmt
     mov x0, x21
     mov x1, #4
-    adrp x2, tc_cache_stash_size
-    add x2, x2, :lo12:tc_cache_stash_size
+    adrp x2, PAGE(tc_cache_stash_size)
+    add x2, x2, LO12(tc_cache_stash_size)
     ldr x2, [x2]
     bl bind_int64_stmt
     mov x0, x21
     mov x1, #5
-    adrp x2, tc_cache_stash_mtime
-    add x2, x2, :lo12:tc_cache_stash_mtime
+    adrp x2, PAGE(tc_cache_stash_mtime)
+    add x2, x2, LO12(tc_cache_stash_mtime)
     ldr x2, [x2]
     bl bind_int64_stmt
     // enter_state (state id -> string; 0 -> NULL)
-    adrp x2, tc_cache_stash_enter
-    add x2, x2, :lo12:tc_cache_stash_enter
+    adrp x2, PAGE(tc_cache_stash_enter)
+    add x2, x2, LO12(tc_cache_stash_enter)
     ldr x0, [x2]
     bl state_str
     cbz x0, .Lcp_enter_null
@@ -921,8 +922,8 @@ tc_cache_put_day:
     mov x0, x21
     bl sqlite3_finalize
     // ---- commit ----
-    adrp x0, s_commit
-    add x0, x0, :lo12:s_commit
+    adrp x0, PAGE(s_commit)
+    add x0, x0, LO12(s_commit)
     bl db_exec
 .Lcp_discard:
     bl cache_drop_stash
@@ -941,7 +942,7 @@ tc_cache_put_day:
 // ============================================================================
     .p2align 2
     .global tc_cache_discard_day
-    .type tc_cache_discard_day, %function
+    FUNC_TYPE(tc_cache_discard_day)
 tc_cache_discard_day:
     stp x29, x30, [sp, #-16]!
     bl cache_drop_stash
@@ -953,7 +954,7 @@ tc_cache_discard_day:
 // ============================================================================
     .p2align 2
     .global tc_cache_debug_dump
-    .type tc_cache_debug_dump, %function
+    FUNC_TYPE(tc_cache_debug_dump)
 tc_cache_debug_dump:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -961,18 +962,18 @@ tc_cache_debug_dump:
     stp x23, x24, [sp, #-16]!
     stp x25, x26, [sp, #-16]!
     stp x27, x28, [sp, #-16]!
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     ldr x9, [x9]
     cbz x9, .Lcdd_done
     // ---- table names ----
-    adrp x0, s_sql_master
-    add x0, x0, :lo12:s_sql_master
+    adrp x0, PAGE(s_sql_master)
+    add x0, x0, LO12(s_sql_master)
     bl prepare_stmt
     cbz x0, .Lcdd_done
     mov x19, x0                     // stmt
-    adrp x0, s_cachetables
-    add x0, x0, :lo12:s_cachetables
+    adrp x0, PAGE(s_cachetables)
+    add x0, x0, LO12(s_cachetables)
     bl tc_puts
 .Lcdd_tbl_loop:
     mov x0, x19
@@ -983,47 +984,47 @@ tc_cache_debug_dump:
     mov x1, #0
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     b .Lcdd_tbl_loop
 .Lcdd_tbl_done:
-    adrp x0, s_newline
-    add x0, x0, :lo12:s_newline
+    adrp x0, PAGE(s_newline)
+    add x0, x0, LO12(s_newline)
     bl tc_puts
     mov x0, x19
     bl sqlite3_finalize
     // ---- row counts ----
-    adrp x0, s_cachecounts
-    add x0, x0, :lo12:s_cachecounts
+    adrp x0, PAGE(s_cachecounts)
+    add x0, x0, LO12(s_cachecounts)
     bl tc_puts
-    adrp x0, s_sql_count_meta
-    add x0, x0, :lo12:s_sql_count_meta
+    adrp x0, PAGE(s_sql_count_meta)
+    add x0, x0, LO12(s_sql_count_meta)
     bl dump_count
-    adrp x0, s_lbl_generation
-    add x0, x0, :lo12:s_lbl_generation
+    adrp x0, PAGE(s_lbl_generation)
+    add x0, x0, LO12(s_lbl_generation)
     bl tc_puts
-    adrp x0, s_sql_count_generation
-    add x0, x0, :lo12:s_sql_count_generation
+    adrp x0, PAGE(s_sql_count_generation)
+    add x0, x0, LO12(s_sql_count_generation)
     bl dump_count
-    adrp x0, s_lbl_file
-    add x0, x0, :lo12:s_lbl_file
+    adrp x0, PAGE(s_lbl_file)
+    add x0, x0, LO12(s_lbl_file)
     bl tc_puts
-    adrp x0, s_sql_count_file
-    add x0, x0, :lo12:s_sql_count_file
+    adrp x0, PAGE(s_sql_count_file)
+    add x0, x0, LO12(s_sql_count_file)
     bl dump_count
-    adrp x0, s_lbl_counts
-    add x0, x0, :lo12:s_lbl_counts
+    adrp x0, PAGE(s_lbl_counts)
+    add x0, x0, LO12(s_lbl_counts)
     bl tc_puts
-    adrp x0, s_sql_count_counts
-    add x0, x0, :lo12:s_sql_count_counts
+    adrp x0, PAGE(s_sql_count_counts)
+    add x0, x0, LO12(s_sql_count_counts)
     bl dump_count
-    adrp x0, s_newline
-    add x0, x0, :lo12:s_newline
+    adrp x0, PAGE(s_newline)
+    add x0, x0, LO12(s_newline)
     bl tc_puts
     // ---- file rows ----
-    adrp x0, s_sql_all_file
-    add x0, x0, :lo12:s_sql_all_file
+    adrp x0, PAGE(s_sql_all_file)
+    add x0, x0, LO12(s_sql_all_file)
     bl prepare_stmt
     cbz x0, .Lcdd_done
     mov x19, x0
@@ -1032,43 +1033,43 @@ tc_cache_debug_dump:
     bl step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcdd_file_done
-    adrp x0, s_cachefile
-    add x0, x0, :lo12:s_cachefile
+    adrp x0, PAGE(s_cachefile)
+    add x0, x0, LO12(s_cachefile)
     bl tc_puts
     mov x0, x19
     mov x1, #0
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #1
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #2
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #3
     bl sqlite3_column_int64
     bl tc_putu64
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #4
     bl sqlite3_column_int64
     bl tc_putu64
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #5
@@ -1077,12 +1078,12 @@ tc_cache_debug_dump:
     bl tc_puts
     b .Lcdd_file_ent_done
 .Lcdd_file_en_dash:
-    adrp x0, s_dash
-    add x0, x0, :lo12:s_dash
+    adrp x0, PAGE(s_dash)
+    add x0, x0, LO12(s_dash)
     bl tc_puts
 .Lcdd_file_ent_done:
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #6
@@ -1091,20 +1092,20 @@ tc_cache_debug_dump:
     bl tc_puts
     b .Lcdd_file_ex_done
 .Lcdd_file_ex_dash:
-    adrp x0, s_dash
-    add x0, x0, :lo12:s_dash
+    adrp x0, PAGE(s_dash)
+    add x0, x0, LO12(s_dash)
     bl tc_puts
 .Lcdd_file_ex_done:
-    adrp x0, s_newline
-    add x0, x0, :lo12:s_newline
+    adrp x0, PAGE(s_newline)
+    add x0, x0, LO12(s_newline)
     bl tc_puts
     b .Lcdd_file_loop
 .Lcdd_file_done:
     mov x0, x19
     bl sqlite3_finalize
     // ---- counts rows ----
-    adrp x0, s_sql_all_counts
-    add x0, x0, :lo12:s_sql_all_counts
+    adrp x0, PAGE(s_sql_all_counts)
+    add x0, x0, LO12(s_sql_all_counts)
     bl prepare_stmt
     cbz x0, .Lcdd_done
     mov x19, x0
@@ -1113,51 +1114,51 @@ tc_cache_debug_dump:
     bl step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lcdd_cnt_done
-    adrp x0, s_cachecount
-    add x0, x0, :lo12:s_cachecount
+    adrp x0, PAGE(s_cachecount)
+    add x0, x0, LO12(s_cachecount)
     bl tc_puts
     // fingerprint, channel, date, login
     mov x0, x19
     mov x1, #0
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #1
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #2
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #3
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #4
     bl sqlite3_column_text
     bl tc_puts
-    adrp x0, s_space
-    add x0, x0, :lo12:s_space
+    adrp x0, PAGE(s_space)
+    add x0, x0, LO12(s_space)
     bl tc_puts
     mov x0, x19
     mov x1, #5
     bl sqlite3_column_int64
     bl tc_putu64
-    adrp x0, s_newline
-    add x0, x0, :lo12:s_newline
+    adrp x0, PAGE(s_newline)
+    add x0, x0, LO12(s_newline)
     bl tc_puts
     b .Lcdd_cnt_loop
 .Lcdd_cnt_done:
@@ -1210,8 +1211,8 @@ migrate_step:
     stp x21, x22, [sp, #-16]!
     mov x19, x0                     // existed
     // stored = SELECT value FROM meta WHERE key='schema'
-    adrp x0, s_sql_sel_schema
-    add x0, x0, :lo12:s_sql_sel_schema
+    adrp x0, PAGE(s_sql_sel_schema)
+    add x0, x0, LO12(s_sql_sel_schema)
     bl prepare_stmt
     cbz x0, .Lms_fail
     mov x20, x0                     // stmt
@@ -1226,8 +1227,8 @@ migrate_step:
     bl sqlite3_column_text
     cbz x0, .Lms_finalize_migrate   // NULL value -> migrate
     mov x21, x0                     // stored value ptr (valid until finalize)
-    adrp x1, s_schema_version
-    add x1, x1, :lo12:s_schema_version
+    adrp x1, PAGE(s_schema_version)
+    add x1, x1, LO12(s_schema_version)
     bl strcmp
     cbnz w0, .Lms_finalize_migrate  // stored != "2" -> migrate
     mov x0, x20
@@ -1239,59 +1240,59 @@ migrate_step:
     b .Lms_migrate
 .Lms_migrate:
     // drop + recreate + set schema
-    adrp x0, s_sql_drop
-    add x0, x0, :lo12:s_sql_drop
+    adrp x0, PAGE(s_sql_drop)
+    add x0, x0, LO12(s_sql_drop)
     bl db_exec
     cbnz w0, .Lms_fail
-    adrp x0, s_sql_meta
-    add x0, x0, :lo12:s_sql_meta
+    adrp x0, PAGE(s_sql_meta)
+    add x0, x0, LO12(s_sql_meta)
     bl db_exec
     cbnz w0, .Lms_fail
-    adrp x0, s_sql_generation
-    add x0, x0, :lo12:s_sql_generation
+    adrp x0, PAGE(s_sql_generation)
+    add x0, x0, LO12(s_sql_generation)
     bl db_exec
     cbnz w0, .Lms_fail
-    adrp x0, s_sql_file
-    add x0, x0, :lo12:s_sql_file
+    adrp x0, PAGE(s_sql_file)
+    add x0, x0, LO12(s_sql_file)
     bl db_exec
     cbnz w0, .Lms_fail
-    adrp x0, s_sql_counts
-    add x0, x0, :lo12:s_sql_counts
+    adrp x0, PAGE(s_sql_counts)
+    add x0, x0, LO12(s_sql_counts)
     bl db_exec
     cbnz w0, .Lms_fail
-    adrp x0, s_sql_set_schema
-    add x0, x0, :lo12:s_sql_set_schema
+    adrp x0, PAGE(s_sql_set_schema)
+    add x0, x0, LO12(s_sql_set_schema)
     bl prepare_stmt
     cbz x0, .Lms_fail
     mov x20, x0
     mov x0, x20
     mov x1, #1
-    adrp x2, s_schema_version
-    add x2, x2, :lo12:s_schema_version
+    adrp x2, PAGE(s_schema_version)
+    add x2, x2, LO12(s_schema_version)
     bl bind_text_stmt
     mov x0, x20
     bl step_stmt
     mov x0, x20
     bl sqlite3_finalize
     // reason = existed ? "new cache layout" : "new cache"
-    adrp x0, tc_cache_tmp_reason
-    add x0, x0, :lo12:tc_cache_tmp_reason
+    adrp x0, PAGE(tc_cache_tmp_reason)
+    add x0, x0, LO12(tc_cache_tmp_reason)
     cbz x19, .Lms_new_cache
-    adrp x1, s_reason_new_layout
-    add x1, x1, :lo12:s_reason_new_layout
+    adrp x1, PAGE(s_reason_new_layout)
+    add x1, x1, LO12(s_reason_new_layout)
     str x1, [x0]
     b .Lms_ok
 .Lms_new_cache:
-    adrp x1, s_reason_new_cache
-    add x1, x1, :lo12:s_reason_new_cache
+    adrp x1, PAGE(s_reason_new_cache)
+    add x1, x1, LO12(s_reason_new_cache)
     str x1, [x0]
     b .Lms_ok
 .Lms_ok:
     mov x0, #0
     b .Lms_out
 .Lms_fail:
-    adrp x0, s_step_migrate
-    add x0, x0, :lo12:s_step_migrate
+    adrp x0, PAGE(s_step_migrate)
+    add x0, x0, LO12(s_step_migrate)
     bl cache_fail_sqlite
     mov x0, #1
 .Lms_out:
@@ -1311,8 +1312,8 @@ register_step:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     // known = { SELECT fingerprint FROM generation }
-    adrp x0, s_sql_sel_gen
-    add x0, x0, :lo12:s_sql_sel_gen
+    adrp x0, PAGE(s_sql_sel_gen)
+    add x0, x0, LO12(s_sql_sel_gen)
     bl prepare_stmt
     cbz x0, .Lrs_fail
     mov x19, x0                     // stmt
@@ -1328,8 +1329,8 @@ register_step:
     mov x1, #0
     bl sqlite3_column_text
     mov x22, x0                     // row fp
-    adrp x0, tc_cache_fp
-    add x0, x0, :lo12:tc_cache_fp
+    adrp x0, PAGE(tc_cache_fp)
+    add x0, x0, LO12(tc_cache_fp)
     mov x1, x22
     bl strcmp
     cbnz w0, .Lrs_loop
@@ -1342,26 +1343,26 @@ register_step:
     mov x0, #0
     bl time
     mov x23, x0
-    adrp x0, tc_cache_scratch
-    add x0, x0, :lo12:tc_cache_scratch
+    adrp x0, PAGE(tc_cache_scratch)
+    add x0, x0, LO12(tc_cache_scratch)
     mov x1, x0
     mov x0, x23
     bl fmt_iso                       // x1 -> out; x0 -> cursor (unused)
     // INSERT ... ON CONFLICT(fingerprint) DO UPDATE SET last_seen=...
-    adrp x0, s_sql_ins_gen
-    add x0, x0, :lo12:s_sql_ins_gen
+    adrp x0, PAGE(s_sql_ins_gen)
+    add x0, x0, LO12(s_sql_ins_gen)
     bl prepare_stmt
     cbz x0, .Lrs_fail
     mov x19, x0
     mov x0, x19
     mov x1, #1
-    adrp x2, tc_cache_fp
-    add x2, x2, :lo12:tc_cache_fp
+    adrp x2, PAGE(tc_cache_fp)
+    add x2, x2, LO12(tc_cache_fp)
     bl bind_text_stmt
     mov x0, x19
     mov x1, #2
-    adrp x2, tc_cache_scratch
-    add x2, x2, :lo12:tc_cache_scratch
+    adrp x2, PAGE(tc_cache_scratch)
+    add x2, x2, LO12(tc_cache_scratch)
     bl bind_text_stmt
     mov x0, x19
     bl step_stmt
@@ -1370,19 +1371,19 @@ register_step:
     // reason = known && !present ? "new parser generation" : (keep existing)
     cbz x20, .Lrs_ok
     cbnz x21, .Lrs_ok
-    adrp x0, tc_cache_tmp_reason
-    add x0, x0, :lo12:tc_cache_tmp_reason
+    adrp x0, PAGE(tc_cache_tmp_reason)
+    add x0, x0, LO12(tc_cache_tmp_reason)
     ldr x1, [x0]
     cbnz x1, .Lrs_ok                // migrate's reason wins
-    adrp x1, s_reason_new_gen
-    add x1, x1, :lo12:s_reason_new_gen
+    adrp x1, PAGE(s_reason_new_gen)
+    add x1, x1, LO12(s_reason_new_gen)
     str x1, [x0]
 .Lrs_ok:
     mov x0, #0
     b .Lrs_out
 .Lrs_fail:
-    adrp x0, s_step_register
-    add x0, x0, :lo12:s_step_register
+    adrp x0, PAGE(s_step_register)
+    add x0, x0, LO12(s_step_register)
     bl cache_fail_sqlite
     mov x0, #1
 .Lrs_out:
@@ -1410,21 +1411,21 @@ sweep_step:
     mov x21, #CACHE_KEEP_DAYS
     mul x20, x20, x21
     sub x19, x19, x20               // now - 7 days
-    adrp x0, tc_cache_scratch
-    add x0, x0, :lo12:tc_cache_scratch
+    adrp x0, PAGE(tc_cache_scratch)
+    add x0, x0, LO12(tc_cache_scratch)
     mov x1, x0
     mov x0, x19
     bl fmt_iso
     // SELECT fingerprint FROM generation WHERE last_seen < ?
-    adrp x0, s_sql_sel_stale
-    add x0, x0, :lo12:s_sql_sel_stale
+    adrp x0, PAGE(s_sql_sel_stale)
+    add x0, x0, LO12(s_sql_sel_stale)
     bl prepare_stmt
     cbz x0, .Lsw_fail
     mov x19, x0                     // stmt
     mov x0, x19
     mov x1, #1
-    adrp x2, tc_cache_scratch
-    add x2, x2, :lo12:tc_cache_scratch
+    adrp x2, PAGE(tc_cache_scratch)
+    add x2, x2, LO12(tc_cache_scratch)
     bl bind_text_stmt
     mov x20, #0                     // swept count
 .Lsw_loop:
@@ -1437,8 +1438,8 @@ sweep_step:
     bl sqlite3_column_text
     mov x21, x0                     // stale fp
     // DELETE counts/file/generation WHERE fingerprint = ?
-    adrp x0, s_sql_del_counts_fp
-    add x0, x0, :lo12:s_sql_del_counts_fp
+    adrp x0, PAGE(s_sql_del_counts_fp)
+    add x0, x0, LO12(s_sql_del_counts_fp)
     bl prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
@@ -1450,8 +1451,8 @@ sweep_step:
     bl step_stmt
     mov x0, x22
     bl sqlite3_finalize
-    adrp x0, s_sql_del_file_fp
-    add x0, x0, :lo12:s_sql_del_file_fp
+    adrp x0, PAGE(s_sql_del_file_fp)
+    add x0, x0, LO12(s_sql_del_file_fp)
     bl prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
@@ -1463,8 +1464,8 @@ sweep_step:
     bl step_stmt
     mov x0, x22
     bl sqlite3_finalize
-    adrp x0, s_sql_del_gen_fp
-    add x0, x0, :lo12:s_sql_del_gen_fp
+    adrp x0, PAGE(s_sql_del_gen_fp)
+    add x0, x0, LO12(s_sql_del_gen_fp)
     bl prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
@@ -1481,8 +1482,8 @@ sweep_step:
 .Lsw_loop_done:
     mov x0, x19
     bl sqlite3_finalize
-    adrp x9, tc_cache_swept
-    add x9, x9, :lo12:tc_cache_swept
+    adrp x9, PAGE(tc_cache_swept)
+    add x9, x9, LO12(tc_cache_swept)
     str x20, [x9]
     mov x0, #0
     b .Lsw_out
@@ -1490,8 +1491,8 @@ sweep_step:
     mov x0, x19
     bl sqlite3_finalize
 .Lsw_fail:
-    adrp x0, s_step_sweep
-    add x0, x0, :lo12:s_step_sweep
+    adrp x0, PAGE(s_step_sweep)
+    add x0, x0, LO12(s_step_sweep)
     bl cache_fail_sqlite
     mov x0, #1
 .Lsw_out:
@@ -1509,30 +1510,30 @@ sweep_step:
 purge_step:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
-    adrp x0, s_sql_del_counts_chan
-    add x0, x0, :lo12:s_sql_del_counts_chan
+    adrp x0, PAGE(s_sql_del_counts_chan)
+    add x0, x0, LO12(s_sql_del_counts_chan)
     bl prepare_stmt
     cbz x0, .Lpg_fail
     mov x19, x0
     mov x0, x19
     mov x1, #1
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     bl bind_text_stmt
     mov x0, x19
     bl step_stmt
     mov x0, x19
     bl sqlite3_finalize
-    adrp x0, s_sql_del_file_chan
-    add x0, x0, :lo12:s_sql_del_file_chan
+    adrp x0, PAGE(s_sql_del_file_chan)
+    add x0, x0, LO12(s_sql_del_file_chan)
     bl prepare_stmt
     cbz x0, .Lpg_fail
     mov x19, x0
     mov x0, x19
     mov x1, #1
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     bl bind_text_stmt
     mov x0, x19
@@ -1542,8 +1543,8 @@ purge_step:
     mov x0, #0
     b .Lpg_out
 .Lpg_fail:
-    adrp x0, s_step_rebuild
-    add x0, x0, :lo12:s_step_rebuild
+    adrp x0, PAGE(s_step_rebuild)
+    add x0, x0, LO12(s_step_rebuild)
     bl cache_fail_sqlite
     mov x0, #1
 .Lpg_out:
@@ -1568,28 +1569,28 @@ cache_get_day:
     mov x19, x0                     // ymd
     mov x20, x1                     // enter_state
     // date string
-    adrp x0, tc_cache_scratch
-    add x0, x0, :lo12:tc_cache_scratch
+    adrp x0, PAGE(tc_cache_scratch)
+    add x0, x0, LO12(tc_cache_scratch)
     mov x1, x0
     mov x0, x19
     bl fmt_date
-    adrp x21, tc_cache_scratch
-    add x21, x21, :lo12:tc_cache_scratch     // date ptr
+    adrp x21, PAGE(tc_cache_scratch)
+    add x21, x21, LO12(tc_cache_scratch)     // date ptr
     // SELECT the file row
-    adrp x0, s_sql_sel_file
-    add x0, x0, :lo12:s_sql_sel_file
+    adrp x0, PAGE(s_sql_sel_file)
+    add x0, x0, LO12(s_sql_sel_file)
     bl prepare_stmt
     cbz x0, .Lcg_miss
     mov x22, x0                     // stmt
     mov x0, x22
     mov x1, #1
-    adrp x2, tc_cache_fp
-    add x2, x2, :lo12:tc_cache_fp
+    adrp x2, PAGE(tc_cache_fp)
+    add x2, x2, LO12(tc_cache_fp)
     bl bind_text_stmt
     mov x0, x22
     mov x1, #2
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     bl bind_text_stmt
     mov x0, x22
@@ -1628,8 +1629,8 @@ cache_get_day:
     mov x0, x22
     bl sqlite3_finalize
     // validity: size + mtime_ns
-    adrp x9, tc_cache_stat
-    add x9, x9, :lo12:tc_cache_stat
+    adrp x9, PAGE(tc_cache_stat)
+    add x9, x9, LO12(tc_cache_stat)
     ldr x10, [x9, #ST_SIZE]
     cmp x23, x10
     b.ne .Lcg_miss
@@ -1646,20 +1647,20 @@ cache_get_day:
     b.ne .Lcg_miss
 .Lcg_enter_done:
     // hit: apply every counts row
-    adrp x0, s_sql_sel_counts
-    add x0, x0, :lo12:s_sql_sel_counts
+    adrp x0, PAGE(s_sql_sel_counts)
+    add x0, x0, LO12(s_sql_sel_counts)
     bl prepare_stmt
     cbz x0, .Lcg_miss
     mov x22, x0
     mov x0, x22
     mov x1, #1
-    adrp x2, tc_cache_fp
-    add x2, x2, :lo12:tc_cache_fp
+    adrp x2, PAGE(tc_cache_fp)
+    add x2, x2, LO12(tc_cache_fp)
     bl bind_text_stmt
     mov x0, x22
     mov x1, #2
-    adrp x2, tc_cache_channel
-    add x2, x2, :lo12:tc_cache_channel
+    adrp x2, PAGE(tc_cache_channel)
+    add x2, x2, LO12(tc_cache_channel)
     ldr x2, [x2]
     bl bind_text_stmt
     mov x0, x22
@@ -1697,8 +1698,8 @@ cache_get_day:
 .Lcg_apply_done:
     mov x0, x22
     bl sqlite3_finalize
-    adrp x9, tc_cache_hits
-    add x9, x9, :lo12:tc_cache_hits
+    adrp x9, PAGE(tc_cache_hits)
+    add x9, x9, LO12(tc_cache_hits)
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -1730,8 +1731,8 @@ snapshot_users:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
-    adrp x19, tc_users
-    add x19, x19, :lo12:tc_users
+    adrp x19, PAGE(tc_users)
+    add x19, x19, LO12(tc_users)
     ldr x20, [x19, #TC_US_COUNT]    // n
     ldr x21, [x19, #TC_US_ENTRIES]  // entries
     mov x0, x20
@@ -1740,11 +1741,11 @@ snapshot_users:
     bl malloc
     cbz x0, .Lsu_none               // malloc fail -> no put (still parse)
     mov x22, x0                     // snap
-    adrp x23, tc_cache_snap
-    add x23, x23, :lo12:tc_cache_snap
+    adrp x23, PAGE(tc_cache_snap)
+    add x23, x23, LO12(tc_cache_snap)
     str x22, [x23]
-    adrp x23, tc_cache_snap_n
-    add x23, x23, :lo12:tc_cache_snap_n
+    adrp x23, PAGE(tc_cache_snap_n)
+    add x23, x23, LO12(tc_cache_snap_n)
     str x20, [x23]
     mov x24, #0                     // i
 .Lsu_loop:
@@ -1767,8 +1768,8 @@ snapshot_users:
 .Lsu_done:
     b .Lsu_out
 .Lsu_none:
-    adrp x9, tc_cache_snap
-    add x9, x9, :lo12:tc_cache_snap
+    adrp x9, PAGE(tc_cache_snap)
+    add x9, x9, LO12(tc_cache_snap)
     str xzr, [x9]
 .Lsu_out:
     ldp x23, x24, [sp], #16
@@ -1783,15 +1784,15 @@ snapshot_users:
     .p2align 2
 cache_drop_stash:
     stp x29, x30, [sp, #-16]!
-    adrp x9, tc_cache_snap
-    add x9, x9, :lo12:tc_cache_snap
+    adrp x9, PAGE(tc_cache_snap)
+    add x9, x9, LO12(tc_cache_snap)
     ldr x0, [x9]
     cbz x0, .Lcds_done
     str xzr, [x9]
     bl free
 .Lcds_done:
-    adrp x9, tc_cache_stash
-    add x9, x9, :lo12:tc_cache_stash
+    adrp x9, PAGE(tc_cache_stash)
+    add x9, x9, LO12(tc_cache_stash)
     str xzr, [x9]
     ldp x29, x30, [sp], #16
     ret
@@ -1810,16 +1811,16 @@ state_str:
     mov x0, #0
     ret
 .Lss_live:
-    adrp x0, s_state_live
-    add x0, x0, :lo12:s_state_live
+    adrp x0, PAGE(s_state_live)
+    add x0, x0, LO12(s_state_live)
     ret
 .Lss_off:
-    adrp x0, s_state_offline
-    add x0, x0, :lo12:s_state_offline
+    adrp x0, PAGE(s_state_offline)
+    add x0, x0, LO12(s_state_offline)
     ret
 .Lss_unk:
-    adrp x0, s_state_unknown
-    add x0, x0, :lo12:s_state_unknown
+    adrp x0, PAGE(s_state_unknown)
+    add x0, x0, LO12(s_state_unknown)
     ret
 
 // ============================================================================
@@ -1831,13 +1832,13 @@ state_id:
     stp x19, x20, [sp, #-16]!
     cbz x0, .Lsi_zero
     mov x19, x0
-    adrp x0, s_state_live
-    add x0, x0, :lo12:s_state_live
+    adrp x0, PAGE(s_state_live)
+    add x0, x0, LO12(s_state_live)
     mov x1, x19
     bl strcmp
     cbz w0, .Lsi_one
-    adrp x0, s_state_offline
-    add x0, x0, :lo12:s_state_offline
+    adrp x0, PAGE(s_state_offline)
+    add x0, x0, LO12(s_state_offline)
     mov x1, x19
     bl strcmp
     cbz w0, .Lsi_two
@@ -1866,8 +1867,8 @@ resolve_cache_path:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
     // XDG_CACHE_HOME
-    adrp x0, s_env_xdg_cache
-    add x0, x0, :lo12:s_env_xdg_cache
+    adrp x0, PAGE(s_env_xdg_cache)
+    add x0, x0, LO12(s_env_xdg_cache)
     bl getenv
     cbz x0, .Lrcp_home
     ldrb w1, [x0]
@@ -1876,39 +1877,39 @@ resolve_cache_path:
     b .Lrcp_build
 .Lrcp_home:
     // $HOME/.cache
-    adrp x0, s_env_home
-    add x0, x0, :lo12:s_env_home
+    adrp x0, PAGE(s_env_home)
+    add x0, x0, LO12(s_env_home)
     bl getenv
     cbz x0, .Lrcp_none
     ldrb w1, [x0]
     cbz w1, .Lrcp_none
     mov x20, x0                     // home
-    adrp x0, tc_cache_scratch
-    add x0, x0, :lo12:tc_cache_scratch
+    adrp x0, PAGE(tc_cache_scratch)
+    add x0, x0, LO12(tc_cache_scratch)
     mov x19, x0                     // cursor
     mov x1, x20
     bl cat_cstr
-    adrp x1, s_home_cache_tail
-    add x1, x1, :lo12:s_home_cache_tail
+    adrp x1, PAGE(s_home_cache_tail)
+    add x1, x1, LO12(s_home_cache_tail)
     bl cat_cstr
-    adrp x19, tc_cache_scratch
-    add x19, x19, :lo12:tc_cache_scratch
+    adrp x19, PAGE(tc_cache_scratch)
+    add x19, x19, LO12(tc_cache_scratch)
 .Lrcp_build:
     // path = base + tail
-    adrp x0, tc_cache_path
-    add x0, x0, :lo12:tc_cache_path
+    adrp x0, PAGE(tc_cache_path)
+    add x0, x0, LO12(tc_cache_path)
     mov x21, x0                     // cursor
     mov x1, x19
     mov x2, #PATH_SZ
     bl cat_cstr_cap
-    adrp x1, s_path_tail
-    add x1, x1, :lo12:s_path_tail
+    adrp x1, PAGE(s_path_tail)
+    add x1, x1, LO12(s_path_tail)
     mov x2, #PATH_SZ
     bl cat_cstr_cap
     b .Lrcp_done
 .Lrcp_none:
-    adrp x0, tc_cache_path
-    add x0, x0, :lo12:tc_cache_path
+    adrp x0, PAGE(tc_cache_path)
+    add x0, x0, LO12(tc_cache_path)
     strb wzr, [x0]
 .Lrcp_done:
     ldp x21, x22, [sp], #16
@@ -1945,8 +1946,8 @@ mkdir_cache_dir:
 .Lmcd_len_done:
     cbz x21, .Lmcd_done             // no directory component
     // copy the dirname [0..last slash) into scratch2, NUL-terminated
-    adrp x0, tc_cache_scratch2
-    add x0, x0, :lo12:tc_cache_scratch2
+    adrp x0, PAGE(tc_cache_scratch2)
+    add x0, x0, LO12(tc_cache_scratch2)
     mov x20, x0                     // scratch cursor
     mov x22, #0                     // i
 .Lmcd_copy:
@@ -1999,8 +2000,8 @@ fingerprint_build:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     ldr x19, =FNV_OFFSET             // hash
-    adrp x20, s_fp_parts
-    add x20, x20, :lo12:s_fp_parts
+    adrp x20, PAGE(s_fp_parts)
+    add x20, x20, LO12(s_fp_parts)
     mov x21, #0                     // part index
 .Lfb_loop:
     ldr x22, [x20, x21, lsl #3]     // part ptr
@@ -2013,8 +2014,8 @@ fingerprint_build:
     bl fnv1a
     mov x19, x0
     // separator byte '\n' between parts
-    adrp x1, s_sep
-    add x1, x1, :lo12:s_sep
+    adrp x1, PAGE(s_sep)
+    add x1, x1, LO12(s_sep)
     mov x0, x19
     mov x2, #1
     bl fnv1a
@@ -2023,8 +2024,8 @@ fingerprint_build:
     b .Lfb_loop
 .Lfb_hash_done:
     // render 16 hex chars, most significant nibble first
-    adrp x23, tc_cache_fp
-    add x23, x23, :lo12:tc_cache_fp
+    adrp x23, PAGE(tc_cache_fp)
+    add x23, x23, LO12(tc_cache_fp)
     mov x24, #15                    // nibble index
 .Lfb_hex:
     cmp x24, #0
@@ -2078,8 +2079,8 @@ db_exec:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_cache_db
-    add x0, x0, :lo12:tc_cache_db
+    adrp x0, PAGE(tc_cache_db)
+    add x0, x0, LO12(tc_cache_db)
     ldr x0, [x0]
     mov x1, x19
     mov x2, #0
@@ -2098,8 +2099,8 @@ prepare_stmt:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     mov x19, x0
-    adrp x0, tc_cache_db
-    add x0, x0, :lo12:tc_cache_db
+    adrp x0, PAGE(tc_cache_db)
+    add x0, x0, LO12(tc_cache_db)
     ldr x0, [x0]
     mov x1, x19
     mov x2, #-1
@@ -2163,8 +2164,8 @@ cache_fail_sqlite:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
     mov x19, x0                     // step
-    adrp x0, tc_cache_db
-    add x0, x0, :lo12:tc_cache_db
+    adrp x0, PAGE(tc_cache_db)
+    add x0, x0, LO12(tc_cache_db)
     ldr x20, [x0]                   // db
     mov x0, x20
     bl sqlite3_errcode
@@ -2175,33 +2176,33 @@ cache_fail_sqlite:
     bl sqlite3_errmsg
     mov x23, x0                     // msg
     // compose
-    adrp x0, tc_cache_problem_buf
-    add x0, x0, :lo12:tc_cache_problem_buf
+    adrp x0, PAGE(tc_cache_problem_buf)
+    add x0, x0, LO12(tc_cache_problem_buf)
     mov x24, x0
     mov x1, x19
     bl cat_cstr
-    adrp x1, s_failed
-    add x1, x1, :lo12:s_failed
+    adrp x1, PAGE(s_failed)
+    add x1, x1, LO12(s_failed)
     bl cat_cstr
     mov x1, x22
     bl cat_cstr
-    adrp x1, s_colon_space
-    add x1, x1, :lo12:s_colon_space
+    adrp x1, PAGE(s_colon_space)
+    add x1, x1, LO12(s_colon_space)
     bl cat_cstr
     mov x1, x23
     bl cat_cstr
-    adrp x9, tc_cache_problem
-    add x9, x9, :lo12:tc_cache_problem
-    adrp x10, tc_cache_problem_buf
-    add x10, x10, :lo12:tc_cache_problem_buf
+    adrp x9, PAGE(tc_cache_problem)
+    add x9, x9, LO12(tc_cache_problem)
+    adrp x10, PAGE(tc_cache_problem_buf)
+    add x10, x10, LO12(tc_cache_problem_buf)
     str x10, [x9]
     // close the db
     mov x0, x20
     cbz x0, .Lcfs_done
     bl sqlite3_close
 .Lcfs_done:
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     str xzr, [x9]
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
@@ -2223,29 +2224,29 @@ cache_fail_errno:
     bl strerror
     mov x20, x0                     // msg
     // compose
-    adrp x0, tc_cache_problem_buf
-    add x0, x0, :lo12:tc_cache_problem_buf
+    adrp x0, PAGE(tc_cache_problem_buf)
+    add x0, x0, LO12(tc_cache_problem_buf)
     mov x21, x0
     mov x1, x19
     bl cat_cstr
-    adrp x1, s_failed
-    add x1, x1, :lo12:s_failed
+    adrp x1, PAGE(s_failed)
+    add x1, x1, LO12(s_failed)
     bl cat_cstr
-    adrp x1, s_type_oserr
-    add x1, x1, :lo12:s_type_oserr
+    adrp x1, PAGE(s_type_oserr)
+    add x1, x1, LO12(s_type_oserr)
     bl cat_cstr
-    adrp x1, s_colon_space
-    add x1, x1, :lo12:s_colon_space
+    adrp x1, PAGE(s_colon_space)
+    add x1, x1, LO12(s_colon_space)
     bl cat_cstr
     mov x1, x20
     bl cat_cstr
-    adrp x9, tc_cache_problem
-    add x9, x9, :lo12:tc_cache_problem
-    adrp x10, tc_cache_problem_buf
-    add x10, x10, :lo12:tc_cache_problem_buf
+    adrp x9, PAGE(tc_cache_problem)
+    add x9, x9, LO12(tc_cache_problem)
+    adrp x10, PAGE(tc_cache_problem_buf)
+    add x10, x10, LO12(tc_cache_problem_buf)
     str x10, [x9]
-    adrp x9, tc_cache_db
-    add x9, x9, :lo12:tc_cache_db
+    adrp x9, PAGE(tc_cache_db)
+    add x9, x9, LO12(tc_cache_db)
     str xzr, [x9]
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -2265,16 +2266,16 @@ sqlite_type_name:
     b.eq .Lstn_db
     cmp w0, #SQLITE_NOMEM
     b.eq .Lstn_mem
-    adrp x0, s_type_operr
-    add x0, x0, :lo12:s_type_operr
+    adrp x0, PAGE(s_type_operr)
+    add x0, x0, LO12(s_type_operr)
     ret
 .Lstn_db:
-    adrp x0, s_type_dberr
-    add x0, x0, :lo12:s_type_dberr
+    adrp x0, PAGE(s_type_dberr)
+    add x0, x0, LO12(s_type_dberr)
     ret
 .Lstn_mem:
-    adrp x0, s_type_memerr
-    add x0, x0, :lo12:s_type_memerr
+    adrp x0, PAGE(s_type_memerr)
+    add x0, x0, LO12(s_type_memerr)
     ret
 
 // ============================================================================
@@ -2383,15 +2384,15 @@ fmt_iso:
     stp x23, x24, [sp, #-16]!
     mov x19, x0                     // epoch
     mov x20, x1                     // out
-    adrp x0, tc_cache_epoch
-    add x0, x0, :lo12:tc_cache_epoch
+    adrp x0, PAGE(tc_cache_epoch)
+    add x0, x0, LO12(tc_cache_epoch)
     str x19, [x0]
     mov x1, x0
-    adrp x0, tc_cache_tm
-    add x0, x0, :lo12:tc_cache_tm
+    adrp x0, PAGE(tc_cache_tm)
+    add x0, x0, LO12(tc_cache_tm)
     mov x21, x0                     // tm
-    adrp x0, tc_cache_epoch
-    add x0, x0, :lo12:tc_cache_epoch
+    adrp x0, PAGE(tc_cache_epoch)
+    add x0, x0, LO12(tc_cache_epoch)
     mov x1, x21
     bl localtime_r
     cbz x0, .Lfiso_epoch0

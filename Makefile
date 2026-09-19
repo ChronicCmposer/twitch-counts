@@ -150,9 +150,11 @@ $(TARGET3): $(TC_OBJS) $(TOML)/toml.o $(SQLITE)/sqlite3.o $(PCRE2_LIB)
 	$(MUSL_GCC) -static -o $@ $(TC_OBJS) $(TOML)/toml.o $(SQLITE)/sqlite3.o $(PCRE2_LIB)
 
 # Generic assembly rule (tc_*.S -> tc_*.o); the explicit rules above take
-# precedence for fibonacci.o / twitch-counts.o.
-%.o: %.S
-	$(AS) $< -o $@
+# precedence for fibonacci.o / twitch-counts.o.  The tc_*.S sources go
+# through the C preprocessor (tc_platform.h selects the platform), so they
+# are assembled with the compiler driver, not bare `as`.
+%.o: %.S tc_platform.h
+	$(MUSL_GCC) -c $< -o $@
 
 # Usage: make run ARGS="10"
 run: all

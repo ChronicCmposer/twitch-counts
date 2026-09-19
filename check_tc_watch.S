@@ -17,8 +17,9 @@
 //              sqlite3.o libpcre2-8.a
 // ============================================================================
 
+#include "tc_platform.h"
     .arch armv8-a
-    .include "tc_layout.inc"
+#include "tc_layout.inc"
 
     .globl tc_cli_parse
     .globl tc_build_exclusions
@@ -40,7 +41,7 @@
 // ----------------------------------------------------------------------------
     .p2align 2
     .global main
-    .type main, %function
+    FUNC_TYPE(main)
 main:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -57,8 +58,8 @@ main:
     // interrupted + --json -> the report_failure shape
     cmp x19, #130
     b.ne .Lmain_done
-    adrp x0, tc_opts
-    add x0, x0, :lo12:tc_opts
+    adrp x0, PAGE(tc_opts)
+    add x0, x0, LO12(tc_opts)
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_JSON
     b.eq .Lmain_done
@@ -66,10 +67,10 @@ main:
     mov x0, #0
     bl fflush
     mov x0, #2
-    adrp x1, s_interrupted
-    add x1, x1, :lo12:s_interrupted
-    adrp x2, s_interrupted_end
-    add x2, x2, :lo12:s_interrupted_end
+    adrp x1, PAGE(s_interrupted)
+    add x1, x1, LO12(s_interrupted)
+    adrp x2, PAGE(s_interrupted_end)
+    add x2, x2, LO12(s_interrupted_end)
     sub x2, x2, x1
     bl write
 .Lmain_done:
@@ -78,7 +79,7 @@ main:
     ldp x29, x30, [sp], #16
     ret
 
-    .section .rodata
+    RODATA
 s_interrupted:
     .ascii "{\"error\": \"interrupted\"}\n"
 s_interrupted_end:
