@@ -209,9 +209,9 @@ tc_misc_now_utc:
     msub x20, x22, x21, x20             // seconds-of-day
     mov x0, x22
     bl tc_civil_from_days               // x0=y, x1=m, x2=d
-    mov x19, #10000
+    mov x19, #YMD_YEAR_SCALE
     mul x0, x0, x19
-    mov x19, #100
+    mov x19, #YMD_MONTH_SCALE
     madd x0, x1, x19, x0
     add x0, x0, x2                      // ymd
     mov x1, x20                         // sod
@@ -2175,7 +2175,7 @@ misc_fmt_ymd:
     PROLOGUE 2
     mov x19, x0                         // ymd
     mov x20, x1                         // dst
-    mov x21, #10000
+    mov x21, #YMD_YEAR_SCALE
     udiv x1, x19, x21                   // y
     mov x0, x20
     mov x2, #4
@@ -2183,7 +2183,7 @@ misc_fmt_ymd:
     mov w1, #'-'
     strb w1, [x0], #1
     mov x20, x0
-    mov x22, #100
+    mov x22, #YMD_MONTH_SCALE
     udiv x1, x19, x22                   // ymd/100
     udiv x2, x1, x22
     msub x1, x2, x22, x1                // mo = (ymd/100) % 100
@@ -2244,9 +2244,9 @@ misc_print_line:
 misc_ymd_to_days:
     PROLOGUE 1
     mov x19, x0                         // ymd
-    mov x0, #10000
+    mov x0, #YMD_YEAR_SCALE
     udiv x1, x19, x0                    // y
-    mov x0, #100
+    mov x0, #YMD_MONTH_SCALE
     udiv x2, x19, x0                    // ymd/100
     udiv x3, x2, x0                     // mo = (ymd/100)/100
     msub x3, x3, x0, x2                 // mo = (ymd/100) % 100
@@ -2261,9 +2261,9 @@ misc_ymd_to_days:
 misc_days_to_ymd:
     PROLOGUE 2
     bl tc_civil_from_days               // x0=y, x1=m, x2=d
-    mov x19, #10000
+    mov x19, #YMD_YEAR_SCALE
     mul x0, x0, x19
-    mov x19, #100
+    mov x19, #YMD_MONTH_SCALE
     madd x0, x1, x19, x0
     add x0, x0, x2
     EPILOGUE 2

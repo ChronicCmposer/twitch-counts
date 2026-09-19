@@ -4139,18 +4139,18 @@ cli_now:
     bl localtime_r
     LEA x19, cli_tm_buf
     ldr w20, [x19, #20]
-    add x20, x20, #1900
+    add x20, x20, #TM_YEAR_BASE
     ldr w21, [x19, #16]
     add x21, x21, #1
     ldr w22, [x19, #12]
-    mov x23, #10000
+    mov x23, #YMD_YEAR_SCALE
     mul x20, x20, x23
-    mov x23, #100
+    mov x23, #YMD_MONTH_SCALE
     mul x21, x21, x23
     add x20, x20, x21
     add x20, x20, x22
     ldr w21, [x19, #8]
-    mov x23, #3600
+    mov x23, #SECS_PER_HOUR
     mul x21, x21, x23
     ldr w22, [x19, #4]
     mov x23, #60
@@ -4219,17 +4219,17 @@ cli_format_ymd_sod:
     mov x20, x1
     mov x21, x2
     // decompose ymd
-    mov x22, #10000
+    mov x22, #YMD_YEAR_SCALE
     udiv x23, x20, x22              // y
-    mov x22, #100
+    mov x22, #YMD_MONTH_SCALE
     udiv x24, x20, x22
     msub x24, x24, x22, x20         // d
-    mov x22, #10000
+    mov x22, #YMD_YEAR_SCALE
     udiv x25, x20, x22
-    mov x26, #10000
+    mov x26, #YMD_YEAR_SCALE
     mul x25, x25, x26
     sub x25, x20, x25
-    mov x26, #100
+    mov x26, #YMD_MONTH_SCALE
     udiv x25, x25, x26              // mo
     mov x0, x19
     mov x1, x23
@@ -4253,7 +4253,7 @@ cli_format_ymd_sod:
     mov w0, #' '
     strb w0, [x19], #1
     mov x0, x19
-    mov x26, #3600
+    mov x26, #SECS_PER_HOUR
     udiv x1, x21, x26
     mov x2, #2
     bl cli_format_pad
@@ -4370,9 +4370,9 @@ cli_iso_week_monday:
     add x21, x21, x0                // monday of the requested week
     mov x0, x21
     bl tc_civil_from_days
-    mov x3, #10000
+    mov x3, #YMD_YEAR_SCALE
     mul x0, x0, x3
-    mov x3, #100
+    mov x3, #YMD_MONTH_SCALE
     mul x1, x1, x3
     add x0, x0, x1
     add x0, x0, x2
@@ -4886,13 +4886,13 @@ cli_parse_fixed_datetime:
     cmp x28, #59
     b.gt .Lpfd_fail
     mov x0, x21
-    mov x1, #10000
+    mov x1, #YMD_YEAR_SCALE
     mul x0, x0, x1
-    mov x1, #100
+    mov x1, #YMD_MONTH_SCALE
     mul x23, x23, x1
     add x0, x0, x23
     add x0, x0, x24
-    mov x1, #3600
+    mov x1, #SECS_PER_HOUR
     mul x26, x26, x1
     mov x1, #60
     madd x1, x27, x1, x26
@@ -4960,13 +4960,13 @@ tc_parse_duration:
     b.eq .Lpdur_s
     b .Lpdur_bad
 .Lpdur_w:
-    ldr x7, =604800
+    ldr x7, =SECS_PER_WEEK
     b .Lpdur_apply
 .Lpdur_d:
     ldr x7, =SECS_PER_DAY
     b .Lpdur_apply
 .Lpdur_h:
-    mov x7, #3600
+    mov x7, #SECS_PER_HOUR
     b .Lpdur_apply
 .Lpdur_m:
     mov x7, #60

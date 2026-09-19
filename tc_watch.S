@@ -872,18 +872,18 @@ watch_local_now:
     // tm_mon@16, tm_year@20 — all 32-bit ints
     LEA x19, watch_tm
     ldr w20, [x19, #20]               // tm_year
-    add x20, x20, #1900
+    add x20, x20, #TM_YEAR_BASE
     ldr w21, [x19, #16]               // tm_mon
     add x21, x21, #1
     ldr w22, [x19, #12]               // tm_mday
-    mov x0, #10000
+    mov x0, #YMD_YEAR_SCALE
     mul x20, x20, x0
-    mov x0, #100
+    mov x0, #YMD_MONTH_SCALE
     mul x21, x21, x0
     add x0, x20, x21
     add x0, x0, x22                   // ymd
     ldr w20, [x19, #8]                // tm_hour
-    mov x21, #3600
+    mov x21, #SECS_PER_HOUR
     mul x20, x20, x21
     ldr w21, [x19, #4]                // tm_min
     mov x22, #60
@@ -1640,9 +1640,9 @@ watch_parse_log_filename:
     bl tc_days_in_month             // x0 = days
     cmp x23, x0
     b.gt .Lwpf_fail
-    mov x9, #10000
+    mov x9, #YMD_YEAR_SCALE
     mul x0, x21, x9
-    mov x9, #100
+    mov x9, #YMD_MONTH_SCALE
     madd x0, x22, x9, x0
     add x0, x0, x23
     EPILOGUE 3
@@ -2633,7 +2633,7 @@ watch_seek_window:
     cbz x21, .Lwsw_zero
     // want = "%02d:%02d:%02d"
     LEA x22, watch_want
-    mov x9, #3600
+    mov x9, #SECS_PER_HOUR
     udiv x23, x21, x9                  // h
     msub x10, x23, x9, x21
     mov x9, #60
@@ -3242,7 +3242,7 @@ watch_fold_line:
     ldrb w5, [x20, #2]
     sub w5, w5, #'0'
     add x9, x9, x5
-    mov x10, #3600
+    mov x10, #SECS_PER_HOUR
     mul x28, x9, x10                   // h*3600 (callee-saved)
     ldrb w5, [x20, #4]
     sub w5, w5, #'0'

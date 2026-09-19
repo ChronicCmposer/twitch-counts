@@ -654,14 +654,14 @@ render_fmt_datetime:
     mov x21, x2
     mov w22, w3
     mov x1, x20
-    mov x2, #10000
+    mov x2, #YMD_YEAR_SCALE
     udiv x6, x20, x2
     mov x0, x19
     mov x1, x6
     bl tc_fmt4
     mov w7, #'-'
     strb w7, [x0], #1
-    mov x2, #100
+    mov x2, #YMD_MONTH_SCALE
     udiv x6, x20, x2
     mov x8, #100
     udiv x9, x6, x8
@@ -677,13 +677,13 @@ render_fmt_datetime:
     bl tc_fmt2
     strb w22, [x0], #1
     mov x1, x21
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x6, x21, x2
     mov w1, w6
     bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x8, x21, x2
     msub x9, x8, x2, x21
     mov x2, #60
@@ -692,7 +692,7 @@ render_fmt_datetime:
     bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x8, x21, x2
     msub x9, x8, x2, x21
     mov x2, #60
@@ -708,13 +708,13 @@ render_fmt_datetime:
 render_fmt_hhmm:
     PROLOGUE 1
     mov x19, x1                        // sod
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x3, x19, x2
     mov w1, w3
     bl tc_fmt2                            // hour
     mov w3, #':'
     strb w3, [x0], #1
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x4, x19, x2
     msub x4, x4, x2, x19
     mov x2, #60
@@ -758,15 +758,15 @@ render_fmt_ymd:
     PROLOGUE 1
     mov x19, x0                        // dst
     mov x20, x1                        // ymd
-    mov x2, #10000
+    mov x2, #YMD_YEAR_SCALE
     udiv x3, x20, x2
     mov w1, w3
     bl tc_fmt4                            // year
     mov w3, #'-'
     strb w3, [x0], #1
-    mov x2, #100
+    mov x2, #YMD_MONTH_SCALE
     udiv x3, x20, x2
-    mov x4, #100
+    mov x4, #YMD_MONTH_SCALE
     udiv x5, x3, x4
     msub x5, x5, x4, x3
     mov w1, w5
@@ -809,9 +809,9 @@ render_fmt_human_duration:
     strb w2, [x0], #1
     mov x19, x0
 .Lfhd_hours:
-    cmp x20, #3600
+    cmp x20, #SECS_PER_HOUR
     b.lt .Lfhd_mins
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x3, x20, x2
     msub x20, x3, x2, x20
     mov x0, x19

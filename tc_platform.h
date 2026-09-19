@@ -345,6 +345,13 @@
 //  module-local `.equ SECS_PER_DAY, 86400` would silently shadow a shared
 //  value, whereas with the cpp macro in scope it fails to assemble.
 #define SECS_PER_DAY    86400
+#define SECS_PER_HOUR   3600
+#define SECS_PER_WEEK   604800
+#define TM_YEAR_BASE    1900        // struct tm.tm_year counts from 1900
+// The packed calendar date the contract structures carry: ymd = y*10000 +
+// m*100 + d (YYYYMMDD as an integer).
+#define YMD_YEAR_SCALE  10000
+#define YMD_MONTH_SCALE 100
 
 // Field loads whose WIDTH differs between the platforms.  `n` is the
 // register number: LOAD_ST_MODE 1, x0  ->  w1 = st_mode (zero-extended).

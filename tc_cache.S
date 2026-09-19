@@ -2012,17 +2012,17 @@ cache_fmt_date:
     PROLOGUE 2
     mov x19, x0                     // ymd
     mov x20, x1                     // out
-    mov x21, #10000
+    mov x21, #YMD_YEAR_SCALE
     udiv x22, x19, x21              // y
-    mov x21, #100
+    mov x21, #YMD_MONTH_SCALE
     udiv x23, x19, x21
     msub x23, x23, x21, x19         // d
-    mov x21, #10000
+    mov x21, #YMD_YEAR_SCALE
     udiv x24, x19, x21
-    mov x21, #10000
+    mov x21, #YMD_YEAR_SCALE
     mul x24, x24, x21
     sub x24, x19, x24
-    mov x21, #100
+    mov x21, #YMD_MONTH_SCALE
     udiv x24, x24, x21              // mo
     mov x0, x20
     mov x1, x22
@@ -2063,7 +2063,7 @@ cache_fmt_iso:
     cbz x0, .Lfiso_epoch0
     // struct tm fields are 32-bit ints — load with 32-bit loads, not ldr
     ldr w22, [x21, #TM_YEAR]
-    add x22, x22, #1900             // y
+    add x22, x22, #TM_YEAR_BASE             // y
     ldr w23, [x21, #TM_MON]
     add x23, x23, #1                // mo
     ldr w24, [x21, #TM_MDAY]        // d

@@ -783,9 +783,9 @@ core_parse_log_filename:
     cmp x8, x0
     b.gt .Lplf_fail
     // ymd = y*10000 + mo*100 + d
-    mov x5, #10000
+    mov x5, #YMD_YEAR_SCALE
     mul x3, x3, x5
-    mov x5, #100
+    mov x5, #YMD_MONTH_SCALE
     mul x7, x7, x5
     add x3, x3, x7
     add x3, x3, x8
@@ -2136,7 +2136,7 @@ core_process_message:
     ldrb w6, [x19, #2]
     sub w6, w6, #'0'
     add x7, x7, x6                      // h
-    mov x8, #3600
+    mov x8, #SECS_PER_HOUR
     mul x7, x7, x8
     ldrb w6, [x19, #4]
     sub w6, w6, #'0'
@@ -2836,17 +2836,17 @@ core_fmt_ymd_sod:
     mov x19, x0                         // ymd
     mov x20, x1                         // sod
     mov x21, x2                         // out
-    mov x22, #10000
+    mov x22, #YMD_YEAR_SCALE
     udiv x23, x19, x22                  // y
-    mov x22, #100
+    mov x22, #YMD_MONTH_SCALE
     udiv x24, x19, x22
     msub x24, x24, x22, x19             // d
-    mov x22, #10000
+    mov x22, #YMD_YEAR_SCALE
     udiv x25, x19, x22
-    mov x26, #10000
+    mov x26, #YMD_YEAR_SCALE
     mul x25, x25, x26
     sub x25, x19, x25
-    mov x26, #100
+    mov x26, #YMD_MONTH_SCALE
     udiv x25, x25, x26                  // mo
     mov x0, x21
     mov x1, x23
@@ -2869,7 +2869,7 @@ core_fmt_ymd_sod:
     mov x21, x0
     mov w0, #' '
     strb w0, [x21], #1
-    mov x26, #3600
+    mov x26, #SECS_PER_HOUR
     udiv x1, x20, x26
     mov x0, x21
     mov x2, #2

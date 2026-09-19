@@ -416,20 +416,20 @@ json_now_iso:
     bl localtime_r
     LEA x0, json_tm
     ldr w20, [x0, #TM_YEAR]
-    add x20, x20, #1900
+    add x20, x20, #TM_YEAR_BASE
     ldr w21, [x0, #TM_MON]
     add x21, x21, #1
     ldr w22, [x0, #TM_MDAY]
-    mov x1, #10000
+    mov x1, #YMD_YEAR_SCALE
     mul x20, x20, x1
-    mov x1, #100
+    mov x1, #YMD_MONTH_SCALE
     mul x21, x21, x1
     add x20, x20, x21
     add x20, x20, x22                  // ymd
     ldr w21, [x0, #TM_HOUR]
     ldr w22, [x0, #TM_MIN]
     ldr w23, [x0, #TM_SEC]
-    mov x1, #3600
+    mov x1, #SECS_PER_HOUR
     mul x21, x21, x1
     mov x1, #60
     madd x21, x22, x1, x21
@@ -458,14 +458,14 @@ json_fmt_dt:
     mov x21, x2                        // sod
     mov w22, w3                        // separator
     mov x1, x20
-    mov x2, #10000
+    mov x2, #YMD_YEAR_SCALE
     udiv x6, x20, x2
     mov x0, x19
     mov x1, x6
     bl tc_fmt4
     mov w7, #'-'
     strb w7, [x0], #1
-    mov x2, #100
+    mov x2, #YMD_MONTH_SCALE
     udiv x6, x20, x2
     mov x8, #100
     udiv x9, x6, x8
@@ -481,13 +481,13 @@ json_fmt_dt:
     bl tc_fmt2
     strb w22, [x0], #1
     mov x1, x21
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x6, x21, x2
     mov w1, w6
     bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x8, x21, x2
     msub x9, x8, x2, x21
     mov x2, #60
@@ -496,7 +496,7 @@ json_fmt_dt:
     bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
-    mov x2, #3600
+    mov x2, #SECS_PER_HOUR
     udiv x8, x21, x2
     msub x9, x8, x2, x21
     mov x2, #60

@@ -835,7 +835,12 @@ tc_fmt4:
 // Calendar arithmetic -- proleptic Gregorian, Howard Hinnant's algorithms,
 // verified against Python's datetime for years 1..9999.  ymd is the packed
 // YYYYMMDD integer the contract structures use; sod is seconds of day.
+// The algorithms count in 400-year eras starting on March 1st:
 // ============================================================================
+    .equ DAYS_PER_ERA,      146097      // 400 years
+    .equ EPOCH_ERA_OFFSET,  719468      // days from 0000-03-01 to 1970-01-01
+    .equ DAYS_PER_YEAR,     365
+    .equ YEARS_PER_ERA,     400
 
 // ----------------------------------------------------------------------------
 // tc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
@@ -863,7 +868,7 @@ tc_days_from_civil:
 .Ldfc_ypos:
     mov x3, x10
 .Ldfc_era:
-    mov x4, #400
+    mov x4, #YEARS_PER_ERA
     sdiv x3, x3, x4                 // era
     msub x5, x3, x4, x10            // yoe
     cmp x1, #2
@@ -880,7 +885,7 @@ tc_days_from_civil:
     sdiv x6, x6, x7
     add x6, x6, x2
     sub x6, x6, #1                  // doy
-    mov x7, #365
+    mov x7, #DAYS_PER_YEAR
     mul x7, x5, x7
     add x7, x7, x6
     mov x9, #4
@@ -889,10 +894,10 @@ tc_days_from_civil:
     mov x9, #100
     sdiv x8, x5, x9
     sub x7, x7, x8                  // doe
-    ldr x9, =146097
+    ldr x9, =DAYS_PER_ERA
     mul x9, x3, x9
     add x7, x7, x9
-    ldr x9, =719468
+    ldr x9, =EPOCH_ERA_OFFSET
     sub x0, x7, x9
     ldp x9, x10, [sp], #16
     ldp x7, x8, [sp], #16
@@ -913,7 +918,7 @@ tc_civil_from_days:
     stp x9, x10, [sp, #-16]!
     stp x11, x12, [sp, #-16]!
     stp x13, x14, [sp, #-16]!
-    ldr x3, =719468
+    ldr x3, =EPOCH_ERA_OFFSET
     add x3, x0, x3                  // z
     cmp x3, #0
     b.ge .Lcfd_zpos
@@ -923,7 +928,7 @@ tc_civil_from_days:
 .Lcfd_zpos:
     mov x4, x3
 .Lcfd_era:
-    ldr x5, =146097
+    ldr x5, =DAYS_PER_ERA
     sdiv x4, x4, x5                 // era
     msub x6, x4, x5, x3             // doe
     ldr x7, =1460
@@ -935,9 +940,9 @@ tc_civil_from_days:
     ldr x7, =146096
     sdiv x9, x6, x7
     sub x8, x8, x9
-    mov x7, #365
+    mov x7, #DAYS_PER_YEAR
     sdiv x8, x8, x7                 // yoe
-    mov x7, #400
+    mov x7, #YEARS_PER_ERA
     mul x9, x4, x7
     add x9, x8, x9                  // y (before the Jan/Feb fix-up)
     mov x7, #365
@@ -1053,11 +1058,11 @@ tc_ymd_sod_to_epoch:
     stp x1, x2, [sp, #-16]!
     stp x3, x4, [sp, #-16]!
     mov x4, x1                      // sod
-    mov x3, #10000
+    mov x3, #YMD_YEAR_SCALE
     udiv x1, x0, x3                 // year
     msub x2, x1, x3, x0             // month*100 + day
     mov x0, x1
-    mov x3, #100
+    mov x3, #YMD_MONTH_SCALE
     udiv x1, x2, x3                 // month
     msub x2, x1, x3, x2             // day
     bl tc_days_from_civil           // x0 = days since the epoch
@@ -1084,9 +1089,9 @@ tc_epoch_to_ymd_sod:
     msub x4, x3, x2, x0             // sod
     mov x0, x3
     bl tc_civil_from_days           // x0=y, x1=m, x2=d
-    mov x3, #10000
+    mov x3, #YMD_YEAR_SCALE
     mul x0, x0, x3
-    mov x3, #100
+    mov x3, #YMD_MONTH_SCALE
     madd x0, x1, x3, x0
     add x0, x0, x2                  // ymd
     mov x1, x4
