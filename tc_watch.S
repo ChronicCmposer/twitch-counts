@@ -818,6 +818,17 @@ tc_watch_run:
     bl watch_filter_tints            // expire carried tints (now)
     bl tc_render_text
     bl tc_frame_end
+    // elapsed = clock.monotonic() - started: taken here, after run_report and
+    // before the paint, so the status line ("tick Nms", "slower than the
+    // interval") describes THIS frame and the sleep is interval - elapsed
+    bl watch_monotonic
+    adrp x9, PAGE(tc_watch_started)
+    add x9, x9, LO12(tc_watch_started)
+    ldr d1, [x9]
+    fsub d0, d0, d1
+    adrp x9, PAGE(tc_watch_elapsed)
+    add x9, x9, LO12(tc_watch_elapsed)
+    str d0, [x9]
     // ---- status line + paint ----------------------------------------------
     bl watch_build_status
     bl watch_screen_paint
@@ -841,8 +852,9 @@ tc_watch_run:
     bl tc_puts
     mov w0, #0
     bl fflush
-    mov x19, #130
-    mov x0, x19
+    // run_watch(): `except KeyboardInterrupt: pass` ... `return 0` -- the
+    // 130 of main()'s handler is for a Ctrl-C outside the watch loop
+    mov x0, #0
     ldp x27, x28, [sp], #16
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
@@ -7324,7 +7336,9 @@ watch_compile_patterns:
     bl tc_strlen
     mov x1, x0
     mov x0, x24
-    mov w2, #0
+    ldr w2, =PCRE2_OPTS                // Python re on str: Unicode classes and
+                                       // case folding; invalid UTF-8 in a log
+                                       // line just never matches
     adrp x3, PAGE(tc_watch_scratch)          // errcode
     add x3, x3, LO12(tc_watch_scratch)
     add x3, x3, #0
@@ -8948,15 +8962,10 @@ watch_next_wait:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    // elapsed = now - started
-    bl watch_monotonic
-    adrp x9, PAGE(tc_watch_started)
-    add x9, x9, LO12(tc_watch_started)
-    ldr d1, [x9]
-    fsub d0, d0, d1
+    // elapsed: the value measured before the paint (Python computes it once)
     adrp x9, PAGE(tc_watch_elapsed)
     add x9, x9, LO12(tc_watch_elapsed)
-    str d0, [x9]
+    ldr d0, [x9]
     // wait = interval - elapsed (kept in memory: the d-regs die on the calls)
     adrp x9, PAGE(tc_watch_interval)
     add x9, x9, LO12(tc_watch_interval)

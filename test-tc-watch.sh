@@ -248,7 +248,7 @@ if [ "$UNAME_S" = "Darwin" ]; then
     echo "== notify=true (default) under a pty, macOS: first frame vs Python =="
     run_pty "$DATA/notify.out" 4 1.0 -1 "" "$BIN" -c "$CH" -d "$LOGS" -w 0.2 --no-cache
     NRC=$(cat "$DATA/notify.out.rc")
-    check "notify (macOS) SIGINT exit code" "130" "$NRC"
+    check "notify (macOS) SIGINT exit code" "0" "$NRC"
     strip_ansi "$DATA/notify.out" > "$DATA/notify.plain"
     first_frame "$DATA/notify.plain" > "$DATA/notify.frame"
 
@@ -275,7 +275,7 @@ fi
 echo "== differential: first frame vs Python =="
 run_pty "$DATA/asm.out" 4 1.0 -1 "" "$BIN" "${BASE[@]}"
 ARC=$(cat "$DATA/asm.out.rc")
-check "asm SIGINT exit code" "130" "$ARC"
+check "asm SIGINT exit code" "0" "$ARC"
 strip_ansi "$DATA/asm.out" > "$DATA/asm.plain"
 first_frame "$DATA/asm.plain" > "$DATA/asm.frame"
 
