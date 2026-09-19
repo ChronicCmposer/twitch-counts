@@ -1,13 +1,12 @@
 // ============================================================================
-// tc_util.S — shared utilities for twitch-counts-full (split from tc_entry.S)
+// tc_util.S — shared utilities for twitch-counts-full
 // ============================================================================
 //
 //  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
 //              macOS arm64 (Mach-O, libSystem); tc_platform.h selects.
 //  Assembler:  GNU as syntax, preprocessed (musl-gcc -c / clang -c)
 //
-//  This module owns every .global utility the other tc_*.S modules share.
-//  The split from tc_entry.S (Wave A, Phase 2): utilities live here,
+//  This module owns every .global utility the other tc_*.S modules share;
 //  main() lives in tc_main.S.
 //
 //  Exported (all .global, AAPCS64, x19-x28 preserved):

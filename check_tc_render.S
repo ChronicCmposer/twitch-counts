@@ -6,9 +6,9 @@
 //          tc_render_report -> exit 0.  The renderer chooses text or JSON
 //          from the --json flag itself.
 //
-//  Target:     AArch64 (ARMv8-A), little-endian, Linux
-//  Linking:    musl-gcc -static with tc_render.o tc_json.o tc_core.o
-//              tc_cli.o tc_config.o tc_util.o tc_cache_stub.o toml.o
+//  Target:     AArch64 (ARMv8-A), little-endian — Linux (musl, static) and
+//              macOS arm64; tc_platform.h selects.  Linked by the Makefile
+//              (tc-render-test) with the real tc_cache.o.
 // ============================================================================
 
 #include "tc_platform.h"
