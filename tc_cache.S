@@ -1979,7 +1979,7 @@ cache_cat_cstr_cap:
 // ============================================================================
     .p2align 2
 cache_fmt_date:
-    PROLOGUE 2
+    PROLOGUE 3
     mov x19, x0                     // ymd
     mov x20, x1                     // out
     mov x21, #YMD_YEAR_SCALE
@@ -2010,7 +2010,7 @@ cache_fmt_date:
     bl cache_put_pad
     mov w1, #0
     strb w1, [x0]
-    EPILOGUE 2
+    EPILOGUE 3
     ret
 
 // ============================================================================

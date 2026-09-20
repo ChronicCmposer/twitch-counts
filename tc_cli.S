@@ -1285,6 +1285,7 @@ cli_append_list:
     str x6, [x0]
     LEA x0, cli_given
     mov x1, #1
+    strb w1, [x0, x23]               // cli_given[set] = 1 (x23 = set id from x4)
 .Lal_done:
     EPILOGUE 5
     ret

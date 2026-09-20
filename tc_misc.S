@@ -116,6 +116,11 @@
     .equ MISC_GROUPS_MAX, 64
     .equ MISC_PATH_SZ,    1024
     .equ MISC_ERRBUF_SZ,  128
+    // misc_failed stages the raw message in misc_buf and escapes it into
+    // misc_buf2 (4096 bytes).  Worst case each byte doubles (\\ \n \r \t ' ")
+    // and the dq prefix/suffix add 35 bytes, so a raw message longer than
+    // (4096 - 35) / 2 = 2030 bytes is truncated before staging.
+    .equ MISC_FAILED_MAX_RAW, 2030
     // group record layout: {name_ptr u64, members_ptr u64, member_n u64}
     .equ GR_NAME,     0
     .equ GR_MEMBERS,  8
@@ -1047,8 +1052,8 @@ misc_cfg_exclusions:
     mul x0, x0, x26
     bl misc_alloc                       // x0 = members ptr array
     str x0, [x27, #GR_MEMBERS]
-    str x26, [x27, #GR_MEMBER_N]
-    mov x28, #0                         // member index
+    str xzr, [x27, #GR_MEMBER_N]        // count = 0; compacted as members are kept
+    mov x28, #0                         // read index over the toml array
 .Lce_mem_loop:
     cmp x28, x26
     b.ge .Lce_mem_done
@@ -1058,12 +1063,12 @@ misc_cfg_exclusions:
     cbz w0, .Lce_mem_next
     mov x0, x1
     bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
+    cbz x0, .Lce_mem_free               // empty member: not stored, not counted
     ldr x1, [x27, #GR_MEMBERS]
-    ldr x2, [x1, x28, lsl #3]           // (the slot currently holds garbage)
-    str x0, [x1, x28, lsl #3]
-    cbz x0, .Lce_mem_free
-    ldr x1, [x27, #GR_MEMBER_N]
-    // keep: arena copy stored; free the toml string
+    ldr x2, [x27, #GR_MEMBER_N]         // compacted write index
+    str x0, [x1, x2, lsl #3]
+    add x2, x2, #1
+    str x2, [x27, #GR_MEMBER_N]
 .Lce_mem_free:
     // free the toml malloc'd string: recompute from the loop state
     mov x0, x23
@@ -1369,33 +1374,49 @@ misc_config_open:
 //   on stderr.  Python: print(f"completion failed: {exc!r}", file=sys.stderr).
 // ============================================================================
 misc_failed:
-    PROLOGUE 3
+    PROLOGUE 4
     // The raw message usually lives in misc_buf2 (built by the caller) and
     // the escaped copy must NOT overwrite its source, so stage the raw text
     // in misc_buf first, then escape into misc_buf2.
     mov x19, x0                         // raw message
     LEA x20, misc_buf
     mov x21, x20                        // cursor
+    mov x22, #0                         // staged byte count
 .Lmf_copy:
-    ldrb w22, [x19], #1
-    strb w22, [x21], #1
-    cbnz w22, .Lmf_copy
+    ldrb w23, [x19], #1
+    cbz w23, .Lmf_copy_done
+    cmp x22, #MISC_FAILED_MAX_RAW
+    b.ge .Lmf_copy_done                 // cap: worst-case escaping must fit misc_buf2
+    strb w23, [x21], #1
+    add x22, x22, #1
+    b .Lmf_copy
+.Lmf_copy_done:
+    mov w23, #0
+    strb w23, [x21]                     // NUL-terminate the bounded stage
     // Python repr quote selection: single quotes preferred; a message that
     // contains a single quote but no double quote is wrapped in double quotes.
+    // A double quote anywhere forces single-quote mode (order-independent).
     LEA x23, misc_buf
     mov x24, #0                         // 1 = double-quote mode
+    mov x25, #0                         // 1 = a double quote was seen
     mov x19, x23
 .Lmf_scan:
     ldrb w22, [x19], #1
     cbz w22, .Lmf_scan_done
-    cmp w22, #'\''
-    b.ne .Lmf_scan_dquote
-    mov x24, #1
-.Lmf_scan_dquote:
     cmp w22, #'"'
+    b.eq .Lmf_scan_dq
+    cmp w22, #'\''
     b.ne .Lmf_scan
-    // contains a double quote: force single-quote mode
+    cbz x25, .Lmf_scan_sq               // a ' with no " yet -> double-quote mode
+    b .Lmf_scan
+.Lmf_scan_sq:
+    mov x24, #1
+    b .Lmf_scan
+.Lmf_scan_dq:
+    // contains a double quote: single-quote mode wins regardless of order
     mov x24, #0
+    mov x25, #1
+    b .Lmf_scan
 .Lmf_scan_done:
     // escape into misc_buf2
     LEA x20, misc_buf2
@@ -1479,7 +1500,7 @@ misc_failed:
     bl misc_cat
     mov x0, x20
     bl tc_eputs
-    EPILOGUE 3
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -2147,6 +2168,7 @@ misc_fmt_dec_pad:
     mov x19, x0                         // dst
     mov x20, x1                         // value
     mov x21, x2                         // width
+    cbz x21, .Lfdp_done                 // width 0: emit nothing, return dst
     mov x22, #1                         // divisor
     sub x0, x21, #1
 .Lfdp_divloop:

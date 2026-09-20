@@ -2700,7 +2700,7 @@ tc_reuse_apply:
 // ============================================================================
     .p2align 2
 core_sort_dnames:
-    PROLOGUE 3
+    PROLOGUE 4
     LEA x19, core_dnames
     LEA x20, core_dname_count
     ldr x20, [x20]
@@ -2727,7 +2727,7 @@ core_sort_dnames:
     add x21, x21, #1
     b .Lsd_outer
 .Lsd_done:
-    EPILOGUE 3
+    EPILOGUE 4
     ret
 
 // ============================================================================

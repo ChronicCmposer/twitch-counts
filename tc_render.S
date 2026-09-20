@@ -2957,7 +2957,7 @@ render_full_header:
 // render_emit_header_line(label, value, source, w0, w1) — "label:  value  [source]"
     .p2align 2
 render_emit_header_line:
-    PROLOGUE 4
+    PROLOGUE 5
     mov x19, x0                        // label
     mov x20, x1                        // value
     mov x21, x2                        // source
@@ -3033,7 +3033,7 @@ render_emit_header_line:
     strb w1, [x0]
     mov x0, x24
     bl render_line_puts
-    EPILOGUE 4
+    EPILOGUE 5
     ret
 
 // render_emit_files_line(label, count, w0, w1) — "files:  N log file(s) in range"
@@ -3701,7 +3701,7 @@ render_cell_render:
 // render_emit_others_row(buf, hidden_n, ncols) — the pooled "+ N others" row
     .p2align 2
 render_emit_others_row:
-    PROLOGUE 4
+    PROLOGUE 5
     mov x19, x0                        // buf
     mov x20, x1                        // hidden_n
     mov x21, x2                        // ncols
@@ -3835,7 +3835,7 @@ render_emit_others_row:
     strb w1, [x22]
     mov x0, x19
     bl render_line_puts
-    EPILOGUE 4
+    EPILOGUE 5
     ret
 
 // ============================================================================
