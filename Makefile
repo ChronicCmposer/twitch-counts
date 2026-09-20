@@ -25,9 +25,13 @@
 #   make drivers              the per-module test drivers (build/<os>/tc-*-test)
 #   make test                 every harness for this platform
 #   make check-<harness>      one harness, e.g. check-tc-watch
-#   make third-party          just the vendored libraries
-#   make gen-inc              force-regenerate the committed .inc blobs
-#   make clean                remove build/ and the root binaries
+#   make third-party        just the vendored libraries
+#   make gen-inc            force-regenerate the committed .inc blobs
+#   make analyze            GCC -fanalyzer over the vendored C (Linux only)
+#   make mca                llvm-mca throughput analysis of one .S module
+#   make decompile          Ghidra headless decompile of one function
+#   make disasm             Ghidra headless disassembly of one function (no natives)
+#   make clean              remove build/ and the root binaries
 
 OS      := $(shell uname -s)
 os      := $(shell uname -s | tr A-Z a-z)
@@ -114,7 +118,7 @@ TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 # deliverable); regenerated only by an explicit `make gen-inc`.
 GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
 
-.PHONY: all run test clean third-party gen-inc drivers $(TC) $(addprefix check-,$(HARNESSES))
+.PHONY: all run test clean third-party gen-inc drivers analyze mca decompile disasm $(TC) $(addprefix check-,$(HARNESSES))
 
 ifeq ($(OS),Linux)
 LINUX_ONLY  := $(FIB)
@@ -286,6 +290,81 @@ check-%: all drivers
 test: all drivers
 	$(if $(LINUX_TESTS),$(LINUX_TESTS),true)
 	$(foreach h,$(HARNESSES),./test-$(h).sh &&) true
+
+# ---------------------------------------------------------------------------
+# static analysis & inspection (see ~/AGENTS.md "Tooling inventory")
+# ---------------------------------------------------------------------------
+# `make analyze` — GCC -fanalyzer over the vendored C.  Linux only: the macOS
+# compiler is clang, which has no -fanalyzer.  Runs through $(MUSL_GCC) so the
+# analysis sees the same musl headers the real build uses.  Console
+# diagnostics; for SARIF add `-fdiagnostics-format=sarif-file`.
+#
+# Default is toml.c only: this box has ~6GB RAM and a full -fanalyzer pass over
+# the 250k-line sqlite3 amalgamation is far too heavy here.  Include the others
+# explicitly when the machine can take it:
+#   make analyze ANALYZE_SRCS="third_party/tomlc99/toml.c third_party/sqlite3/sqlite3.c"
+ANALYZE_SRCS := $(TOML)/toml.c
+
+ifeq ($(OS),Linux)
+analyze: $(TOOLCHAIN_DEP)
+	@for src in $(ANALYZE_SRCS); do \
+		echo "==> -fanalyzer $$src"; \
+		$(CC) -std=c99 -O2 $(VENDOR_CFLAGS) -fanalyzer -Wpsabi -c $$src -o /dev/null \
+			|| exit 1; \
+	done
+else
+analyze:
+	@echo "analyze: -fanalyzer is GCC-only; this platform assembles with $(CC)"; exit 1
+endif
+
+# `make mca MCA_SRC=tc_core.S MCA_CPU=neoverse-v2` — llvm-mca throughput
+# analysis of one module's AArch64 instructions.  The .S files are run through
+# the C preprocessor first (tc_platform.h/tc_layout.inc), so the analyzer sees
+# exactly the instructions this platform assembles.  Best-effort: directives
+# llvm-mca's parser does not understand surface as errors.
+MCA_SRC ?= tc_core.S
+MCA_CPU ?= neoverse-v2
+
+mca: $(TOOLCHAIN_DEP)
+	@command -v llvm-mca >/dev/null || { echo "mca: llvm-mca not on PATH"; exit 1; }
+	@test -f $(MCA_SRC) || { echo "mca: no such source: $(MCA_SRC)"; exit 1; }
+	$(CC) -I. -E $(MCA_SRC) | llvm-mca -mtriple=aarch64-linux-gnu -mcpu=$(MCA_CPU)
+
+# `make decompile BIN=./twitch-counts FUNC=main` — Ghidra headless decompile of
+# one function to C.  Requires analyzeHeadless (installed at ~/bin, see
+# AGENTS.md); the first run creates the Ghidra project and imports the binary,
+# so it takes a few minutes.
+#
+# Decompilation needs Ghidra's NATIVE decompiler for the host.  Ghidra ships
+# those only for x86_64 Linux/Windows and macOS; aarch64 Linux (this host) does
+# NOT ship one, so `make decompile` exits early there — use `make disasm`
+# instead, which is pure-Java and works on any host.
+GHIDRA_ANALYZE ?= $(HOME)/bin/analyzeHeadless
+GHIDRA_HOME    := $(HOME)/bin/ghidra_12.1.3_PUBLIC
+GHIDRA_PROJ    := $(BUILD)/ghidra-proj
+DECOMP_BIN     ?= $(BUILD)/$(TC)
+DECOMP_FUNC    ?= $(if $(FUNC),$(FUNC),main)
+GHIDRA_NATIVE  := $(GHIDRA_HOME)/Ghidra/Features/Decompiler/os/linux_arm_64/decompile
+
+decompile:
+	@test -x $(GHIDRA_ANALYZE) || { echo "decompile: analyzeHeadless not found at $(GHIDRA_ANALYZE)"; exit 1; }
+	@test -f $(DECOMP_BIN) || { echo "decompile: $(DECOMP_BIN) not found (build it first)"; exit 1; }
+	@test -f $(GHIDRA_NATIVE) || { echo "decompile: Ghidra native decompiler not shipped for aarch64 Linux"; echo "  build it from source, or use 'make disasm' (pure-Java disassembly) instead"; exit 1; }
+	@mkdir -p $(GHIDRA_PROJ)
+	$(GHIDRA_ANALYZE) $(GHIDRA_PROJ) tcproj -import $(DECOMP_BIN) \
+		-overwrite \
+		-scriptPath scripts -postScript ghidra_decompile.java $(DECOMP_FUNC)
+
+# `make disasm BIN=./twitch-counts FUNC=main` — Ghidra headless DISASSEMBLY of
+# one function.  Pure-Java, no native decompiler needed, so it works on aarch64
+# Linux where `make decompile` cannot.
+disasm: 
+	@test -x $(GHIDRA_ANALYZE) || { echo "disasm: analyzeHeadless not found at $(GHIDRA_ANALYZE)"; exit 1; }
+	@test -f $(DECOMP_BIN) || { echo "disasm: $(DECOMP_BIN) not found (build it first)"; exit 1; }
+	@mkdir -p $(GHIDRA_PROJ)
+	$(GHIDRA_ANALYZE) $(GHIDRA_PROJ) tcproj -import $(DECOMP_BIN) \
+		-overwrite \
+		-scriptPath scripts -postScript ghidra_disasm.java $(DECOMP_FUNC)
 
 clean:
 	rm -rf build
