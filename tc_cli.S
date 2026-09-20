@@ -188,6 +188,13 @@
     .globl tc_days_in_month
     .globl tc_ymd_sod_to_epoch
     .globl tc_epoch_to_ymd_sod
+    .globl tc_str_live
+    .globl tc_str_offline
+    .globl tc_str_unknown
+    .globl tc_str_count
+    .globl tc_str_login
+    .globl tc_str_offshare
+    .globl tc_str_liveshare
 
     // Highlight resolution ([[watch.highlight]]): the contract
     // tc_config_get cannot return array-of-tables (toml_raw_in only sees
@@ -312,10 +319,8 @@ tc_cli_parse:
     LOAD_EXTERN_DATA_ADDR x0, opterr
     str wzr, [x0]
 
-    LEA x19, cli_opt_argv
-    ldr x19, [x19, #8]
-    mov x20, x19
-
+    // getopt loop register roles: x21 = argc, x22 = current option val
+    // (see .Lgl_have_optarg), x23 = optarg.  x19/x20 stay free.
 .Lgl_loop:
     cbz x21, .Lgl_done
     mov x0, x21
@@ -323,9 +328,6 @@ tc_cli_parse:
     LEA x2, optstring
     LEA x3, cli_longopts
     mov x4, #0
-    LEA x19, cli_opt_argv
-    ldr x19, [x19, #8]
-    mov x20, x19
 
     bl getopt_long
     cmn w0, #1
@@ -561,7 +563,7 @@ cli_print_usage:
     bl cli_fd_write
     mov x24, #7                        // indent = len(prefix)
     mov x28, x24
-    bl .Lpu_spaces
+    bl cli_puts_spaces
     mov x23, #6                        // line_len = indent - 1
     mov x25, #0                        // the line is empty
 .Lpu_parts:
@@ -585,7 +587,7 @@ cli_print_usage:
     mov x9, x28                        // (x28 is the loop's part length)
     mov x28, x24
     stp x9, x9, [sp, #-16]!
-    bl .Lpu_spaces
+    bl cli_puts_spaces
     ldp x28, x9, [sp], #16
     sub x23, x24, #1                   // line_len = indent - 1
     mov x25, #0
@@ -612,8 +614,8 @@ cli_print_usage:
     EPILOGUE 5
     ret
 
-// .Lpu_spaces: write x28 spaces to fd x19 (clobbers x0-x2, x28)
-.Lpu_spaces:
+// cli_puts_spaces: write x28 spaces to fd x19 (clobbers x0-x2, x28)
+cli_puts_spaces:
     PROLOGUE 0
 .Lpu_spaces_loop:
     cbz x28, .Lpu_spaces_done
@@ -1170,8 +1172,11 @@ cli_win_conflict_check:
     cbz x2, .Lwc_first
     cmp x2, x19
     b.eq .Lwc_first
-    // a different window option is already recorded -> conflict
-    mov x20, x1                     // the other val (for the message)
+    // a different window option is already recorded -> conflict.  The
+    // message names the option actually seen FIRST (x2, from cli_win_first),
+    // exactly as argparse's mutual-exclusion error does: the sibling that was
+    // never seen is irrelevant here (this was the "names x1" bug).
+    mov x20, x2                     // the seen val (for the message)
     mov x0, x19
     bl cli_val_canon
     mov x19, x0
@@ -1409,6 +1414,8 @@ cli_handle_typed:
 
 // ----------------------------------------------------------------------------
 // cli_parse_for_store(x0=parser, x1=raw) -> (x0=value, x1=status, x2=extra)
+//   Dispatch to the parser for `parser`; every branch falls through to the
+//   single shared exit at .Lpfs_ret (no per-branch epilogue pairs).
 // ----------------------------------------------------------------------------
     .p2align 2
 cli_parse_for_store:
@@ -1446,66 +1453,52 @@ cli_parse_for_store:
     mov x0, #0
     mov x1, #1
     mov x2, #0
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_pos:     mov x0, x1
     bl cli_parse_positive_int
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_nonneg:  mov x0, x1
     bl cli_parse_nonnegative_int
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_nnf:     mov x0, x1
     bl cli_parse_nonnegative_float
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_pf:      mov x0, x1
     bl cli_parse_positive_float
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_dur:     mov x0, x1
     bl tc_parse_duration
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_header:  mov x0, x1
     bl tc_parse_header
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_sort:    mov x0, x1
     bl tc_parse_sort
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_metrics: mov x0, x1
     bl tc_parse_metrics
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_policy:  mov x0, x1
     bl tc_parse_users_policy
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_bool:    mov x0, x1
     bl tc_parse_bool
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_curve:   mov x0, x1
     bl tc_parse_curve
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_hex:     mov x0, x1
     bl tc_parse_hex_colour
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_color:   mov x0, x1
     bl cli_parse_color_choice
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_complete: mov x0, x1
     bl cli_parse_complete_choice
-    ldp x30, xzr, [sp], #16
-    ret
+    b .Lpfs_ret
 .Lpfs_state:   mov x0, x1
     bl tc_parse_state
+.Lpfs_ret:
     ldp x30, xzr, [sp], #16
     ret
 
@@ -1662,7 +1655,7 @@ cli_emit_msg_body:
     LEA x9, cli_dt_bad_year
     ldr x1, [x9, #8]                // week
     mov x0, x19
-    bl cli_format_u64
+    bl tc_fmt_u64
     mov x19, x0
     mov x0, x19
     LEA x1, s_week_in_iso
@@ -1671,7 +1664,7 @@ cli_emit_msg_body:
     LEA x9, cli_dt_bad_year
     ldr x1, [x9]                    // year
     mov x0, x19
-    bl cli_format_u64
+    bl tc_fmt_u64
     mov x19, x0
     mov x0, x19
     LEA x1, s_week_suffix
@@ -1987,9 +1980,11 @@ cli_pp_rewrite_long:
     ret
 
 // ----------------------------------------------------------------------------
-// cli_startswith(x0=prefix, x1=s) -> x0 = 1 if s is a PROPER prefix of x0... 
-//   actually: 1 if x0 starts with x1 AND is longer (abbreviation match)
-//   in: x0 = the token, x1 = the long option name
+// cli_startswith(x0=token, x1=long name) -> x0 = 1 when x0 is a PROPER
+//   prefix of x1: the token matches the name's start and the name is
+//   longer (argparse's abbreviation match).  "propre"/"longer" reads on x1
+//   being the option NAME and x0 the possibly-abbreviated TOKEN.
+//   in: x0 = the option token (without "--"), x1 = the full long option name
 // ============================================================================
     .p2align 2
 cli_startswith:
@@ -2237,7 +2232,7 @@ cli_pp_short:
     mov x0, x27
     mov x1, x21
     add x2, x22, #1
-    bl cli_copy_n                    // tok[0..p] (p+1 chars)
+    bl tc_copy_bytes                    // tok[0..p] (p+1 chars)
     mov x0, x27
     add x0, x0, x22
     add x0, x0, #1
@@ -2280,7 +2275,7 @@ cli_pp_short:
     mov x0, x26
     mov x1, x21
     add x2, x22, #1
-    bl cli_copy_n                    // tok[0..p] -> slot
+    bl tc_copy_bytes                    // tok[0..p] -> slot
     mov x0, x26
     add x0, x0, x22
     add x0, x0, #1
@@ -2316,7 +2311,7 @@ cli_pp_short:
     mov x0, x27
     mov x1, x21
     add x2, x22, #1
-    bl cli_copy_n                    // tok[0..p] -> slot
+    bl tc_copy_bytes                    // tok[0..p] -> slot
     add x28, x27, x22
     mov w0, #0
     strb w0, [x28, #1]              // NUL after the option char
@@ -2361,14 +2356,12 @@ cli_pp_build_long_val:
     mov x22, x1
     b .Lpbv_build
 .Lpbv_use_fallback:
-    strb wzr, [x21]
-    mov w2, #'-'
-    strb w2, [x21]
-    strb w2, [x21, #1]
-    mov w2, #'='
-    strb w2, [x21, #2]
-    strb wzr, [x21, #3]
-    b .Lpbv_done
+    // No longopt record carries this short val.  This is an internal
+    // invariant violation (every value-taking short option has a long form),
+    // not a user error: the old code emitted "--=" and let cli_handle_opt
+    // dereference NULL, so fail fast with a descriptive message instead.
+    LEA x0, s_pp_no_long
+    b tc_fail
 .Lpbv_build:
     strb wzr, [x21]
     mov w2, #'-'
@@ -2385,22 +2378,6 @@ cli_pp_build_long_val:
     mov x0, x21
     bl cli_pp_emit
     EPILOGUE 2
-    ret
-
-// ----------------------------------------------------------------------------
-// cli_copy_n(x0=dst, x1=src, x2=n)
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_copy_n:
-    mov x3, #0
-.Lcn:
-    cmp x3, x2
-    b.ge .Lcn_done
-    ldrb w4, [x1, x3]
-    strb w4, [x0, x3]
-    add x3, x3, #1
-    b .Lcn
-.Lcn_done:
     ret
 
 // ----------------------------------------------------------------------------
@@ -2905,7 +2882,7 @@ cli_resolve_err:
     mov x0, x24
     mov x1, x25
     mov x2, x26
-    bl cli_copy_n
+    bl tc_copy_bytes
     add x24, x24, x26
     mov x0, x24
     LEA x1, s_from_suffix
@@ -3076,7 +3053,7 @@ cli_resolve_window:
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_USERS]
     mov x0, x24
-    bl cli_format_u64
+    bl tc_fmt_u64
     mov x0, #TC_O_WIN_SRC
     bl cli_opts_off
     LEA x1, tc_window
@@ -3149,7 +3126,7 @@ cli_resolve_window:
     mov x0, x24
     mov x1, x26
     mov x2, x25
-    bl cli_copy_n
+    bl tc_copy_bytes
     add x24, x24, x25
     mov w0, #' '
     strb w0, [x24], #1
@@ -3191,7 +3168,8 @@ cli_resolve_window:
     mov x0, x26
     mov x1, x20
     mov x2, x21
-    bl cli_format_ymd_sod
+    mov w3, #' '
+    bl tc_fmt_ymd_sod
     mov x26, x0
     mov x0, x26
     LEA x1, s_is_after_end
@@ -3200,7 +3178,8 @@ cli_resolve_window:
     mov x0, x26
     mov x1, x22
     mov x2, x23
-    bl cli_format_ymd_sod
+    mov w3, #' '
+    bl tc_fmt_ymd_sod
     mov w1, #')'
     strb w1, [x0], #1
     mov w1, #0
@@ -3309,7 +3288,7 @@ cli_choose_columns:
     mov x0, x23
     mov x1, x25
     mov x2, x24
-    bl cli_copy_n
+    bl tc_copy_bytes
     add x23, x23, x24
     mov w0, #0
     strb w0, [x23]
@@ -3333,7 +3312,7 @@ cli_choose_columns:
     mov x23, x0
     mov x1, x25
     mov x2, x24
-    bl cli_copy_n
+    bl tc_copy_bytes
     b .Lcc_src_store
 .Lcc_src_none:
     mov x0, #TC_O_COLUMNS_SRC_PTR
@@ -3638,8 +3617,7 @@ cli_hl_parse_rule:
     mov x2, x0                          // len
     mov x0, x26
     mov x1, x25
-    bl cli_copy_n
-    add x0, x26, x2
+    bl tc_copy_bytes                    // x0 = slot + len (the returned cursor)
     strb wzr, [x0]                      // NUL-terminate the slot
     // compile-validate from the slot (the slot is the contract text)
     mov x0, x26
@@ -3988,7 +3966,7 @@ cli_hl_begin:
     mov x0, x20
     mov x1, x21
     mov x2, x22
-    bl cli_copy_n
+    bl tc_copy_bytes
     add x20, x20, x22
     mov x0, x20
     LEA x1, s_from_suffix
@@ -4007,58 +3985,11 @@ cli_hl_rule:
     mov x19, x0
     mov x0, x19
     mov x1, x20
-    bl cli_hl_fmt_u64                    // appends digits, returns the END cursor
+    bl tc_fmt_u64                    // appends digits, returns the END cursor
     mov x19, x0
     mov x0, x19
     LEA x1, s_hl_rule_mid
     bl tc_cat_cstr
-    EPILOGUE 2
-    ret
-
-// ----------------------------------------------------------------------------
-// cli_hl_fmt_u64(x0=cursor, x1=value) -> x0 = cursor AFTER the digits.
-//   A local decimal appender: the shared cli_format_u64 returns the START of
-//   the digits (its header's "after the digits" contract is not what the
-//   implementation does), which would let a following tc_cat_cstr overwrite
-//   the digits.  This one returns the end, so composition stays correct.
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_hl_fmt_u64:
-    PROLOGUE 2
-    sub sp, sp, #32
-    mov x19, x0                         // cursor
-    mov x20, x1                         // value
-    add x21, sp, #31
-    mov x22, #0                         // digit count
-    mov x3, x20
-    cmp x3, #0
-    b.ne .Lhf_loop
-    mov w4, #'0'
-    strb w4, [x21]
-    sub x21, x21, #1
-    mov x22, #1
-    b .Lhf_copy
-.Lhf_loop:
-    mov x4, #10
-    udiv x5, x3, x4
-    msub x6, x5, x4, x3
-    add x6, x6, #'0'
-    strb w6, [x21]
-    sub x21, x21, #1
-    add x22, x22, #1
-    mov x3, x5
-    cbnz x3, .Lhf_loop
-.Lhf_copy:
-    add x21, x21, #1
-.Lhf_copy_loop:
-    cbz x22, .Lhf_done
-    ldrb w4, [x21], #1
-    strb w4, [x19], #1
-    sub x22, x22, #1
-    b .Lhf_copy_loop
-.Lhf_done:
-    mov x0, x19                         // end cursor
-    add sp, sp, #32
     EPILOGUE 2
     ret
 
@@ -4140,183 +4071,6 @@ cli_now:
     mov x0, x20                     // ymd
     mov x1, x21                     // sod
     EPILOGUE 5
-    ret
-
-// ----------------------------------------------------------------------------
-// cli_format_u64(x0=cursor, x1=value) -> x0 = cursor after the digits
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_format_u64:
-    PROLOGUE 2
-    mov x19, x0
-    mov x20, x1
-    sub sp, sp, #32
-    add x21, sp, #31
-    mov x2, #0
-    mov x3, x20
-    cmp x3, #0
-    b.ne .Lfu_loop
-    mov w4, #'0'
-    strb w4, [x21]
-    sub x21, x21, #1
-    mov x2, #1
-    b .Lfu_copy
-.Lfu_loop:
-    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
-    mov x7, #10
-    umulh x5, x3, x4
-    lsr x5, x5, #3
-    msub x6, x5, x7, x3
-    add x6, x6, #'0'
-    strb w6, [x21]
-    sub x21, x21, #1
-    add x2, x2, #1
-    mov x3, x5
-    cbnz x3, .Lfu_loop
-.Lfu_copy:
-    add x21, x21, #1
-    mov x3, x19
-.Lfu_copy_loop:
-    cbz x2, .Lfu_done
-    ldrb w4, [x21], #1
-    strb w4, [x3], #1
-    sub x2, x2, #1
-    b .Lfu_copy_loop                // (copied one digit and returned the
-                                    // start cursor before: "--users 12" read
-                                    // "--users 1" and the ISO-week error
-                                    // lost its numbers)
-.Lfu_done:
-    mov x0, x3                      // cursor after the digits
-    add sp, sp, #32
-    EPILOGUE 2
-    ret
-
-// ----------------------------------------------------------------------------
-// cli_format_ymd_sod(x0=cursor, x1=ymd, x2=sod) -> x0 = cursor after the text
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_format_ymd_sod:
-    PROLOGUE 5
-    mov x19, x0
-    mov x20, x1
-    mov x21, x2
-    // decompose ymd
-    mov x22, #YMD_YEAR_SCALE
-    udiv x23, x20, x22              // y
-    mov x22, #YMD_MONTH_SCALE
-    udiv x24, x20, x22
-    msub x24, x24, x22, x20         // d
-    mov x22, #YMD_YEAR_SCALE
-    udiv x25, x20, x22
-    mov x26, #YMD_YEAR_SCALE
-    mul x25, x25, x26
-    sub x25, x20, x25
-    mov x26, #YMD_MONTH_SCALE
-    udiv x25, x25, x26              // mo
-    mov x0, x19
-    mov x1, x23
-    mov x2, #4
-    bl cli_format_pad
-    mov x19, x0
-    mov w0, #'-'
-    strb w0, [x19], #1
-    mov x0, x19
-    mov x1, x25
-    mov x2, #2
-    bl cli_format_pad
-    mov x19, x0
-    mov w0, #'-'
-    strb w0, [x19], #1
-    mov x0, x19
-    mov x1, x24
-    mov x2, #2
-    bl cli_format_pad
-    mov x19, x0
-    mov w0, #' '
-    strb w0, [x19], #1
-    mov x0, x19
-    mov x26, #SECS_PER_HOUR
-    udiv x1, x21, x26
-    mov x2, #2
-    bl cli_format_pad
-    mov x19, x0
-    mov w0, #':'
-    strb w0, [x19], #1
-    // minutes
-    mov x23, #60
-    udiv x24, x21, x23
-    udiv x25, x24, x23
-    msub x24, x25, x23, x24
-    mov x0, x19
-    mov x1, x24
-    mov x2, #2
-    bl cli_format_pad
-    mov x19, x0
-    mov w0, #':'
-    strb w0, [x19], #1
-    mov x23, #60
-    udiv x24, x21, x23
-    msub x24, x24, x23, x21        // seconds
-    mov x0, x19
-    mov x1, x24
-    mov x2, #2
-    bl cli_format_pad
-    EPILOGUE 5
-    ret
-
-// ----------------------------------------------------------------------------
-// cli_format_pad(x0=cursor, x1=value, x2=width) -> x0 = cursor after digits
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_format_pad:
-    PROLOGUE 3
-    mov x19, x0
-    mov x20, x1
-    mov x21, x2
-    sub sp, sp, #32
-    add x22, sp, #31
-    mov x23, #0
-    mov x3, x20
-    cmp x3, #0
-    b.ne .Lfp_loop
-    mov w4, #'0'
-    strb w4, [x22]
-    sub x22, x22, #1
-    mov x23, #1
-    b .Lfp_pad
-.Lfp_loop:
-    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
-    mov x7, #10
-    umulh x5, x3, x4
-    lsr x5, x5, #3
-    msub x6, x5, x7, x3
-    add x6, x6, #'0'
-    strb w6, [x22]
-    sub x22, x22, #1
-    add x23, x23, #1
-    mov x3, x5
-    cbnz x3, .Lfp_loop
-.Lfp_pad:
-    mov x5, x21                     // width
-    sub x5, x5, x23                 // pad count = width - digits (computed once)
-.Lfp_pad_go:
-    cbz x5, .Lfp_copy
-    mov w4, #'0'
-    strb w4, [x19], #1
-    sub x5, x5, #1
-    b .Lfp_pad_go
-.Lfp_copy:
-    add x22, x22, #1                // rewind to the first digit
-.Lfp_copy_loop:
-    cbz x23, .Lfp_done
-    ldrb w4, [x22], #1
-    strb w4, [x19], #1
-    sub x23, x23, #1
-    b .Lfp_copy_loop
-.Lfp_done:
-    mov x0, x19
-    add sp, sp, #32
-    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -4531,7 +4285,7 @@ cli_strip_copy:
     mov x20, x1
 .Lsc_lead:
     ldrb w0, [x20]
-    bl cli_is_space
+    bl tc_is_ws
     cbz w0, .Lsc_copy
     add x20, x20, #1
     b .Lsc_lead
@@ -4548,7 +4302,7 @@ cli_strip_copy:
     cmp x21, x19
     b.le .Lsc_done                  // nothing left
     ldrb w0, [x21, #-1]
-    bl cli_is_space
+    bl tc_is_ws
     cbz w0, .Lsc_done
     sub x21, x21, #1
     strb wzr, [x21]
@@ -4556,25 +4310,6 @@ cli_strip_copy:
 .Lsc_done:
     mov x0, x19
     EPILOGUE 2
-    ret
-
-// ----------------------------------------------------------------------------
-// cli_is_space(w0=byte) -> w0 = 1 for the ASCII whitespace str.strip() drops
-//   (space, \t, \n, \r, \v, \f), else 0.  Clobbers nothing else.
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_is_space:
-    cmp w0, #' '
-    b.eq .Lisp_yes
-    cmp w0, #'\t'
-    b.lt .Lisp_no                   // below \t (9): not whitespace
-    cmp w0, #'\r'
-    b.le .Lisp_yes                  // \t \n \v \f \r (9..13)
-.Lisp_no:
-    mov w0, #0
-    ret
-.Lisp_yes:
-    mov w0, #1
     ret
 
 // ----------------------------------------------------------------------------
@@ -4649,8 +4384,13 @@ cli_match_week:
     mov x22, x0                     // weekday
     b .Lmw_yes
 .Lmw_plain:
-    ldrb w3, [x2, #1]
-    cbnz w3, .Lmw_no
+    // A plain week is accepted exactly when the week digits END the string.
+    // The NUL at [x2] is that bound: the weekday branch above already forced
+    // a '-' (and a weekday digit) here, so [x2] == 0 means nothing follows.
+    // The old code also read [x2, #1] and required it to be NUL, which reads
+    // ONE BYTE PAST the string into whatever stale bytes the shared scratch
+    // buffer holds (an ISO-week --begin failed whenever a longer plain date
+    // had been parsed into cli_scratch first).
     mov x22, #0                     // weekday = none
 .Lmw_yes:
     mov x1, x20                     // year
@@ -5220,10 +4960,12 @@ cli_parse_nonnegative_float:
 .Lpnnf_ok:
     mov x20, x0
     fmov d0, x0
+    fcmp d0, d0
+    b.vs .Lpnnf_range                // NaN is unordered with itself: reject
     fmov d1, xzr
     fcmp d0, d1
     b.ge .Lpnnf_good
-    b.vs .Lpnnf_good
+.Lpnnf_range:
     mov x0, #0
     mov x1, #2
     b .Lpnnf_ret
@@ -5247,10 +4989,12 @@ cli_parse_positive_float:
 .Lppf_ok:
     mov x20, x0
     fmov d0, x0
+    fcmp d0, d0
+    b.vs .Lppf_range                 // NaN is unordered with itself: reject
     fmov d1, xzr
     fcmp d0, d1
     b.gt .Lppf_good
-    b.vs .Lppf_good
+.Lppf_range:
     mov x0, #0
     mov x1, #2
     b .Lppf_ret
@@ -5277,17 +5021,17 @@ tc_parse_state:
     bl cli_strip_copy
     bl cli_lowercase
     LEA x20, cli_scratch2
-    LEA x21, s_state_live
+    LEA x21, tc_str_live
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpst_live
-    LEA x21, s_state_offline
+    LEA x21, tc_str_offline
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpst_offline
-    LEA x21, s_state_unknown
+    LEA x21, tc_str_unknown
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -5381,37 +5125,37 @@ tc_parse_sort:
     bl cli_strip_copy
     bl cli_lowercase
     LEA x20, cli_scratch2
-    LEA x21, s_metric_count
+    LEA x21, tc_str_count
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_count
-    LEA x21, s_metric_login
+    LEA x21, tc_str_login
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_login
-    LEA x21, s_metric_live
+    LEA x21, tc_str_live
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_live
-    LEA x21, s_metric_offline
+    LEA x21, tc_str_offline
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_offline
-    LEA x21, s_metric_unknown
+    LEA x21, tc_str_unknown
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_unknown
-    LEA x21, s_metric_offline_share
+    LEA x21, tc_str_offshare
     mov x0, x20
     mov x1, x21
     bl tc_streq
     cbnz x0, .Lpso_os
-    LEA x21, s_metric_live_share
+    LEA x21, tc_str_liveshare
     mov x0, x20
     mov x1, x21
     bl tc_streq
@@ -5942,32 +5686,32 @@ tc_parse_metrics:
 cli_metric_id:
     PROLOGUE 5
     mov x19, x0
-    LEA x20, s_metric_count
+    LEA x20, tc_str_count
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_count
-    LEA x20, s_metric_live
+    LEA x20, tc_str_live
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_live
-    LEA x20, s_metric_offline
+    LEA x20, tc_str_offline
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_offline
-    LEA x20, s_metric_unknown
+    LEA x20, tc_str_unknown
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_unknown
-    LEA x20, s_metric_offline_share
+    LEA x20, tc_str_offshare
     mov x0, x19
     mov x1, x20
     bl tc_streq
     cbnz x0, .Lmi_os
-    LEA x20, s_metric_live_share
+    LEA x20, tc_str_liveshare
     mov x0, x19
     mov x1, x20
     bl tc_streq
@@ -6084,6 +5828,7 @@ s_arg_prefix:   .asciz "argument "
 s_not_allowed:  .asciz ": not allowed with argument "
 s_ignored_explicit: .asciz ": ignored explicit argument '"
 s_expected_one: .asciz "expected one argument"
+s_pp_no_long:   .asciz "internal error: no long form for a value-taking short option"
 s_from_prefix:  .asciz " (from "
 s_from_suffix:  .asciz "): "
 s_unknown_opt:  .asciz "?"
@@ -6200,21 +5945,11 @@ s_m_color_suf:  .asciz " (choose from auto, always, never)"
 s_m_complete_pre: .asciz "invalid choice: "
 s_m_complete_suf: .asciz " (choose from channels, groups, dates, weeks, periods, users, includes)"
 
-s_state_live:   .asciz "live"
-s_state_offline:.asciz "offline"
-s_state_unknown:.asciz "unknown"
 s_state_any:    .asciz "any"
 s_state_all:    .asciz "all"
 s_hdr_full:     .asciz "full"
 s_hdr_compact:  .asciz "compact"
 s_hdr_none:     .asciz "none"
-s_metric_count: .asciz "count"
-s_metric_login: .asciz "login"
-s_metric_live:  .asciz "live"
-s_metric_offline:.asciz "offline"
-s_metric_unknown:.asciz "unknown"
-s_metric_offline_share: .asciz "offline-share"
-s_metric_live_share: .asciz "live-share"
 s_curve_linear: .asciz "linear"
 s_curve_power:  .asciz "power"
 s_curve_ease_out: .asciz "ease-out"

@@ -89,6 +89,20 @@
 #include "tc_layout.inc"
 
 // ----------------------------------------------------------------------------
+// Shared externals (defined in tc_util.S; every driver links it, and
+// tc-cli-test links the config stub instead of this module).
+// ----------------------------------------------------------------------------
+    .globl tc_expanduser
+    .globl tc_shorten_path
+    .globl tc_default_config_path
+    .globl tc_platform_default_logs_dir
+    .globl tc_cat_cstr
+    .globl tc_streq
+    .globl tc_fmt_u64
+    .globl tc_is_ws
+    .globl tc_copy_bytes
+
+// ----------------------------------------------------------------------------
 // Module constants
 // ----------------------------------------------------------------------------
 
@@ -854,7 +868,7 @@ cfg_excl_subtract_include:
     mov x21, x0
     mov x0, x21
     mov x1, x25
-    bl cfg_cat_u64
+    bl tc_fmt_u64
     LEA x1, s_rparen
     bl tc_cat_cstr
     mov x0, x20                     // slot base
@@ -994,16 +1008,10 @@ tc_config_reload:
     ret
 
 // ----------------------------------------------------------------------------
+// tc_config_identity/changed/reload implement the memo (see the header).
 // tc_expanduser / tc_shorten_path / tc_default_config_path /
-// tc_platform_default_logs_dir live in tc_util.S (every driver links it;
-// tc-cli-test links the config stub instead of this module).
+// tc_platform_default_logs_dir live in tc_util.S (declared at the top).
 // ----------------------------------------------------------------------------
-    .globl tc_expanduser
-    .globl tc_shorten_path
-    .globl tc_default_config_path
-    .globl tc_platform_default_logs_dir
-    .globl tc_cat_cstr
-    .globl tc_streq
 
 // ============================================================================
 // Internal helpers
@@ -1408,7 +1416,7 @@ cfg_errno_message:
     mov x22, x0
     mov x0, x22
     mov x1, x20
-    bl cfg_cat_u64
+    bl tc_fmt_u64
     mov x22, x0
     mov x0, x22
     LEA x1, s_errno_rb
@@ -1494,7 +1502,9 @@ cfg_toml_unquote_into:
     mov x2, x0
     mov x0, x19
     mov x1, x20
-    bl cfg_copy_n_nul
+    bl tc_copy_bytes
+    mov w3, #0
+    strb w3, [x0]                   // tc_copy_bytes writes no NUL
     ldr x0, [sp]
     bl free
 .Ltu_skip:
@@ -1754,7 +1764,9 @@ cfg_always_name_store:
     mov x0, x21
     mov x1, x19
     mov x2, x20
-    bl cfg_copy_n_nul
+    bl tc_copy_bytes
+    mov w3, #0
+    strb w3, [x0]                   // tc_copy_bytes writes no NUL
     // advance cursor: += len + 1
     add x20, x20, #1
     LEA x0, cfg_excl_tmp_cur
@@ -2686,13 +2698,8 @@ cfg_lowercase_copy:
     RODATA
     .p2align 3
 
-s_home:             .asciz "HOME"
 s_env_config:       .asciz "TWITCH_COUNTS_CONFIG"
-s_env_xdg:          .asciz "XDG_CONFIG_HOME"
 s_env_exclude:      .asciz "TWITCH_EXCLUDE"
-s_xdg_tail:         .asciz "/twitch-counts.toml"
-s_home_config_tail: .asciz "/.config/twitch-counts.toml"
-s_default_config_path: .asciz "~/.config/twitch-counts.toml"
 
 s_key_watch:        .asciz "watch"
 s_key_tail:         .asciz "tail"
@@ -2750,28 +2757,4 @@ s_flag_exclude_group: .asciz "--exclude-group"
 s_flag_exclude_bcast: .asciz "--exclude-broadcaster"
 s_flag_include:     .asciz "--include"
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     .end
-
-
-
-
-
-
-
-
-

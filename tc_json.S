@@ -40,8 +40,12 @@
     .globl tc_source_str
     .globl tc_channel_name
     .globl tc_fail
-    .globl tc_fmt2
-    .globl tc_fmt4
+    .globl tc_fmt_u64
+    .globl tc_fmt_ymd_sod
+    .globl tc_copy_bytes
+    .globl tc_entry_ptr
+    .globl tc_state_names
+    .globl tc_metric_names
     .globl tc_setting_src_str
 
 // ----------------------------------------------------------------------------
@@ -50,12 +54,9 @@
     .equ JBUF_SZ,         16384
     .equ JISO_SZ,         64
 
-// Record layouts this module reads (shared in tc_layout.inc: the reported
-// rows ROW_* / ROW_SZ, and the login stride LOGIN_SZ).  The plan offsets
-// below are tc_plan_cache_used + these offsets (private to the plan block).
-    .equ PLAN_CACHE_USED,    0          // tc_plan_cache_used + these offsets
-    .equ PLAN_CACHE_REUSED,  8          // tc_plan_cache_reused
-    .equ PLAN_CACHE_PROBLEM, 24         // tc_plan_cache_problem
+// Record layouts this module reads (shared in tc_layout.inc): the reported
+// rows ROW_* / ROW_SZ, the login stride LOGIN_SZ, and the plan struct
+// TC_PLAN_* (the cache block uses TC_PLAN_CACHE_USED/REUSED/PROBLEM).
 
 // ----------------------------------------------------------------------------
 // .bss
@@ -133,31 +134,6 @@ s_j_close6nl: .asciz "      }"
 s_j_end: .asciz "\n}\n"
 
     .p2align 3
-state_names_json:
-    .quad s_jn_live
-    .quad s_jn_offline
-    .quad s_jn_unknown
-s_jn_live:          .asciz "live"
-s_jn_offline:       .asciz "offline"
-s_jn_unknown:       .asciz "unknown"
-
-    .p2align 3
-metric_names_json:
-    .quad s_jm_count
-    .quad s_jm_login
-    .quad s_jm_live
-    .quad s_jm_offline
-    .quad s_jm_unknown
-    .quad s_jm_offshare
-    .quad s_jm_liveshare
-s_jm_count:         .asciz "count"
-s_jm_login:         .asciz "login"
-s_jm_live:          .asciz "live"
-s_jm_offline:       .asciz "offline"
-s_jm_unknown:       .asciz "unknown"
-s_jm_offshare:      .asciz "offline-share"
-s_jm_liveshare:     .asciz "live-share"
-
 s_jn_none:          .asciz "none"
 s_j_not_filtered:   .asciz "not filtered"
 
@@ -213,10 +189,10 @@ json_jputc:
     ret
 
 // json_jputraw(s, len) — append len raw bytes
-//   One bounds check, then a bulk ldp/stp copy straight into json_buf.  When
-//   the chunk does not fit, the current buffer is flushed and the copy is
-//   retried (chunked for len > JBUF_SZ).  This replaces the old per-byte
-//   json_jputc calls (~11K of them for the schema blob alone).
+//   One bounds check, then a bulk ldp/stp copy (tc_copy_bytes) straight into
+//   json_buf.  When the chunk does not fit, the current buffer is flushed and
+//   the copy is retried (chunked for len > JBUF_SZ).  This replaces the old
+//   per-byte json_jputc calls (~11K of them for the schema blob alone).
     .p2align 2
 json_jputraw:
     PROLOGUE 2
@@ -238,7 +214,7 @@ json_jputraw:
     mov x0, x10
     mov x1, x19
     mov x2, x9                         // copy the space bytes
-    bl json_bulk_copy
+    bl tc_copy_bytes
     add x19, x19, x9                   // src += space
     mov x22, #JBUF_SZ
     str x22, [x21]                     // buffer is now full
@@ -251,40 +227,10 @@ json_jputraw:
     mov x0, x10
     mov x1, x19
     mov x2, x20
-    bl json_bulk_copy
+    bl tc_copy_bytes
     add x22, x22, x20
     str x22, [x21]                     // cur += len
     EPILOGUE 2
-    ret
-
-// json_bulk_copy(dst, src, len) — copy exactly len bytes; returns dst + len.
-//   ldp/stp 16-byte bulk, then 8-byte, then byte tail.  Reads exactly len
-//   bytes (no over-read).  Clobbers x0-x5 only.
-    .p2align 2
-json_bulk_copy:
-    mov x3, x0                        // dst cursor
-.Ljbc_16:
-    cmp x2, #16
-    b.lt .Ljbc_8
-    ldp x4, x5, [x1], #16
-    stp x4, x5, [x3], #16
-    sub x2, x2, #16
-    b .Ljbc_16
-.Ljbc_8:
-    cmp x2, #8
-    b.lt .Ljbc_tail
-    ldr x4, [x1], #8
-    str x4, [x3], #8
-    sub x2, x2, #8
-    b .Ljbc_8
-.Ljbc_tail:
-    cbz x2, .Ljbc_done
-    ldrb w4, [x1], #1
-    strb w4, [x3], #1
-    sub x2, x2, #1
-    b .Ljbc_tail
-.Ljbc_done:
-    mov x0, x3
     ret
 
 // json_jputs(s) — append a NUL-terminated string (length via tc_strlen)
@@ -414,50 +360,25 @@ json_jhex:
     EPILOGUE 0
     ret
 
-// json_entry_ptr(x0=base, x1=i, x2=sz) — x0 = base + i*sz (a record pointer).
-//   The one repeated `mul i, sz; add base` of the entry loops, in one place.
-    .p2align 2
-json_entry_ptr:
-    mul x2, x1, x2
-    add x0, x0, x2
-    ret
+// (record-pointer arithmetic is the shared tc_entry_ptr in tc_util.S)
 
 // json_jint(v) — append a decimal integer (no commas)
+//   The digits are produced by the shared tc_fmt_u64 (count-first, MSB-first,
+//   no NUL) into a 32-byte stack buffer, then handed to json_jputraw whole.
     .p2align 2
 json_jint:
-    PROLOGUE 2
-    mov x19, x0
-    // digits into the buffer backward on the stack
-    sub sp, sp, #32
-    add x20, sp, #20
-    cmp x19, #0
-    b.ne .Lji_digits
-    mov w2, #'0'
-    strb w2, [x20, #-1]!
-    b .Lji_emit
-.Lji_digits:
-    MOV_DIV10_MAGIC x2              // divide-by-10 magic (umulh >> 3)
-    mov x3, #10
-.Lji_loop:
-    umulh x4, x19, x2
-    lsr x4, x4, #3
-    msub x5, x4, x3, x19
-    add x5, x5, #'0'
-    strb w5, [x20, #-1]!
-    mov x19, x4
-    cbnz x19, .Lji_loop
-.Lji_emit:
-    add x21, sp, #20
-.Lji_emit_loop:
-    cmp x20, x21
-    b.ge .Lji_done
-    ldrb w22, [x20], #1
-    mov w0, w22
-    bl json_jputc
-    b .Lji_emit_loop
-.Lji_done:
+    PROLOGUE 1
+    mov x19, x0                        // v
+    sub sp, sp, #32                    // 20-digit buffer (32 keeps 16-aligned)
+    mov x20, sp                        // buf (survives the calls)
+    mov x0, x20
+    mov x1, x19
+    bl tc_fmt_u64                      // x0 = buf + digits (no NUL)
+    sub x1, x0, x20                    // len
+    mov x0, x20
+    bl json_jputraw
     add sp, sp, #32
-    EPILOGUE 2
+    EPILOGUE 1
     ret
 
 // json_now_iso(buf) — "YYYY-MM-DDTHH:MM:SS" local time (generated_at)
@@ -495,73 +416,10 @@ json_now_iso:
     mov x1, x20
     mov x2, x21
     mov w3, #'T'
-    bl json_fmt_dt
+    bl tc_fmt_ymd_sod
     mov w1, #0
     strb w1, [x0]
     EPILOGUE 3
-    ret
-
-// ============================================================================
-// Local date formatting on top of tc_fmt2/tc_fmt4 (tc_util.S); digits only,
-// no NUL.
-// ============================================================================
-
-// json_fmt_dt(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
-    .p2align 2
-json_fmt_dt:
-    PROLOGUE 2
-    mov x19, x0
-    mov x20, x1                        // ymd
-    mov x21, x2                        // sod
-    mov w22, w3                        // separator
-    mov x1, x20
-    mov x2, #YMD_YEAR_SCALE
-    udiv x6, x20, x2
-    mov x0, x19
-    mov x1, x6
-    bl tc_fmt4
-    mov w7, #'-'
-    strb w7, [x0], #1
-    mov x2, #YMD_MONTH_SCALE
-    udiv x6, x20, x2
-    mov x8, #100
-    udiv x9, x6, x8
-    msub x9, x9, x8, x6
-    mov w1, w9
-    bl tc_fmt2
-    mov w7, #'-'
-    strb w7, [x0], #1
-    mov x2, #100
-    udiv x6, x20, x2
-    msub x6, x6, x2, x20
-    mov w1, w6
-    bl tc_fmt2
-    strb w22, [x0], #1
-    mov x1, x21
-    mov x2, #SECS_PER_HOUR
-    udiv x6, x21, x2
-    mov w1, w6
-    bl tc_fmt2
-    mov w7, #':'
-    strb w7, [x0], #1
-    mov x2, #SECS_PER_HOUR
-    udiv x8, x21, x2
-    msub x9, x8, x2, x21
-    mov x2, #60
-    udiv x6, x9, x2
-    mov w1, w6
-    bl tc_fmt2
-    mov w7, #':'
-    strb w7, [x0], #1
-    mov x2, #SECS_PER_HOUR
-    udiv x8, x21, x2
-    msub x9, x8, x2, x21
-    mov x2, #60
-    udiv x6, x9, x2
-    msub x6, x6, x2, x9
-    mov w1, w6
-    bl tc_fmt2
-    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -611,7 +469,7 @@ tc_json_emit:
     ldr x1, [x19, #TC_W_BEGIN_YMD]
     ldr x2, [x19, #TC_W_BEGIN_SOD]
     mov w3, #'T'
-    bl json_fmt_dt
+    bl tc_fmt_ymd_sod
     mov w1, #0
     strb w1, [x0]
     mov x0, x20
@@ -626,7 +484,7 @@ tc_json_emit:
     ldr x1, [x19, #TC_W_END_YMD]
     ldr x2, [x19, #TC_W_END_SOD]
     mov w3, #'T'
-    bl json_fmt_dt
+    bl tc_fmt_ymd_sod
     mov w1, #0
     strb w1, [x0]
     mov x0, x20
@@ -643,7 +501,7 @@ tc_json_emit:
     // top
     LEA x0, s_j_qtop
     bl json_jputs
-    LEA x19, tc_plan_limit
+    LEA_OFF x19, tc_plan, TC_PLAN_LIMIT
     ldr x20, [x19]
     cbz x20, .Lje_top_null
     mov x0, x20
@@ -661,7 +519,7 @@ tc_json_emit:
     LEA x19, tc_window
     ldr x20, [x19, #TC_W_STATE_FILTER]
     cbz x20, .Lje_state_null
-    LEA x0, state_names_json
+    LEA x0, tc_state_names
     sub x1, x20, #1
     ldr x0, [x0, x1, lsl #3]
     bl json_jquoted
@@ -681,9 +539,9 @@ tc_json_emit:
     // sort
     LEA x0, s_j_qsort
     bl json_jputs
-    LEA x19, tc_plan_sort
+    LEA_OFF x19, tc_plan, TC_PLAN_SORT
     ldr x20, [x19]
-    LEA x0, metric_names_json
+    LEA x0, tc_metric_names
     ldr x0, [x0, x20, lsl #3]
     bl json_jquoted
     LEA x0, s_j_comma_nl
@@ -700,7 +558,7 @@ tc_json_emit:
     bl json_jputs
     LEA x0, s_j_sf_app
     bl json_jputs
-    LEA x19, tc_plan_share_floor
+    LEA_OFF x19, tc_plan, TC_PLAN_SHARE_FLOOR
     ldr x20, [x19]
     cbz x20, .Lje_sf_false
     LEA x0, s_j_true
@@ -749,14 +607,14 @@ tc_json_emit:
     .p2align 2
 json_emit_excluded_array:
     PROLOGUE 2
-    LEA x19, tc_plan_excl_names_n
+    LEA_OFF x19, tc_plan, TC_PLAN_EXCL_NAMES_N
     ldr x20, [x19]                    // n
     cbz x20, .Ljea_empty
     mov w0, #'['
     bl json_jputc
     mov w0, #'\n'
     bl json_jputc
-    LEA x21, tc_plan_excl_names
+    LEA_OFF x21, tc_plan, TC_PLAN_EXCL_NAMES
     ldr x21, [x21]
     mov x22, #0
 .Ljea_loop:
@@ -768,7 +626,7 @@ json_emit_excluded_array:
     mov x0, x21
     mov x1, x22
     mov x2, #LOGIN_SZ
-    bl json_entry_ptr
+    bl tc_entry_ptr
     bl json_jquoted
     add x9, x22, #1
     cmp x9, x20
@@ -882,7 +740,7 @@ json_emit_sources:
     bl json_src_entry
 .Ljes_show:
     // exclude
-    LEA x19, tc_plan_src_join
+    LEA_OFF x19, tc_plan, TC_PLAN_SRC_JOIN
     ldr x20, [x19]
     cbz x20, .Ljes_excl_none
     LEA x0, s_js_exclude
@@ -937,7 +795,7 @@ json_emit_sources:
 .Ljes_top:
     // top (last, no comma)
     LEA x0, s_js_top
-    LEA x1, tc_plan_limit_src
+    LEA_OFF x1, tc_plan, TC_PLAN_LIMIT_SRC
     ldr x1, [x1]
     bl json_src_entry_last
     EPILOGUE 1
@@ -952,7 +810,7 @@ json_emit_totals:
     // users_shown
     LEA x0, s_j_t_shown
     bl json_jputs
-    LEA x19, tc_plan_displayed_n
+    LEA_OFF x19, tc_plan, TC_PLAN_DISPLAYED_N
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -960,7 +818,7 @@ json_emit_totals:
     // users_above_threshold
     LEA x0, s_j_t_above
     bl json_jputs
-    LEA x19, tc_plan_reported_n
+    LEA_OFF x19, tc_plan, TC_PLAN_REPORTED_N
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -968,7 +826,7 @@ json_emit_totals:
     // users_in_range
     LEA x0, s_j_t_inrange
     bl json_jputs
-    LEA x19, tc_plan_in_range
+    LEA_OFF x19, tc_plan, TC_PLAN_IN_RANGE
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -976,7 +834,7 @@ json_emit_totals:
     // users_excluded
     LEA x0, s_j_t_excl
     bl json_jputs
-    LEA x19, tc_plan_excl_appeared
+    LEA_OFF x19, tc_plan, TC_PLAN_EXCL_APPEARED
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -984,7 +842,7 @@ json_emit_totals:
     // messages_shown
     LEA x0, s_j_t_mshown
     bl json_jputs
-    LEA x19, tc_plan_msgs_shown
+    LEA_OFF x19, tc_plan, TC_PLAN_MSGS_SHOWN
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -1000,7 +858,7 @@ json_emit_totals:
     // messages_hidden
     LEA x0, s_j_t_mhidden
     bl json_jputs
-    LEA x19, tc_plan_msgs_hidden
+    LEA_OFF x19, tc_plan, TC_PLAN_MSGS_HIDDEN
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -1008,7 +866,7 @@ json_emit_totals:
     // messages_excluded
     LEA x0, s_j_t_mexcl
     bl json_jputs
-    LEA x19, tc_plan_excl_msgs
+    LEA_OFF x19, tc_plan, TC_PLAN_EXCL_MSGS
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -1016,7 +874,7 @@ json_emit_totals:
     // truncated
     LEA x0, s_j_t_trunc
     bl json_jputs
-    LEA x19, tc_plan_hidden_n
+    LEA_OFF x19, tc_plan, TC_PLAN_HIDDEN_N
     ldr x20, [x19]
     cbz x20, .Ljt_trunc_false
     LEA x0, s_j_true
@@ -1045,7 +903,7 @@ json_emit_totals:
     // users_below_share_floor
     LEA x0, s_j_t_below
     bl json_jputs
-    LEA x19, tc_plan_below_floor
+    LEA_OFF x19, tc_plan, TC_PLAN_BELOW_FLOOR
     ldr x0, [x19]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -1055,8 +913,8 @@ json_emit_totals:
     bl json_jputs
     LEA x0, s_j_cache_used
     bl json_jputs
-    LEA x19, tc_plan_cache_used
-    ldr x20, [x19, #PLAN_CACHE_USED]
+    LEA x19, tc_plan
+    ldr x20, [x19, #TC_PLAN_CACHE_USED]
     cbz x20, .Ljt_used_false
     LEA x0, s_j_true
     bl json_jputs
@@ -1069,13 +927,13 @@ json_emit_totals:
     bl json_jputs
     LEA x0, s_j_cache_days
     bl json_jputs
-    ldr x0, [x19, #PLAN_CACHE_REUSED]  // reused
+    ldr x0, [x19, #TC_PLAN_CACHE_REUSED]  // reused
     bl json_jint
     LEA x0, s_j_comma_nl
     bl json_jputs
     LEA x0, s_j_cache_prob
     bl json_jputs
-    ldr x20, [x19, #PLAN_CACHE_PROBLEM] // problem
+    ldr x20, [x19, #TC_PLAN_CACHE_PROBLEM] // problem
     cbz x20, .Ljt_prob_null
     mov x0, x20
     bl json_jquoted
@@ -1128,10 +986,7 @@ json_emit_unreadable:
     bl json_jputc
     add x21, x19, #TC_T_UNR_ENTRIES
     mov x22, #0
-    // json.dumps(indent=2) of [{"file": ..., "problem": ...}, ...] under a
-    // key at indent 4: rows open at 6, their keys sit at 8, "]" at 4.  (The
-    // rows were two levels too deep, and s_j_file/s_j_problem lacked their
-    // NUL, so "file" ran on into "problem": invalid JSON.)
+    // rows open at 6, their keys sit at 8, the "]" closes at 4
 .Ljun_loop:
     cmp x22, x20
     b.ge .Ljun_done
@@ -1149,7 +1004,7 @@ json_emit_unreadable:
     mov x0, x21
     mov x1, x22
     mov x2, #TC_T_UNR_ENTRY_SZ
-    bl json_entry_ptr
+    bl tc_entry_ptr
     bl json_jquoted
     LEA x0, s_j_comma_nl
     bl json_jputs
@@ -1161,7 +1016,7 @@ json_emit_unreadable:
     mov x0, x21
     mov x1, x22
     mov x2, #TC_T_UNR_ENTRY_SZ
-    bl json_entry_ptr
+    bl tc_entry_ptr
     add x0, x0, #TC_T_UNR_NAME_SZ
     bl json_jquoted
     mov w0, #'\n'
@@ -1199,14 +1054,14 @@ json_emit_unreadable:
     .p2align 2
 json_emit_rows:
     PROLOGUE 3
-    LEA x19, tc_plan_displayed_n
+    LEA_OFF x19, tc_plan, TC_PLAN_DISPLAYED_N
     ldr x20, [x19]                    // n
     cbz x20, .Ljer_empty
     mov w0, #'['
     bl json_jputc
     mov w0, #'\n'
     bl json_jputc
-    LEA x21, tc_plan_reported
+    LEA_OFF x21, tc_plan, TC_PLAN_REPORTED
     ldr x21, [x21]
     mov x22, #0                        // i
 .Ljer_loop:
@@ -1215,7 +1070,7 @@ json_emit_rows:
     mov x0, x21
     mov x1, x22
     mov x2, #ROW_SZ
-    bl json_entry_ptr
+    bl tc_entry_ptr
     mov x23, x0                        // rec
     LEA x0, s_j_ind4
     mov x1, #4
@@ -1349,7 +1204,7 @@ json_emit_state_obj:
     cbz x26, .Ljeso_next
     mov x0, x22
     bl json_jputs
-    LEA x0, state_names_json
+    LEA x0, tc_state_names
     ldr x0, [x0, x25, lsl #3]
     bl json_jquoted
     LEA x0, s_j_colon
@@ -1404,7 +1259,6 @@ json_emit_state_obj:
 // ============================================================================
     .p2align 2
     .global tc_json_err
-    .global tc_eputc
     FUNC_TYPE(tc_json_err)
 tc_json_err:
     PROLOGUE 1

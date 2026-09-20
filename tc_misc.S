@@ -100,12 +100,19 @@
     .globl toml_key_in
     .globl toml_array_nelem
     .globl toml_string_at
+    .globl toml_key_exists
     .globl tc_strlen
     .globl tc_puts
     .globl tc_eputs
     .globl tc_fail
+    .globl tc_streq
+    .globl tc_days_from_civil
     .globl tc_civil_from_days
     .globl tc_count_run
+    .globl tc_fmt_pad
+    .globl tc_ymd_split
+    .globl core_ascii_casecmp
+    .globl tc_cfg_excl_build
 
 // ----------------------------------------------------------------------------
 // Module constants
@@ -150,6 +157,7 @@ misc_root:       .skip MISC_PATH_SZ      // expanded logs root
 misc_cdir:       .skip MISC_PATH_SZ      // <root>/<channel dir name>
 misc_expanded:   .skip MISC_PATH_SZ      // expanded config path
 misc_where:      .skip MISC_PATH_SZ      // shorten_path(config path)
+misc_ch_lower:   .skip 64                // lowercased resolved channel
 misc_ts:         .skip 16                // struct timespec
 misc_errbuf:     .skip MISC_ERRBUF_SZ    // toml_parse_file error buffer
 
@@ -357,7 +365,9 @@ misc_complete_groups:
 .Lcg_done:
     mov x0, #0
     EPILOGUE 3
-    ret// ============================================================================
+    ret
+
+// ============================================================================
 // misc_emit_dates() — print each dated log's date, ascending, one per line
 //   (tc_listing must already be filled by tc_count_run).
 // ============================================================================
@@ -581,7 +591,9 @@ misc_complete_users:
     mov x0, #0
 .Lcu_done:
     EPILOGUE 5
-    ret// ============================================================================
+    ret
+
+// ============================================================================
 // misc_complete_includes(x0=tab) — sorted merged exclusion logins (build_exclusions).
 // ============================================================================
 misc_complete_includes:
@@ -807,7 +819,9 @@ misc_complete_includes:
 .Lci_done:
     mov x0, #0
     EPILOGUE 5
-    ret// ============================================================================
+    ret
+
+// ============================================================================
 // misc_require_channel() -> x0: 0 ok (misc_cdir filled), 1 no channel,
 //   2 error printed.  Python resolve() + resolve_channel_dir().
 // ============================================================================
@@ -837,7 +851,13 @@ misc_require_channel:
     mov x0, #2
     b .Lrc_out
 .Lrc_root_ok:
-    // find the channel case-insensitively
+    // find the channel case-insensitively (Python: name.lower() ==
+    // channel.lower()).  core_ascii_casecmp lowercases its first operand and
+    // expects the second already lowercased, so pre-lowercase the channel
+    // into misc_ch_lower once (tc_core.S's channel-dir matcher does the same).
+    LEA_OFF x0, tc_opts, TC_O_CHANNEL
+    LEA x1, misc_ch_lower
+    bl misc_lower_copy
     LEA x19, misc_n
     ldr x20, [x19]
     LEA x21, misc_names
@@ -846,9 +866,9 @@ misc_require_channel:
     cmp x22, x20
     b.ge .Lrc_no_channel
     ldr x23, [x21, x22, lsl #3]
-    LEA_OFF x0, tc_opts, TC_O_CHANNEL
-    mov x1, x23
-    bl misc_casecmp
+    mov x0, x23
+    LEA x1, misc_ch_lower
+    bl core_ascii_casecmp
     cbz x0, .Lrc_found
     add x22, x22, #1
     b .Lrc_find
@@ -937,9 +957,6 @@ misc_cfg_exclusions:
     cbz x19, .Lce_ok_empty
     // absent "exclude" is empty exclusions (Python: raw = config.get("exclude");
     // if raw is None: return empty)
-    .globl toml_key_exists
-    .globl tc_streq
-    .globl tc_days_from_civil
     mov x0, x19
     LEA x1, s_key_exclude
     bl toml_key_exists
@@ -1812,7 +1829,9 @@ misc_group_index:
     mov x0, #-1
 .Lgi_out:
     EPILOGUE 3
-    ret// ============================================================================
+    ret
+
+// ============================================================================
 // misc_in_users(x0=login) -> x0 = 1 when the login is in the counted set.
 // ============================================================================
 misc_in_users:
@@ -1999,6 +2018,26 @@ misc_shorten_path:
     EPILOGUE 1
     ret
 
+// misc_lower_copy(x0=src, x1=dst) — ASCII-lowercase a NUL-terminated string
+//   into dst (no strip, exactly Python's str.lower()).  Clobbers x0-x3 only.
+misc_lower_copy:
+    mov x2, #0
+.Llc_loop:
+    ldrb w3, [x0, x2]
+    cbz w3, .Llc_done
+    cmp w3, #'A'
+    b.lt .Llc_store
+    cmp w3, #'Z'
+    b.gt .Llc_store
+    add w3, w3, #('a' - 'A')
+.Llc_store:
+    strb w3, [x1, x2]
+    add x2, x2, #1
+    b .Llc_loop
+.Llc_done:
+    strb wzr, [x1, x2]
+    ret
+
 // misc_list_dirs(x0=path) -> x0 = 1 ok (subdir names added, list sorted),
 //   0 when the directory cannot be opened.  Skips "." and "..".
 misc_list_dirs:
@@ -2069,111 +2108,33 @@ misc_cat_comma_if:
 .Lcci_done:
     ret
 
-// misc_casecmp(x0=a, x1=b) -> x0 = 0 when equal ignoring ASCII case.
-misc_casecmp:
-    PROLOGUE 0
-    mov x2, x0
-    mov x3, x1
-.Lcc_loop:
-    ldrb w0, [x2], #1
-    ldrb w1, [x3], #1
-    // lowercase both
-    cmp w0, #'A'
-    b.lt .Lcc_la
-    cmp w0, #'Z'
-    b.gt .Lcc_la
-    add w0, w0, #('a' - 'A')
-.Lcc_la:
-    cmp w1, #'A'
-    b.lt .Lcc_lb
-    cmp w1, #'Z'
-    b.gt .Lcc_lb
-    add w1, w1, #('a' - 'A')
-.Lcc_lb:
-    cmp w0, w1
-    b.ne .Lcc_ne
-    cbnz w0, .Lcc_loop
-    mov x0, #0
-    b .Lcc_out
-.Lcc_ne:
-    mov x0, #1
-.Lcc_out:
-    EPILOGUE 0
-    ret
-
-// misc_fmt_dec_pad(x0=dst, x1=value, x2=width) -> x0 = cursor past the
-//   zero-padded decimal digits (value < 10^width).
-misc_fmt_dec_pad:
-    PROLOGUE 2
-    mov x19, x0                         // dst
-    mov x20, x1                         // value
-    mov x21, x2                         // width
-    cbz x21, .Lfdp_done                 // width 0: emit nothing, return dst
-    mov x22, #1                         // divisor
-    sub x0, x21, #1
-.Lfdp_divloop:
-    cbz x0, .Lfdp_emit
-    mov x1, #10
-    mul x22, x22, x1
-    sub x0, x0, #1
-    b .Lfdp_divloop
-.Lfdp_emit:
-    cbz x21, .Lfdp_done
-    udiv x3, x20, x22                   // digit
-    msub x20, x3, x22, x20              // remainder
-    add x3, x3, #'0'
-    strb w3, [x19], #1
-    mov x3, #10
-    udiv x22, x22, x3
-    sub x21, x21, #1
-    b .Lfdp_emit
-.Lfdp_done:
-    mov x0, x19
-    EPILOGUE 2
-    ret
-
-// misc_ymd_split(x0=ymd) -> (x0=year, x1=month, x2=day).
-misc_ymd_split:
-    PROLOGUE 0
-    mov x3, #YMD_MONTH_SCALE            // 100
-    udiv x1, x0, x3                     // q = ymd/100
-    udiv x2, x1, x3                     // q/100
-    msub x2, x2, x3, x1                 // mo = q % 100
-    msub x1, x1, x3, x0                 // d = ymd % 100
-    mov x3, #YMD_YEAR_SCALE
-    udiv x0, x0, x3                     // y
-    mov x3, x2                          // mo
-    mov x2, x1                          // d
-    mov x1, x3                          // (x0=y, x1=mo, x2=d)
-    EPILOGUE 0
-    ret
-
 // misc_fmt_ymd(x0=ymd, x1=dst) -> x0 = cursor past "YYYY-MM-DD".
+//   Built on the shared tc_ymd_split + tc_fmt_pad (tc_util.S).
 misc_fmt_ymd:
     PROLOGUE 2
     mov x19, x0                         // ymd
     mov x20, x1                         // dst
-    bl misc_ymd_split                   // x0=y, x1=mo, x2=d
-    mov x21, x1                         // mo (survives the fmt_dec_pad calls)
+    bl tc_ymd_split                     // x0=y, x1=mo, x2=d
+    mov x21, x1                         // mo (survives the tc_fmt_pad calls)
     mov x22, x2                         // d
     mov x1, x0                          // y
     mov x0, x20
     mov x2, #4
-    bl misc_fmt_dec_pad                 // x0 = cursor
+    bl tc_fmt_pad                       // x0 = cursor
     mov w1, #'-'
     strb w1, [x0], #1
     mov x20, x0
     mov x0, x20
     mov x1, x21
     mov x2, #2
-    bl misc_fmt_dec_pad
+    bl tc_fmt_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov x20, x0
     mov x0, x20
     mov x1, x22
     mov x2, #2
-    bl misc_fmt_dec_pad
+    bl tc_fmt_pad
     EPILOGUE 2
     ret
 
@@ -2186,7 +2147,7 @@ misc_fmt_week:
     mov x0, x21
     mov x1, x19
     mov x2, #4
-    bl misc_fmt_dec_pad
+    bl tc_fmt_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov w1, #'W'
@@ -2195,7 +2156,7 @@ misc_fmt_week:
     mov x0, x21
     mov x1, x20
     mov x2, #2
-    bl misc_fmt_dec_pad
+    bl tc_fmt_pad
     EPILOGUE 2
     ret
 
@@ -2219,7 +2180,7 @@ misc_print_line:
 // misc_ymd_to_days(x0=ymd) -> x0 = days since 1970-01-01.
 misc_ymd_to_days:
     PROLOGUE 0
-    bl misc_ymd_split                   // x0=y, x1=mo, x2=d
+    bl tc_ymd_split                     // x0=y, x1=mo, x2=d
     bl tc_days_from_civil
     EPILOGUE 0
     ret

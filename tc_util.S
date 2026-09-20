@@ -56,6 +56,7 @@
 // ============================================================================
 
 #include "tc_platform.h"
+#include "tc_layout.inc"
     .arch armv8-a
     .text
 
@@ -1594,7 +1595,97 @@ tc_epoch_to_ymd_sod:
     EPILOGUE 0
     ret
 
+// ----------------------------------------------------------------------------
+// tc_entry_ptr(x0=base, x1=i, x2=sz) -> x0 = base + i*sz (a record pointer).
+//   The one shared `mul i, sz; add base` of the entry loops (used by
+//   tc_cache.S and tc_json.S).
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_entry_ptr
+    FUNC_TYPE(tc_entry_ptr)
+tc_entry_ptr:
+    mul x2, x1, x2
+    add x0, x0, x2
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_state_str(x0=id) -> x0 = "live"/"offline"/"unknown" ptr, or 0 when id is
+//   out of range.  id is TC_ST_* (1 live, 2 offline, 3 unknown); 0 (no
+//   filter) and anything > 3 return 0, matching cache_state_str's contract.
+//   Shared by tc_render.S / tc_json.S (plan presentation), tc_cache.S (the
+//   rollup state strings) and tc_cli.S (parse/error messages) so the
+//   "live"/"offline"/"unknown" literals live in exactly one place.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_state_str
+    FUNC_TYPE(tc_state_str)
+tc_state_str:
+    cmp x0, #TC_ST_LIVE
+    b.lt .Ltss_none
+    cmp x0, #TC_ST_UNKNOWN
+    b.gt .Ltss_none
+    sub x0, x0, #1
+    LEA x1, tc_state_names
+    ldr x0, [x1, x0, lsl #3]
+    ret
+.Ltss_none:
+    mov x0, #0
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_metric_str(x0=id) -> x0 = metric-name ptr (TC_M_* 0..6), or 0 when id is
+//   out of range.  Shared by tc_render.S / tc_json.S (column headers, sort
+//   names) and tc_cli.S (parse/error messages): one copy of the metric
+//   strings instead of a per-module table.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_metric_str
+    FUNC_TYPE(tc_metric_str)
+tc_metric_str:
+    cmp x0, #TC_M_LIVE_SHARE
+    b.gt .Ltms_none
+    LEA x1, tc_metric_names
+    ldr x0, [x1, x0, lsl #3]
+    ret
+.Ltms_none:
+    mov x0, #0
+    ret
+
     RODATA
+// state names indexed by TC_ST_* - 1 (0=live, 1=offline, 2=unknown)
+    .p2align 3
+    .global tc_state_names
+tc_state_names:
+    .quad tc_str_live
+    .quad tc_str_offline
+    .quad tc_str_unknown
+// metric names indexed by TC_M_* (0=count, 1=login, 2=live, 3=offline,
+// 4=unknown, 5=offline-share, 6=live-share)
+    .p2align 3
+    .global tc_metric_names
+tc_metric_names:
+    .quad tc_str_count
+    .quad tc_str_login
+    .quad tc_str_live
+    .quad tc_str_offline
+    .quad tc_str_unknown
+    .quad tc_str_offshare
+    .quad tc_str_liveshare
+    .global tc_str_count
+    .global tc_str_login
+    .global tc_str_live
+    .global tc_str_offline
+    .global tc_str_unknown
+    .global tc_str_offshare
+    .global tc_str_liveshare
+tc_str_count:     .asciz "count"
+tc_str_login:     .asciz "login"
+tc_str_live:      .asciz "live"
+tc_str_offline:   .asciz "offline"
+tc_str_unknown:   .asciz "unknown"
+tc_str_offshare:  .asciz "offline-share"
+tc_str_liveshare: .asciz "live-share"
+
 util_month_days:  .byte 31,28,31,30,31,30,31,31,30,31,30,31
     .text
 

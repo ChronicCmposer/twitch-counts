@@ -118,7 +118,7 @@ TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 # deliverable); regenerated only by an explicit `make gen-inc`.
 GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
 
-.PHONY: all run test clean third-party gen-inc drivers analyze mca decompile disasm $(TC) $(addprefix check-,$(HARNESSES))
+.PHONY: all run test clean third-party gen-inc drivers analyze mca decompile disasm exports $(TC) $(addprefix check-,$(HARNESSES))
 
 ifeq ($(OS),Linux)
 LINUX_ONLY  := $(FIB)
@@ -242,17 +242,24 @@ $(TC): $(BUILD)/$(TC)
 # Every driver that links tc_core.o also links tc_json.o and tc_render.o:
 # the counting core's failure path emits the --json error shape through
 # tc_json_err, and tc_json needs the render module's plan.
+#
+# tc_dump (the contract-structure printer) is a shared driver helper:
+# check_tc_dump.S is the single copy.  It is linked by every driver whose
+# check_<name>.S used to define its own tc_dump — core and cache — and by
+# cache-bump too, because that driver reuses check_tc_cache.o and so
+# inherits the tc_dump removal.
 # ---------------------------------------------------------------------------
 PRINTF_O := $(BUILD)/check_tc_printf.o
 
-DRIVER_NAMES := cli config core cache cache-bump render misc watch
+DRIVER_NAMES := cli config core cache cache-bump render misc watch json
 
 cli_OBJS        := check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o
 config_OBJS     := check_tc_config.o tc_config.o tc_cli.o tc_util.o
-core_OBJS       := check_tc_core.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o tc_json.o tc_render.o
-cache_OBJS      := check_tc_cache.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
-cache-bump_OBJS := check_tc_cache.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
+core_OBJS       := check_tc_core.o check_tc_dump.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o tc_json.o tc_render.o
+cache_OBJS      := check_tc_cache.o check_tc_dump.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
+cache-bump_OBJS := check_tc_cache.o check_tc_dump.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
 render_OBJS     := check_tc_render.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_cache.o tc_util.o
+json_OBJS       := check_tc_json.o tc_json.o tc_render.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o
 misc_OBJS       := check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_json.o tc_render.o
 watch_OBJS      := check_tc_watch.o tc_watch.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_misc.o
 
@@ -267,8 +274,19 @@ DRIVERS := $(foreach n,$(DRIVER_NAMES),$(BUILD)/tc-$(n)-test)
 $(DRIVERS): $(BUILD)/tc-%-test: $$(addprefix $(BUILD)/,$$($$*_OBJS)) $$(or $$($$*_LIBS),$(LIBS))
 	$(LINK) $@ $^
 
-# tc-cache-bump-test: tc_cache.S with its fingerprint constant bumped, so
-# the cache harness can prove two fingerprints coexist in one database.
+# tc-cache-bump-test: tc_cache.S with its fingerprint VERSION constant
+# bumped (tc-cache-fp-v1 -> tc-cache-fp-v2), so the cache harness can prove
+# two fingerprint generations coexist in one database.
+#
+# Fingerprint-bump contract: this sed rewrites ONLY the version literal
+# (s_fp_head in tc_cache.S).  The shared fingerprint PARTS ("live=", "off=",
+# the login regex) come from tc_parse_facts.inc, which tc_cache.S #includes
+# — the generated bump source still carries that #include, so the parts stay
+# identical to the real binary's on purpose: the bump-test must not drift
+# from the parser facts, or a row the real binary wrote could never be found
+# by the test's database.  A cache FORMAT change bumps the parts in
+# tc_parse_facts.inc (every consumer rebuilds); a version bump here alone
+# only invalidates old rows.
 $(BUILD)/tc_cache_bump.S: tc_cache.S | $(BUILD)
 	sed 's/tc-cache-fp-v1/tc-cache-fp-v2/' $< > $@
 
@@ -279,7 +297,7 @@ drivers: $(DRIVERS)
 
 # `make check-<name>` runs one harness (check-watch, check-cli, ...);
 # `make test` runs them all in this order.
-HARNESSES := twitch-counts tc-cli tc-config tc-core tc-cache tc-render tc-misc tc-watch
+HARNESSES := twitch-counts tc-cli tc-config tc-core tc-cache tc-render tc-json tc-misc tc-watch
 
 check-%: all drivers
 	./test-$*.sh
@@ -365,6 +383,19 @@ disasm:
 	$(GHIDRA_ANALYZE) $(GHIDRA_PROJ) tcproj -import $(DECOMP_BIN) \
 		-overwrite \
 		-scriptPath scripts -postScript ghidra_disasm.java $(DECOMP_FUNC)
+
+# `make exports` — audit the exported (.globl) FUNCTION symbols of the
+# assembly modules against the hand-written "Exported symbol contracts"
+# section in tc_layout.inc.  The contracts are documented, not generated;
+# this target prints the ground truth nm sees in the OBJECTS (the final
+# binaries are stripped on Linux, the objects are not), so a writer can
+# verify the doc's symbol list or regenerate it after a refactor.  Best on
+# Linux (GNU/LLVM nm); the module objects are what it inspects.
+exports: $(TC_OBJS)
+	@for o in $(TC_OBJS); do \
+		echo "== $$(basename $$o)"; \
+		nm -g $$o | awk '$$2 == "T" { print "  " $$3 }'; \
+	done
 
 clean:
 	rm -rf build

@@ -203,19 +203,18 @@ stub_eq_lower:
     ret
 
 
-// tc_excl_src_count() -> x0 = 0: the stub has no exclusion sources (the
+// tc_excl_src_count (u64 .bss): 0 — the stub has no exclusion sources (the
 // render/json modules linked into tc-core-test ask for the count).
 //
-// DANGER: this is a FUNCTION here but a .bss DATA variable (`.skip 8`) in
-// the real tc_config.S.  Any `LEA xN, tc_excl_src_count` followed by
-// `ldr` (as tc_render.S / check_tc_config.S do against the real module)
-// would read the function's first instructions as a count in this stub.
-// The tests depend on the function form — do NOT convert it to data.
-    .p2align 2
+// The ABI mirrors the real tc_config.S exactly: consumers do
+// `LEA xN, tc_excl_src_count` followed by `ldr` (as tc_render.S and
+// check_tc_config.S do against the real module), so this must be a
+// zero-initialized DATA word — never a function, whose first instruction
+// would be read back as a bogus count.
+    .bss
+    .p2align 3
     .global tc_excl_src_count
-    FUNC_TYPE(tc_excl_src_count)
-tc_excl_src_count:
-    mov x0, #0
-    ret
+tc_excl_src_count:  .skip 8
+    .text
 
     .end

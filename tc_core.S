@@ -237,6 +237,9 @@ tc_channel_name:
 // tc_count_column(x0=user index) -> x0 = the count-column for the entry:
 //   the sum of the states matching the resolved state filter (TC_W_STATE_FILTER),
 //   or all three states when unfiltered.  Exported for tc_render.S.
+//   Re-derives the entry from the index, then delegates the 3-way state
+//   dispatch to core_count_column_for_entry (the same logic the counting
+//   loops use inlined).
 // ============================================================================
     .p2align 2
     .global tc_count_column
@@ -247,32 +250,10 @@ tc_count_column:
     ldr x2, [x1, #TC_US_ENTRIES]
     mov x3, #TC_US_ENTRY_SZ
     mul x3, x0, x3
-    add x2, x2, x3                  // entry ptr
+    add x0, x2, x3                  // entry ptr
     LEA x3, tc_window
-    ldr x4, [x3, #TC_W_STATE_FILTER]
-    cmp x4, #TC_ST_LIVE
-    b.eq .Lcc_live
-    cmp x4, #TC_ST_OFFLINE
-    b.eq .Lcc_off
-    cmp x4, #TC_ST_UNKNOWN
-    b.eq .Lcc_unk
-    ldr x0, [x2, #TC_US_LIVE]
-    ldr x5, [x2, #TC_US_OFFLINE]
-    add x0, x0, x5
-    ldr x5, [x2, #TC_US_UNKNOWN]
-    add x0, x0, x5
-    EPILOGUE 1
-    ret
-.Lcc_live:
-    ldr x0, [x2, #TC_US_LIVE]
-    EPILOGUE 1
-    ret
-.Lcc_off:
-    ldr x0, [x2, #TC_US_OFFLINE]
-    EPILOGUE 1
-    ret
-.Lcc_unk:
-    ldr x0, [x2, #TC_US_UNKNOWN]
+    ldr x1, [x3, #TC_W_STATE_FILTER]
+    bl core_count_column_for_entry  // x0 = the state-filtered sum
     EPILOGUE 1
     ret
 
@@ -306,8 +287,13 @@ tc_user_state:
 //   max(min_count, share_floor) when a share is shown or sorted by and the
 //   share floor is nonzero, else min_count.  (Python rank_users ordering:
 //   the >= threshold filter, then the >= floor filter when it acts.)
+//   Register reuse: x0 starts as &tc_opts for the option loads, then x1 holds
+//   min_count for the whole function, and x0 is overwritten with the result
+//   (share_floor or min_count) only in the two terminal stores below.
 // ============================================================================
     .p2align 2
+    .global core_eff_threshold
+    FUNC_TYPE(core_eff_threshold)
 core_eff_threshold:
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_MIN_COUNT]
@@ -330,10 +316,10 @@ core_eff_threshold:
     cbz x2, .Lef_out
     cmp x2, x1
     b.le .Lef_out
-    mov x0, x2
+    mov x0, x2                      // x0 = share_floor (when it beats min_count)
     ret
 .Lef_out:
-    mov x0, x1
+    mov x0, x1                      // x0 = min_count
     ret
 
 
@@ -569,7 +555,7 @@ core_list_channel_dirs:
     mov x0, x6
     mov x2, x5                      // len (x1 already = the d_name source)
     bl core_copy_cstr
-    ldr x3, [x20]                   // reload: the copy clobbered x3
+    ldr x3, [x20]                   // reload the count (survives the copy)
     add x3, x3, #1
     str x3, [x20]
     b .Llcd_list
@@ -671,16 +657,20 @@ core_build_listing:
     bl tc_fail
 
 // ============================================================================
-// core_parse_log_filename(x0=name) -> x0 = ymd (YYYYMMDD), or 0 when the name is
-//   not "<anything>-YYYY-MM-DD.log" with a real calendar date.
+// core_parse_log_filename_n(x0=name, x1=len) -> x0 = ymd (YYYYMMDD), or 0 when
+//   the name is not "<anything>-YYYY-MM-DD.log" with a real calendar date.
+//   Length-parameterized variant of core_parse_log_filename, exported for the
+//   watch module (tc_watch.S): the caller already holds the length (e.g. a
+//   buffer that is not NUL-terminated) and avoids a redundant tc_strlen.  The
+//   name bytes [0, len) must be readable.  Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
-core_parse_log_filename:
+    .global core_parse_log_filename_n
+    FUNC_TYPE(core_parse_log_filename_n)
+core_parse_log_filename_n:
     PROLOGUE 3
     mov x19, x0                        // name
-    mov x0, x19
-    bl tc_strlen
-    mov x20, x0                        // len
+    mov x20, x1                        // len
     cmp x20, #16
     b.lt .Lplf_fail
     // suffix ".log"
@@ -794,6 +784,22 @@ core_parse_log_filename:
     ret
 
 // ============================================================================
+// core_parse_log_filename(x0=name) -> x0 = ymd (YYYYMMDD), or 0 when the name is
+//   not "<anything>-YYYY-MM-DD.log" with a real calendar date.  Wrapper over
+//   core_parse_log_filename_n: measures the NUL-terminated name first.
+// ============================================================================
+    .p2align 2
+core_parse_log_filename:
+    PROLOGUE 1
+    mov x19, x0                        // name (survives tc_strlen + the parse)
+    bl tc_strlen
+    mov x1, x0                         // len
+    mov x0, x19
+    bl core_parse_log_filename_n       // x0 = ymd or 0
+    EPILOGUE 1
+    ret
+
+// ============================================================================
 // core_complete_window — finish the window tc_cli left open:
 //   kind EARLIEST: begin = earliest log file 00:00:00 (+ no-files and
 //                  begin>end errors); kind USERS: the --users sizing.
@@ -870,10 +876,9 @@ core_window_begin_after_end_check:
     mov x22, x0
     ldr x1, [x19, #TC_W_BEGIN_YMD]
     ldr x2, [x19, #TC_W_BEGIN_SOD]
-    mov x0, x1
-    mov x1, x2
-    mov x2, x22                          // format into the scratch cursor
-    bl core_fmt_ymd_sod
+    mov x0, x22                         // format into the scratch cursor
+    mov w3, #' '                        // sep (the local formatter used a space)
+    bl tc_fmt_ymd_sod
     mov x22, x0
     LEA x1, s_is_after_end
     mov x0, x22
@@ -881,10 +886,9 @@ core_window_begin_after_end_check:
     mov x22, x0
     ldr x1, [x19, #TC_W_END_YMD]
     ldr x2, [x19, #TC_W_END_SOD]
-    mov x0, x1
-    mov x1, x2
-    mov x2, x22                          // format into the scratch cursor
-    bl core_fmt_ymd_sod
+    mov x0, x22                         // format into the scratch cursor
+    mov w3, #' '
+    bl tc_fmt_ymd_sod
     mov w1, #')'
     strb w1, [x0], #1
     mov w1, #0
@@ -1260,8 +1264,12 @@ core_count_final:
 // ============================================================================
 // core_reset_count — zero the tally and the global counters, reset the user
 //   table count (the entry buffer is kept and reused across probes).
+//   Exported for the watch module (tc_watch.S): a fresh probe run re-zeros
+//   the same structures the counting pass does.
 // ============================================================================
     .p2align 2
+    .global core_reset_count
+    FUNC_TYPE(core_reset_count)
 core_reset_count:
     PROLOGUE 0
     LEA x0, core_g_live
@@ -1427,10 +1435,10 @@ tc_oserror_text:
     bl tc_cat_cstr
     LEA x1, s_exc_errno_pre  // ": [Errno "
     bl tc_cat_cstr
-    mov x22, x0
     // the errno number
     mov x1, x20
-    bl core_fmt_u64
+    bl tc_fmt_u64                        // shared formatter (no NUL; tc_cat_cstr
+                                         // appends "] " and terminates)
     LEA x1, s_exc_errno_post  // "] "
     bl tc_cat_cstr
     mov x22, x0
@@ -1492,34 +1500,6 @@ core_errno_exc_name:
     ret
 .Leen_pipe:
     LEA x0, s_exc_pipe
-    ret
-
-// core_fmt_u64(x0=cursor, x1=value) -> x0 = cursor after the decimal digits
-    .p2align 2
-core_fmt_u64:
-    sub sp, sp, #32
-    add x9, sp, #31
-    mov x10, #0                         // digit count
-    mov x11, x1
-.Lcfu_gen:
-    mov x12, #10
-    udiv x13, x11, x12
-    msub x14, x13, x12, x11
-    add x14, x14, #'0'
-    strb w14, [x9]
-    sub x9, x9, #1
-    add x10, x10, #1
-    mov x11, x13
-    cbnz x11, .Lcfu_gen
-.Lcfu_copy:
-    cbz x10, .Lcfu_done
-    ldrb w14, [x9, #1]!
-    strb w14, [x0], #1
-    sub x10, x10, #1
-    b .Lcfu_copy
-.Lcfu_done:
-    strb wzr, [x0]
-    add sp, sp, #32
     ret
 
     RODATA
@@ -1660,119 +1640,25 @@ core_seed_state:
 // ============================================================================
 // core_read_file(x0=path) -> x0 = status (0 ok, 1 too large, 2 error),
 //   x1 = malloc'd buffer (caller frees; 0 on early error), x2 = bytes read.
+//   Thin wrapper over the shared tc_read_all: passes the count path's
+//   FILE_CAP and, on status 2, captures errno into tc_last_errno (the shared
+//   reader does not record errno; open()/read() failures leave errno set and
+//   close()/free() on success leave it untouched, so the capture after the
+//   return is exact for the open-fail and read-fail paths the count loop
+//   reports through tc_errno_reason).
 // ============================================================================
     .p2align 2
 core_read_file:
-    PROLOGUE 3
+    PROLOGUE 1
     mov x19, x0                         // path
     mov x0, x19
-    mov x1, #O_RDONLY
-    bl open
-    cmp x0, #0
-    b.lt .Lrf_open_fail
-    mov x20, x0                         // fd
-    mov x0, #READ_CHUNK_CORE
-    bl malloc
-    cbz x0, .Lrf_alloc_fail
-    mov x21, x0                         // buf
-    mov x22, #READ_CHUNK_CORE                // cap
-    mov x23, #0                         // total (callee-saved: survives calls)
-.Lrf_loop:
-    cmp x23, x22
-    b.lt .Lrf_read
-    // grow
-    lsl x22, x22, #1
-    ldr x10, =FILE_CAP
-    cmp x22, x10
-    b.lt .Lrf_grow_ok
-    mov x22, x10
-    add x22, x22, #1                    // probe byte past the cap
-.Lrf_grow_ok:
-    cmp x22, x23
-    b.le .Lrf_large
-    mov x0, x21
-    mov x1, x22
-    bl realloc
-    cbz x0, .Lrf_alloc_fail2
-    mov x21, x0
-.Lrf_read:
-    mov x0, x20
-    mov x1, x21
-    add x1, x1, x23
-    sub x2, x22, x23
-    bl read
-    cmp x0, #0
-    b.lt .Lrf_retry
-    b.eq .Lrf_done
-    add x23, x23, x0
-    ldr x10, =FILE_CAP
-    cmp x23, x10
-    b.gt .Lrf_large
-    b .Lrf_loop
-.Lrf_retry:
-    // read() returned -1; consult errno (its VALUE, not a return code — the
-    // old `ldr x2, =EINTR` / cmp against read()'s x0 here compared a return
-    // code against errno's numeric value and could never match on either
-    // platform).  fd/buf/cap/total live in x19-x23 (path is x19), all
-    // callee-saved, so they need no manual spill across this call: it
-    // clobbers only x0-x17 like any libc call.
-    bl __errno_location                // x0 = &errno
-    ldr w0, [x0]
-    LEA x9, tc_last_errno  // read() failed (e.g. EISDIR): keep / the reason before close()/free()
-    str x0, [x9]                       // can clobber errno
-    cmp w0, #EINTR
-    b.eq .Lrf_read
-    b .Lrf_read_err
-.Lrf_done:
-    mov x0, x20
-    bl close
-    mov x0, #0
-    mov x1, x21
-    mov x2, x23
-    EPILOGUE 3
-    ret
-.Lrf_large:
-    mov x0, x20
-    bl close
-    mov x0, #1
-    mov x1, x21
-    mov x2, x23
-    EPILOGUE 3
-    ret
-.Lrf_read_err:
-    mov x0, x20
-    bl close
-    mov x0, x21
-    bl free
-    mov x0, #2
-    mov x1, #0
-    mov x2, #0
-    EPILOGUE 3
-    ret
-.Lrf_open_fail:
-    bl tc_capture_errno                 // open() failed: the reason
-    mov x0, #2
-    mov x1, #0
-    mov x2, #0
-    EPILOGUE 3
-    ret
-.Lrf_alloc_fail:
-    mov x0, x20
-    bl close
-    mov x0, #2
-    mov x1, #0
-    mov x2, #0
-    EPILOGUE 3
-    ret
-.Lrf_alloc_fail2:
-    mov x0, x20
-    bl close
-    mov x0, x21
-    bl free
-    mov x0, #2
-    mov x1, #0
-    mov x2, #0
-    EPILOGUE 3
+    ldr x1, =FILE_CAP
+    bl tc_read_all                      // x0=status, x1=buf, x2=len
+    cmp x0, #2
+    b.ne .Lrf_out
+    bl tc_capture_errno                 // the skip() reason for status 2
+.Lrf_out:
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1842,8 +1728,12 @@ core_scan_markers:
 
 // ============================================================================
 // core_line_is_marker(x0=line, x1=len) -> x0 = 1 (live), 2 (offline), or 0.
+//   Exported for the watch module (tc_watch.S): the same classifier the
+//   counting pass and the seed loop use.
 // ============================================================================
     .p2align 2
+    .global core_line_is_marker
+    FUNC_TYPE(core_line_is_marker)
 core_line_is_marker:
     PROLOGUE 1
     mov x19, x0
@@ -1878,9 +1768,13 @@ core_line_is_marker:
 // ============================================================================
 // core_marker_match(x0=line, x1=len, x2=literal, x3=litlen) -> x0 = 1 when the
 //   line ends with the literal, preceded by a space and a non-empty,
-//   space-free token: "[HH:MM:SS] <token> <literal>".
+//   whitespace-free token: "[HH:MM:SS] <token> <literal>".  The token rejects
+//   every ASCII whitespace byte, matching the Python's \S+ token in LIVE_RE /
+//   OFFLINE_RE.  Exported for the watch module (tc_watch.S).
 // ============================================================================
     .p2align 2
+    .global core_marker_match
+    FUNC_TYPE(core_marker_match)
 core_marker_match:
     mov x4, x3
     cmp x1, x4
@@ -1913,8 +1807,16 @@ core_marker_match:
     cmp x11, x9
     b.ge .Lmm_yes
     ldrb w12, [x10, x11]
+    // inline tc_is_ws semantics (reject ' ' and \t..\r like Python's \S+);
+    // no nested bl here: core_marker_match is a leaf that returns via bare
+    // ret, and a call would clobber x30 and spin the ret back into the loop.
     cmp w12, #' '
     b.eq .Lmm_no
+    cmp w12, #9
+    b.lt .Lmm_byte_ok
+    cmp w12, #13
+    b.le .Lmm_no
+.Lmm_byte_ok:
     add x11, x11, #1
     b .Lmm_tok
 .Lmm_yes:
@@ -2109,122 +2011,149 @@ core_process_message:
     ret
 
 // ============================================================================
-// core_speaker_login(x0=speaker, x1=slen) -> x0 = login_buf ptr, x1 = login len,
-//   or x0 = 0 when the speaker is not a real chatter.  LOGIN_RE first, then
-//   LOCALIZED_RE with a non-ASCII display byte.
+// core_speaker_login_to(x0=speaker, x1=slen, x2=dst) -> x0 = login len, or 0
+//   when the speaker is not a real chatter.  LOGIN_RE first, then LOCALIZED_RE
+//   with a non-ASCII display byte.  The login is lowercased (LOGIN_RE) or
+//   copied verbatim (LOCALIZED_RE's right part, already lowercase) into dst,
+//   which must hold >= 26 bytes (25 + NUL).  Returns ONLY the login length:
+//   callers that want the buffer already hold it.  Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
-core_speaker_login:
-    PROLOGUE 0
+    .global core_speaker_login_to
+    FUNC_TYPE(core_speaker_login_to)
+core_speaker_login_to:
+    PROLOGUE 2
+    mov x19, x0                         // speaker
+    mov x20, x1                         // slen
+    mov x21, x2                         // dst
     // LOGIN_RE: ^[A-Za-z0-9_]{1,25}$
-    cmp x1, #1
-    b.lt .Lsl_fail
-    cmp x1, #25
-    b.gt .Lsl_localized
+    cmp x20, #1
+    b.lt .Lslt_fail
+    cmp x20, #25
+    b.gt .Lslt_localized
     mov x2, #0
-.Lsl_login:
-    cmp x2, x1
-    b.ge .Lsl_login_ok
-    ldrb w3, [x0, x2]
+.Lslt_login:
+    cmp x2, x20
+    b.ge .Lslt_login_ok
+    ldrb w3, [x19, x2]
     bl core_is_login_char
-    b.ne .Lsl_localized
+    b.ne .Lslt_localized
     add x2, x2, #1
-    b .Lsl_login
-.Lsl_login_ok:
-    // lowercase into login_buf
-    LEA x4, core_login
+    b .Lslt_login
+.Lslt_login_ok:
+    // lowercase into dst
+    mov x4, x21
     mov x2, #0
-.Lsl_lower:
-    cmp x2, x1
-    b.ge .Lsl_lower_done
-    ldrb w3, [x0, x2]
+.Lslt_lower:
+    cmp x2, x20
+    b.ge .Lslt_lower_done
+    ldrb w3, [x19, x2]
     cmp w3, #'A'
-    b.lt .Lsl_lstore
+    b.lt .Lslt_lstore
     cmp w3, #'Z'
-    b.gt .Lsl_lstore
+    b.gt .Lslt_lstore
     add w3, w3, #('a' - 'A')
-.Lsl_lstore:
+.Lslt_lstore:
     strb w3, [x4, x2]
     add x2, x2, #1
-    b .Lsl_lower
-.Lsl_lower_done:
+    b .Lslt_lower
+.Lslt_lower_done:
     mov w3, #0
     strb w3, [x4, x2]
-    mov x0, x4
-    EPILOGUE 0
+    mov x0, x20                         // x0 = login len (== slen for LOGIN_RE)
+    EPILOGUE 2
     ret
-.Lsl_localized:
+.Lslt_localized:
     // LOCALIZED_RE: ^(\S+) ([a-z0-9_]{1,25})$ with a non-ASCII display
     // find the LAST space
     mov x2, #0
     mov x3, #-1                         // last space index
-.Lsl_find_sp:
-    cmp x2, x1
-    b.ge .Lsl_sp_found
-    ldrb w4, [x0, x2]
+.Lslt_find_sp:
+    cmp x2, x20
+    b.ge .Lslt_sp_found
+    ldrb w4, [x19, x2]
     cmp w4, #' '
-    b.ne .Lsl_sp_next
+    b.ne .Lslt_sp_next
     mov x3, x2
-.Lsl_sp_next:
+.Lslt_sp_next:
     add x2, x2, #1
-    b .Lsl_find_sp
-.Lsl_sp_found:
+    b .Lslt_find_sp
+.Lslt_sp_found:
     cmp x3, #0
-    b.lt .Lsl_fail                      // no space
-    cbz x3, .Lsl_fail                   // empty display
+    b.lt .Lslt_fail                      // no space
+    cbz x3, .Lslt_fail                   // empty display
     mov x6, x3                          // space index
-    // right part = [x6+1, x1): [a-z0-9_]{1,25}
-    sub x4, x1, x6
+    // right part = [x6+1, slen): [a-z0-9_]{1,25}
+    sub x4, x20, x6
     sub x4, x4, #1                      // right len
     cmp x4, #1
-    b.lt .Lsl_fail
+    b.lt .Lslt_fail
     cmp x4, #25
-    b.gt .Lsl_fail
-    add x5, x0, x6
+    b.gt .Lslt_fail
+    add x5, x19, x6
     add x5, x5, #1                      // right start
     mov x2, #0
-.Lsl_right:
+.Lslt_right:
     cmp x2, x4
-    b.ge .Lsl_right_ok
+    b.ge .Lslt_right_ok
     ldrb w3, [x5, x2]
     bl core_is_lower_login_char
-    b.ne .Lsl_fail
+    b.ne .Lslt_fail
     add x2, x2, #1
-    b .Lsl_right
-.Lsl_right_ok:
+    b .Lslt_right
+.Lslt_right_ok:
     // left part = [0, x6): no space/tab, and contains a byte > 127
     mov x2, #0
     mov x7, #0                          // has non-ascii
-.Lsl_left:
+.Lslt_left:
     cmp x2, x6
-    b.ge .Lsl_left_ok
-    ldrb w3, [x0, x2]
+    b.ge .Lslt_left_ok
+    ldrb w3, [x19, x2]
     cmp w3, #' '
-    b.eq .Lsl_fail
+    b.eq .Lslt_fail
     cmp w3, #9
-    b.eq .Lsl_fail
+    b.eq .Lslt_fail
     cmp w3, #128
-    b.lt .Lsl_left_next
+    b.lt .Lslt_left_next
     mov x7, #1
-.Lsl_left_next:
+.Lslt_left_next:
     add x2, x2, #1
-    b .Lsl_left
-.Lsl_left_ok:
-    cbz x7, .Lsl_fail
-    // login = right (already lowercase); copy into login_buf.  The caller reads
-    // x1 as the login length; the original code never touched x1 here, so it
-    // returned the full speaker length slen — preserve that quirk.
-    LEA x8, core_login
-    stp x1, x4, [sp, #-16]!         // save slen + right len (clobbered by the copy)
-    mov x0, x8
+    b .Lslt_left
+.Lslt_left_ok:
+    cbz x7, .Lslt_fail
+    // login = right (already lowercase); copy into dst.  The LOCALIZED_RE's
+    // login is the right part: return its length, NOT the full
+    // "<display> <login>" speaker length (callers feed it straight into
+    // tc_find_user/tc_add_user, which must only ever see a <= 25-byte login).
+    mov x0, x21
     mov x1, x5
     mov x2, x4
-    bl core_copy_cstr               // x0 = one past the NUL
-    ldp x1, x4, [sp], #16           // restore slen + right len
-    sub x0, x0, x4                  // x0 = core_login base
+    bl core_copy_cstr                   // x0 = one past the NUL (x4 survives)
+    mov x0, x4                          // x0 = login len (right-part length)
+    EPILOGUE 2
+    ret
+.Lslt_fail:
+    mov x0, #0
+    EPILOGUE 2
+    ret
+
+// ============================================================================
+// core_speaker_login(x0=speaker, x1=slen) -> x0 = login_buf ptr, x1 = login len,
+//   or x0 = 0 when the speaker is not a real chatter.  Thin wrapper over
+//   core_speaker_login_to that writes into the private core_login buffer and
+//   re-wraps the result as (buf, len).
+// ============================================================================
+    .p2align 2
+core_speaker_login:
+    PROLOGUE 0
+    LEA x2, core_login
+    bl core_speaker_login_to                // x0 = login len or 0
+    cbz x0, .Lsl_no
+    mov x1, x0                              // x1 = login len
+    LEA x0, core_login                      // x0 = login_buf
     EPILOGUE 0
     ret
-.Lsl_fail:
+.Lsl_no:
     mov x0, #0
     EPILOGUE 0
     ret
@@ -2560,9 +2489,12 @@ core_lowercase_copy:
 
 // ============================================================================
 // core_ascii_casecmp(x0=a, x1=b) -> x0 = 0 when a equals b ignoring ASCII
-//   case (b is expected to be already lowercased).
+//   case (b is expected to be already lowercased).  Exported so tc_misc.S's
+//   misc_casecmp can tail-call it (same semantics, no length argument).
 // ============================================================================
     .p2align 2
+    .global core_ascii_casecmp
+    FUNC_TYPE(core_ascii_casecmp)
 core_ascii_casecmp:
     mov x2, #0
 .Lacc_loop:
@@ -2603,43 +2535,15 @@ core_copy_str:
     ret
 
 // ============================================================================
-// core_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = one past the last copied
-//   byte.  16-byte ldp/stp chunks, then 8-byte ldr/str, then a byte tail; a
-//   wide chunk only runs while that many bytes remain, so the copy never
-//   reads or writes past the copied length.  Clobbers x0-x17 only.
-// ============================================================================
-    .p2align 2
-core_copy_bytes:
-    cmp x2, #16
-    b.lt .Lccb8
-    ldp x3, x4, [x1], #16
-    stp x3, x4, [x0], #16
-    sub x2, x2, #16
-    b core_copy_bytes
-.Lccb8:
-    cmp x2, #8
-    b.lt .Lccb_tail
-    ldr x3, [x1], #8
-    str x3, [x0], #8
-    sub x2, x2, #8
-    b .Lccb8
-.Lccb_tail:
-    cbz x2, .Lccb_done
-    ldrb w3, [x1], #1
-    strb w3, [x0], #1
-    sub x2, x2, #1
-    b .Lccb_tail
-.Lccb_done:
-    ret
-
-// ============================================================================
 // core_copy_cstr(x0=dst, x1=src, x2=len) -> x0 = the position of the NUL
-//   terminator (the copied bytes plus the NUL).  Clobbers x0-x17 only.
+//   terminator (the copied bytes plus the NUL).  The bytes are copied by the
+//   shared tc_copy_bytes (16/8/byte-tail, never reads or writes past len).
+//   Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
 core_copy_cstr:
     str x30, [sp, #-16]!            // the bl below clobbers the return address
-    bl core_copy_bytes
+    bl tc_copy_bytes
     strb wzr, [x0]
     ldr x30, [sp], #16
     ret
@@ -2697,9 +2601,12 @@ core_count_column_for_entry:
 // ============================================================================
 // core_is_timestamp_header(x0=line, x1=len) -> x0 = 1 when the line begins
 //   with "[HH:MM:SS] " (11 bytes) and len >= 11.  The prefix check shared by
-//   core_line_is_marker and core_process_message.  Clobbers x0-x17 only.
+//   core_line_is_marker and core_process_message.  Exported for the watch
+//   module (tc_watch.S).  Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
+    .global core_is_timestamp_header
+    FUNC_TYPE(core_is_timestamp_header)
 core_is_timestamp_header:
     cmp x1, #11
     b.lt .Lith_no
@@ -2848,133 +2755,6 @@ core_memzero_own:
     sub x1, x1, #1
     b .Lmz_tail
 .Lmz_done:
-    ret
-
-// ============================================================================
-// core_fmt_pad(x0=cursor, x1=value, x2=width) -> x0 = cursor after the digits.
-// ============================================================================
-    .p2align 2
-core_fmt_pad:
-    PROLOGUE 5
-    mov x19, x0
-    mov x20, x1
-    mov x21, x2
-    sub sp, sp, #32
-    add x22, sp, #31
-    mov x23, #0
-    mov x3, x20
-    cmp x3, #0
-    b.ne .Lfp_loop
-    mov w4, #'0'
-    strb w4, [x22]
-    sub x22, x22, #1
-    mov x23, #1
-    b .Lfp_pad
-.Lfp_loop:
-    mov x4, #10
-    udiv x5, x3, x4
-    msub x6, x5, x4, x3
-    add x6, x6, #'0'
-    strb w6, [x22]
-    sub x22, x22, #1
-    add x23, x23, #1
-    mov x3, x5
-    cbnz x3, .Lfp_loop
-.Lfp_pad:
-    mov x5, x21
-    sub x5, x5, x23
-.Lfp_pad_go:
-    cbz x5, .Lfp_copy
-    mov w4, #'0'
-    strb w4, [x19], #1
-    sub x5, x5, #1
-    b .Lfp_pad_go
-.Lfp_copy:
-    add x22, x22, #1
-.Lfp_copy_loop:
-    cbz x23, .Lfp_done
-    ldrb w4, [x22], #1
-    strb w4, [x19], #1
-    sub x23, x23, #1
-    b .Lfp_copy_loop
-.Lfp_done:
-    mov x0, x19
-    add sp, sp, #32
-    EPILOGUE 5
-    ret
-
-// ============================================================================
-// core_fmt_ymd_sod(x0=ymd, x1=sod, x2=out) -> x0 = cursor after "YYYY-MM-DD
-//   HH:MM:SS" (no NUL written).
-// ============================================================================
-    .p2align 2
-core_fmt_ymd_sod:
-    PROLOGUE 5
-    mov x19, x0                         // ymd
-    mov x20, x1                         // sod
-    mov x21, x2                         // out
-    mov x22, #YMD_YEAR_SCALE
-    udiv x23, x19, x22                  // y
-    mov x22, #YMD_MONTH_SCALE
-    udiv x24, x19, x22
-    msub x24, x24, x22, x19             // d
-    mov x22, #YMD_YEAR_SCALE
-    udiv x25, x19, x22
-    mov x26, #YMD_YEAR_SCALE
-    mul x25, x25, x26
-    sub x25, x19, x25
-    mov x26, #YMD_MONTH_SCALE
-    udiv x25, x25, x26                  // mo
-    mov x0, x21
-    mov x1, x23
-    mov x2, #4
-    bl core_fmt_pad
-    mov x21, x0
-    mov w0, #'-'
-    strb w0, [x21], #1
-    mov x0, x21
-    mov x1, x25
-    mov x2, #2
-    bl core_fmt_pad
-    mov x21, x0
-    mov w0, #'-'
-    strb w0, [x21], #1
-    mov x0, x21
-    mov x1, x24
-    mov x2, #2
-    bl core_fmt_pad
-    mov x21, x0
-    mov w0, #' '
-    strb w0, [x21], #1
-    mov x26, #SECS_PER_HOUR
-    udiv x1, x20, x26
-    mov x0, x21
-    mov x2, #2
-    bl core_fmt_pad
-    mov x21, x0
-    mov w0, #':'
-    strb w0, [x21], #1
-    mov x23, #60
-    udiv x24, x20, x23
-    udiv x25, x24, x23
-    msub x24, x25, x23, x24             // minutes
-    mov x0, x21
-    mov x1, x24
-    mov x2, #2
-    bl core_fmt_pad
-    mov x21, x0
-    mov w0, #':'
-    strb w0, [x21], #1
-    mov x23, #60
-    udiv x24, x20, x23
-    msub x24, x24, x23, x20             // seconds
-    mov x0, x21
-    mov x1, x24
-    mov x2, #2
-    bl core_fmt_pad
-    mov x21, x0
-    mov x0, x21
-    EPILOGUE 5
     ret
 
     .end

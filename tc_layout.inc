@@ -500,6 +500,66 @@
     .equ ROW_SZ,           72
     .equ LOGIN_SZ,         26         // login / exclusion-name stride
 
+// ----------------------------------------------------------------------------
+// tc_plan — the presentation plan (ONE .bss object, symbol `tc_plan`, size
+// TC_PLAN_SIZE).  tc_render.S writes it; tc_json.S and tc_watch.S read it
+// through these offsets instead of hand-mirrored symbols.  Scalar fields
+// come first so every offset fits a load/store immediate and the LEA_OFF
+// add; the big buffers (rows, arena) sit at the end.  A change here
+// rebuilds every module; add new fields at the end of the scalar block and
+// bump TC_PLAN_SIZE, never renumber an existing offset.
+// ----------------------------------------------------------------------------
+// The plan's inline buffers: header descriptions (HDR_MAX x HDR_DESC_SZ) and
+// the render arena.  Shared here because they size the plan itself.
+    .equ HDR_DESC_SZ,     32
+    .equ HDR_MAX,         16
+    .equ ARENA_SZ,        8192
+    .equ TC_PLAN_COLUMNS,      0          // 48  6 x u64 column ids (TC_M_*)
+    .equ TC_PLAN_COL_COUNT,    48         // 8   number of columns
+    .equ TC_PLAN_SORT,         56         // 8   TC_M_*
+    .equ TC_PLAN_SHARE_FLOOR,  64         // 8   applied floor (0 = none)
+    .equ TC_PLAN_BELOW_FLOOR,  72         // 8   rows dropped by the floor
+    .equ TC_PLAN_SHARES_SHOWN, 80         // 8   1 when a share column is shown/sorted
+    .equ TC_PLAN_REPORTED,     88         // 8   ptr to the reported rows (ROW_SZ each)
+    .equ TC_PLAN_REPORTED_N,   96         // 8   rows after the floor
+    .equ TC_PLAN_DISPLAYED_N,  104        // 8   rows after the --top cap
+    .equ TC_PLAN_HIDDEN_N,     112        // 8   rows dropped by the cap
+    .equ TC_PLAN_LIMIT,        120        // 8   --top N (0 = unlimited)
+    .equ TC_PLAN_LIMIT_SRC,    128        // 8   source id string for --top
+    .equ TC_PLAN_HEADER_MODE,  136        // 8   TC_HDR_*
+    .equ TC_PLAN_IN_RANGE,     144        // 8   users in the time range
+    .equ TC_PLAN_EXCL_APPEARED,152        // 8   excluded users that appeared
+    .equ TC_PLAN_EXCL_MSGS,    160        // 8   messages from excluded users
+    .equ TC_PLAN_HDR_COUNT,    168        // 8   header description count
+    .equ TC_PLAN_EXCL_NAMES,   176        // 8   ptr to sorted exclusion names
+    .equ TC_PLAN_EXCL_NAMES_N, 184        // 8   number of exclusion names
+    .equ TC_PLAN_MSGS_SHOWN,   192        // 8   messages shown
+    .equ TC_PLAN_MSGS_HIDDEN,  200        // 8   messages hidden (below the floor)
+    .equ TC_PLAN_CACHE_USED,   208        // 8   0/1
+    .equ TC_PLAN_CACHE_REUSED, 216        // 8   days reused from the cache
+    .equ TC_PLAN_CACHE_PARSED, 224        // 8   days parsed
+    .equ TC_PLAN_CACHE_PROBLEM,232        // 8   ptr to the cache problem text (0 = none)
+    .equ TC_PLAN_CACHE_REBUILT,240        // 8   ptr to the rebuild reason (0 = none)
+    .equ TC_PLAN_CACHE_PATH,   248        // 8   ptr to the cache path
+    .equ TC_PLAN_ARENA_CUR,    256        // 8   arena cursor
+    .equ TC_PLAN_SRC_JOIN,     264        // 8   ", "-joined exclusion sources (arena)
+    .equ TC_PLAN_ROWS,         272        //     HDR_MAX * HDR_DESC_SZ bytes
+    .equ TC_PLAN_ARENA,        (272 + HDR_MAX * HDR_DESC_SZ)   // ARENA_SZ bytes
+    .equ TC_PLAN_SIZE,         (TC_PLAN_ARENA + ARENA_SZ)
+
+// ----------------------------------------------------------------------------
+// tc_frame — the frame-capture state (ONE .bss object, symbol `tc_frame`).
+// tc_render.S arms/disarms it; tc_watch.S reads the captured line count.
+// ----------------------------------------------------------------------------
+    .equ TC_FRAME_CAPTURE,   0          // 8   1 while capturing
+    .equ TC_FRAME_LINES,     8          // 8   ptr to the line-pointer array
+    .equ TC_FRAME_MAX,       16         // 8   capacity
+    .equ TC_FRAME_COUNT,     24         // 8   lines captured
+    .equ TC_FRAME_PIN_WIDTH, 32         // 8   0 = no pin
+    .equ TC_FRAME_TINT_FN,   40         // 8   tint hook (0 = none)
+    .equ TC_FRAME_TINT_CTX,  48         // 8   hook context
+    .equ TC_FRAME_SIZE,      56
+
 // ============================================================================
 // Exported symbol contracts (see each module's header for the full text)
 // ============================================================================
@@ -521,6 +581,15 @@
 //   tc_read_all(x0=path, x1=cap)          -> x0=status (0 ok, 1 too large,
 //       2 error), x1 = malloc'd buffer (caller frees; 0 on early error),
 //       x2 = bytes read
+//   tc_state_str(x0=id)                   -> x0 = "live"/"offline"/"unknown"
+//       (TC_ST_* 1/2/3), or 0.  tc_state_names is the pointer table
+//       (indexed by TC_ST_* - 1); the string literals are exported as
+//       tc_str_live / tc_str_offline / tc_str_unknown.
+//   tc_metric_str(x0=id)                  -> x0 = metric-name ptr (TC_M_*
+//       0..6), or 0.  tc_metric_names is the pointer table (indexed by
+//       TC_M_*); the literals are exported as tc_str_count / tc_str_login /
+//       tc_str_live / tc_str_offline / tc_str_unknown / tc_str_offshare /
+//       tc_str_liveshare.
 //
 // tc_cli.S
 //   tc_cli_parse(x0=argc, x1=argv)        -> 0; fills tc_opts + tc_window.

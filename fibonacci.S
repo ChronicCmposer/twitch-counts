@@ -90,6 +90,45 @@
     .equ DEC_BUF,   21        // decimal buffer size: 20 digits + '\n'
 
 // ----------------------------------------------------------------------------
+// SYS_WRITE — one write(2) syscall.  The file's single write idiom, so every
+// message and per-line write issues the syscall identically.
+//   in:  \fd   an .equ fd constant (STDOUT / STDERR)
+//        \msg  a .rodata label (addressed with `adr`), or a register that
+//              already holds the buffer pointer (x1 or x23 in this program)
+//        \len  an immediate length (an .equ or literal), or a register that
+//              already holds the length (x2 or x24 in this program)
+//   Clobbers x0, x1, x2, x8 (the syscall ABI); preserves everything else.
+//   The register forms emit no load: print_term has its buffer and length in
+//   x1/x2 already, and the overflow handler parks its digits in x23/x24 so
+//   they survive the prefix and suffix writes.  Any other register passed
+//   here fails to assemble (no matching branch) rather than silently
+//   miscompiling.
+// ----------------------------------------------------------------------------
+.macro SYS_WRITE fd, msg, len
+    mov x0, #\fd
+    .ifc "\msg", "x1"
+        // buffer pointer already in x1 — nothing to load
+    .else
+        .ifc "\msg", "x23"
+            mov x1, x23
+        .else
+            adr x1, \msg
+        .endif
+    .endif
+    .ifc "\len", "x2"
+        // length already in x2 — nothing to load
+    .else
+        .ifc "\len", "x24"
+            mov x2, x24
+        .else
+            mov x2, #\len
+        .endif
+    .endif
+    mov x8, #SYS_WRITE
+    svc #0
+.endm
+
+// ----------------------------------------------------------------------------
 // _start — entry point.  Linux provides, with no CRT:
 //     sp       -> argc                       (a 64-bit count)
 //     [sp + 8] -> argv[0]  (program name)
@@ -151,9 +190,7 @@ print_term:
     mov x3, #'\n'                // append the line terminator
     strb w3, [x1, x2]            // buffer[x2] = '\n'  (buffer slot buf+20)
     add x2, x2, #1               // total length = digits + 1
-    mov x0, #STDOUT              // write(fd = stdout, ...)
-    mov x8, #SYS_WRITE           // syscall 64
-    svc #0                       // one write per line, as specified
+    SYS_WRITE STDOUT, x1, x2     // one write per line, as specified (x1/x2 already set)
     add sp, sp, #32              // drop the buffer
     ldr x30, [sp]                // restore return address
     add sp, sp, #16              // drop the saved-lr slot
@@ -171,21 +208,9 @@ overflow:
     bl convert_u64               // -> x1 = digits, x2 = digit count
     mov x23, x1                  // keep digits across the prefix write
     mov x24, x2                  // keep digit count across the prefix write
-    mov x0, #STDERR              // write prefix
-    adr x1, overflow_prefix
-    mov x2, #overflow_prefix_len
-    mov x8, #SYS_WRITE
-    svc #0
-    mov x0, #STDERR              // write the digits
-    mov x1, x23
-    mov x2, x24
-    mov x8, #SYS_WRITE
-    svc #0
-    mov x0, #STDERR              // write suffix + newline
-    adr x1, overflow_suffix
-    mov x2, #overflow_suffix_len
-    mov x8, #SYS_WRITE
-    svc #0
+    SYS_WRITE STDERR, overflow_prefix, overflow_prefix_len  // prefix
+    SYS_WRITE STDERR, x23, x24                              // digits
+    SYS_WRITE STDERR, overflow_suffix, overflow_suffix_len  // suffix + newline
     add sp, sp, #32              // tidy up (not strictly needed before exit)
     b exit_ok                    // overflow is not an error: exit 0
 
@@ -193,11 +218,7 @@ overflow:
 // usage — print the usage line to stderr and exit 1.
 // ----------------------------------------------------------------------------
 usage:
-    mov x0, #STDERR              // write(2, usage_msg, usage_msg_len)
-    adr x1, usage_msg
-    mov x2, #usage_msg_len
-    mov x8, #SYS_WRITE
-    svc #0
+    SYS_WRITE STDERR, usage_msg, usage_msg_len
     mov x0, #1                   // exit(1)
     mov x8, #SYS_EXIT
     svc #0

@@ -142,7 +142,19 @@
     .globl tc_frame_end
     .globl tc_frame_set_pin
     .globl tc_frame_set_tint
-    .globl tc_misc_now_utc
+    // core exports consumed by the watch path (Wave 2; Agent D provides the
+    // .global in tc_core.S — core_is_timestamp_header / core_line_is_marker /
+    // core_marker_match / core_eff_threshold / core_reset_count already exist
+    // as tc_core.S locals; core_parse_log_filename_n and core_speaker_login_to
+    // are new agreed exports)
+    .globl core_is_timestamp_header
+    .globl core_line_is_marker
+    .globl core_parse_log_filename_n
+    .globl core_speaker_login_to
+    .globl core_eff_threshold
+    .globl core_reset_count
+    .globl tc_fmt_u64
+    .globl tc_copy_bytes
     .globl tc_civil_from_days
     .globl pcre2_compile_8
     .globl pcre2_code_free_8
@@ -419,6 +431,10 @@ watch_prev_n:     .skip 8
 watch_tint_count: .skip 8
 watch_now:        .skip 8             // double monotonic scratch
 watch_dtmp:       .skip 8             // double scratch (d-regs die on bl)
+watch_dtmp2:      .skip 8             // double scratch (ramp-curve k bits)
+watch_dtmp3:      .skip 8             // double scratch (frame clock / replay now)
+watch_dtmp4:      .skip 8             // double scratch (tint age scratch)
+watch_wait:       .skip 8             // double: interval - elapsed (watch_next_wait)
 
     // ramps: descriptor array {base, count} + one contiguous arena
 watch_ramp_count: .skip 8
@@ -687,8 +703,6 @@ tc_watch_run:
     // ---- channel + listing + window --------------------------------------
     bl tc_resolve_channel
     bl watch_build_dirpath
-    bl watch_build_listing            // memoized; fills tc_listing
-    bl watch_init_window
     bl watch_build_listing            // memoized; fills tc_listing
     bl watch_init_window
     bl watch_size_users               // --users bisection (no-op otherwise)
@@ -1267,23 +1281,17 @@ watch_load_settings:
 watch_replay_horizon:
     PROLOGUE 0
     fcmp d0, #0.0
-    b.le .Lwrh_hold0
-    // horizon = hold
-    b .Lwrh_div
-.Lwrh_hold0:
+    b.gt .Lwrh_div                   // hold > 0: horizon = hold
     scvtf d2, x0                     // max_steps
     fmul d0, d1, d2                  // interval * max_steps
 .Lwrh_div:
     fdiv d2, d0, d1                  // horizon / interval
     fcvtzs x9, d2                    // int()
     cmp x9, x0
-    b.le .Lwrh_min_ok
-    mov x9, x0
-.Lwrh_min_ok:
+    csel x9, x9, x0, le              // steps = min(steps, max_steps)
+    mov x10, #1
     cmp x9, #1
-    b.ge .Lwrh_steps_ok
-    mov x9, #1
-.Lwrh_steps_ok:
+    csel x9, x9, x10, ge             // steps = max(steps, 1)
     scvtf d2, x9
     fmul d0, d2, d1                  // steps * interval
     EPILOGUE 0
@@ -1319,7 +1327,7 @@ watch_burst_cat:
     mov x2, x0
     mov x0, x19
     mov x1, x20
-    bl watch_copy_to
+    bl tc_copy_bytes
     EPILOGUE 1
     ret
 
@@ -1448,7 +1456,7 @@ watch_build_listing:
     mov x22, x0                       // name len
     mov x0, x21
     mov x1, x22
-    bl watch_parse_log_filename       // x0 = ymd or 0
+    bl core_parse_log_filename_n       // x0 = ymd or 0
     cbz x0, .Lwbl_list
     mov x23, x0                       // ymd
     // append (ymd, name): grow the entry array if needed
@@ -1551,122 +1559,6 @@ watch_listing_cmp:
     ret
 .Lwlc_gt:
     mov w0, #1
-    ret
-
-// ============================================================================
-// watch_parse_log_filename(x0=name, x1=len) -> x0 = ymd, or 0.
-//   FILENAME_RE: ^.+-(y{4})-(mo{2})-(d{2})\.log$ with a real calendar date.
-//   Layout from the end: ".log" then "DD" '-' "MM" '-' "YYYY" '-' channel.
-// ============================================================================
-    .p2align 2
-watch_parse_log_filename:
-    PROLOGUE 3
-    cmp x1, #16                       // at least "x-YYYY-MM-DD.log"
-    b.lt .Lwpf_fail
-    mov x2, x0                        // scan
-    add x3, x0, x1                    // end
-    sub x3, x3, #1
-    // ".log" suffix
-    ldrb w4, [x3]
-    cmp w4, #'g'
-    b.ne .Lwpf_fail
-    sub x3, x3, #1
-    ldrb w4, [x3]
-    cmp w4, #'o'
-    b.ne .Lwpf_fail
-    sub x3, x3, #1
-    ldrb w4, [x3]
-    cmp w4, #'l'
-    b.ne .Lwpf_fail
-    sub x3, x3, #1
-    ldrb w4, [x3]
-    cmp w4, #'.'
-    b.ne .Lwpf_fail
-    // x3 = '.': day digits at x3-2, x3-1; '-' at x3-3
-    sub x4, x3, #3
-    cmp x4, x0
-    b.le .Lwpf_fail
-    ldrb w5, [x4]
-    cmp w5, #'-'
-    b.ne .Lwpf_fail
-    ldrb w6, [x4, #1]
-    sub w6, w6, #'0'
-    cmp w6, #9
-    b.hi .Lwpf_fail
-    ldrb w7, [x4, #2]
-    sub w7, w7, #'0'
-    cmp w7, #9
-    b.hi .Lwpf_fail
-    mov x9, #10
-    mul x6, x6, x9
-    add x23, x6, x7                   // day (callee-saved)
-    // month: '-' at x4-3; digits at x4-2, x4-1
-    sub x4, x4, #3
-    cmp x4, x0
-    b.le .Lwpf_fail
-    ldrb w5, [x4]
-    cmp w5, #'-'
-    b.ne .Lwpf_fail
-    ldrb w6, [x4, #1]
-    sub w6, w6, #'0'
-    cmp w6, #9
-    b.hi .Lwpf_fail
-    ldrb w7, [x4, #2]
-    sub w7, w7, #'0'
-    cmp w7, #9
-    b.hi .Lwpf_fail
-    mul x6, x6, x9
-    add x22, x6, x7                   // month (callee-saved)
-    // year: '-' at x4-5; digits at x4-4 .. x4-1
-    sub x4, x4, #5
-    cmp x4, x0
-    b.le .Lwpf_fail
-    ldrb w5, [x4]
-    cmp w5, #'-'
-    b.ne .Lwpf_fail
-    mov x21, #0                       // year (callee-saved)
-    mov x24, #0
-.Lwpf_yr:
-    cmp x24, #4
-    b.ge .Lwpf_yr_done
-    ldrb w5, [x4, #1]
-    add x4, x4, #1
-    sub w5, w5, #'0'
-    cmp w5, #9
-    b.hi .Lwpf_fail
-    mov x9, #10
-    mul x21, x21, x9
-    add x21, x21, x5
-    add x24, x24, #1
-    b .Lwpf_yr
-.Lwpf_yr_done:
-    // channel part must be nonempty (.+) — the '-' at x4-5... the year loop
-    // advanced x4 to the last year digit; the channel is before x4-4.
-    sub x9, x4, #4
-    cmp x9, x0
-    b.le .Lwpf_fail
-    // validate the date
-    cmp x22, #1
-    b.lt .Lwpf_fail
-    cmp x22, #12
-    b.gt .Lwpf_fail
-    cmp x23, #1
-    b.lt .Lwpf_fail
-    mov x0, x21
-    mov x1, x22
-    bl tc_days_in_month             // x0 = days
-    cmp x23, x0
-    b.gt .Lwpf_fail
-    mov x9, #YMD_YEAR_SCALE
-    mul x0, x21, x9
-    mov x9, #YMD_MONTH_SCALE
-    madd x0, x22, x9, x0
-    add x0, x0, x23
-    EPILOGUE 3
-    ret
-.Lwpf_fail:
-    mov x0, #0
-    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -2415,7 +2307,7 @@ watch_reader_refresh:
     mov x1, x24
     add x1, x1, x26
     mov x2, x9
-    bl watch_copy_to                  // x0 = end of copy; we need the base
+    bl tc_copy_bytes                  // x0 = end of copy; we need the base
     sub x0, x0, x9
     mov x23, x9                        // rem len (fd reg now free)
     mov x26, x0                        // rem ptr
@@ -2463,7 +2355,7 @@ watch_reader_refresh:
     cbz x0, .Lwrrf_rem_oom
     mov x1, x24
     mov x2, x25
-    bl watch_copy_to
+    bl tc_copy_bytes
     sub x0, x0, x25
     mov x26, x0
     ldr x9, [x19, #RD_REMAINDER]
@@ -2532,12 +2424,12 @@ watch_join_bufs:
     mov x0, x24
     mov x1, x20
     mov x2, x21
-    bl watch_copy_to
+    bl tc_copy_bytes
     mov x0, x24
     add x0, x0, x21
     mov x1, x19
     mov x2, x22
-    bl watch_copy_to
+    bl tc_copy_bytes
     mov x0, x24
     mov x1, x23
     EPILOGUE 3
@@ -2545,21 +2437,6 @@ watch_join_bufs:
 .Lwjb_oom:
     LEA x0, s_oom
     bl tc_fail
-
-// watch_copy_to(dst, src, len) -> dst + len
-    .p2align 2
-watch_copy_to:
-    mov x3, #0
-.Lwct_loop:
-    cmp x3, x2
-    b.ge .Lwct_done
-    ldrb w4, [x1, x3]
-    strb w4, [x0, x3]
-    add x3, x3, #1
-    b .Lwct_loop
-.Lwct_done:
-    add x0, x0, x2
-    ret
 
 // watch_copy_login(dst, src) -> x0 = dst.  Copies a login (up to 25 bytes,
 //   NUL-terminated) into dst and NUL-terminates it.  Clobbers x0, x1, x5,
@@ -2737,7 +2614,7 @@ watch_seek_window:
     sub x0, x28, x27
     mov x1, x0
     add x0, x19, x27
-    bl watch_line_is_marker            // x0 = state 1/2 or 0
+    bl core_line_is_marker            // x0 = state 1/2 or 0
     cbz x0, .Lwsw_not1
     // marker: keep the latest (line_start > best)
     cmp x24, #-1
@@ -2786,7 +2663,7 @@ watch_seek_window:
     sub x0, x28, x27
     mov x1, x0
     add x0, x19, x27
-    bl watch_line_is_marker
+    bl core_line_is_marker
     cbz x0, .Lwsw_not2
     cmp x24, #-1
     b.eq .Lwsw_best2
@@ -3054,143 +2931,6 @@ watch_rfind:
     EPILOGUE 1
     ret
 
-// watch_check_timestamp_prefix(line) -> x0 = 1 if line[0..10] == "[HH:MM:SS] "
-//   (the shape prefix both marker and message folds demand), else 0.  The
-//   length guards stay in the callers.  Clobbers x0-x9 only.
-    .p2align 2
-watch_check_timestamp_prefix:
-    ldrb w9, [x0]
-    cmp w9, #'['
-    b.ne .Lwctp_no
-    ldrb w9, [x0, #1]
-    sub w9, w9, #'0'
-    cmp w9, #9
-    b.hi .Lwctp_no
-    ldrb w9, [x0, #2]
-    sub w9, w9, #'0'
-    cmp w9, #9
-    b.hi .Lwctp_no
-    ldrb w9, [x0, #3]
-    cmp w9, #':'
-    b.ne .Lwctp_no
-    ldrb w9, [x0, #4]
-    sub w9, w9, #'0'
-    cmp w9, #9
-    b.hi .Lwctp_no
-    ldrb w9, [x0, #5]
-    sub w9, w9, #'0'
-    cmp w9, #9
-    b.hi .Lwctp_no
-    ldrb w9, [x0, #6]
-    cmp w9, #':'
-    b.ne .Lwctp_no
-    ldrb w9, [x0, #7]
-    sub w9, w9, #'0'
-    cmp w9, #9
-    b.hi .Lwctp_no
-    ldrb w9, [x0, #8]
-    sub w9, w9, #'0'
-    cmp w9, #9
-    b.hi .Lwctp_no
-    ldrb w9, [x0, #9]
-    cmp w9, #']'
-    b.ne .Lwctp_no
-    ldrb w9, [x0, #10]
-    cmp w9, #' '
-    b.ne .Lwctp_no
-    mov x0, #1
-    ret
-.Lwctp_no:
-    mov x0, #0
-    ret
-
-// watch_line_is_marker(line, len) -> x0 = 1 (live) / 2 (offline) / 0.
-//   LIVE_RE: ^\[\d{2}:\d{2}:\d{2}\] \S+ is (live!|now offline\.)$
-    .p2align 2
-watch_line_is_marker:
-    PROLOGUE 1
-    mov x19, x0
-    mov x20, x1
-    // shape: [HH:MM:SS] then space then \S+ then " is live!" / " is now offline."
-    cmp x20, #12
-    b.lt .Lwlim_no
-    mov x0, x19                        // line
-    bl watch_check_timestamp_prefix    // x0 = 1 if the prefix matches
-    cbz x0, .Lwlim_no
-    // \S+ = at least one char without a space before the trailing literal
-    // find " is live!" at the end
-    add x9, x19, #11                  // speaker start
-    add x10, x19, x20                  // end
-    // suffix check: " is live!" (len 9)
-    sub x11, x10, #9
-    cmp x11, x9
-    b.lt .Lwlim_off
-    LEA x12, pfx_is_live_sp
-    mov x13, #0
-.Lwlim_cl1:
-    cmp x13, #9
-    b.ge .Lwlim_live
-    ldrb w14, [x11, x13]
-    ldrb w15, [x12, x13]
-    cmp w14, w15
-    b.ne .Lwlim_off
-    add x13, x13, #1
-    b .Lwlim_cl1
-.Lwlim_live:
-    // the speaker [11, x11) must not contain a space
-    mov x13, x9
-.Lwlim_ns1:
-    cmp x13, x11
-    b.ge .Lwlim_yes1
-    ldrb w14, [x13]
-    cmp w14, #' '
-    b.eq .Lwlim_off
-    add x13, x13, #1
-    b .Lwlim_ns1
-.Lwlim_yes1:
-    mov w0, #1
-    EPILOGUE 1
-    ret
-.Lwlim_off:
-    // suffix check: " is now offline." (len 16)
-    sub x11, x10, #16
-    cmp x11, x9
-    b.lt .Lwlim_no
-    LEA x12, pfx_is_offline_sp
-    mov x13, #0
-.Lwlim_cl2:
-    cmp x13, #16
-    b.ge .Lwlim_off2
-    ldrb w14, [x11, x13]
-    ldrb w15, [x12, x13]
-    cmp w14, w15
-    b.ne .Lwlim_no
-    add x13, x13, #1
-    b .Lwlim_cl2
-.Lwlim_off2:
-    mov x13, x9
-.Lwlim_ns2:
-    cmp x13, x11
-    b.ge .Lwlim_yes2
-    ldrb w14, [x13]
-    cmp w14, #' '
-    b.eq .Lwlim_no
-    add x13, x13, #1
-    b .Lwlim_ns2
-.Lwlim_yes2:
-    mov w0, #2
-    EPILOGUE 1
-    ret
-.Lwlim_no:
-    mov w0, #0
-    EPILOGUE 1
-    ret
-    // The watch-path marker needles (" is live!" / " is now offline.") are
-    // the shared space-prefixed forms in tc_parse_facts.inc (pfx_is_live_sp
-    // / pfx_is_offline_sp) — the same marker text the count path and the
-    // cache fingerprint reference, so a marker change is caught at assemble
-    // time.
-
 // ============================================================================
 // watch_fold_lines(rd, text, len) — fold complete lines (Python fold_lines).
 //   text[:len] contains complete lines ending in '\n'.  Updates the reader's
@@ -3228,7 +2968,7 @@ watch_fold_lines:
     // marker?
     mov x0, x27
     mov x1, x28
-    bl watch_line_is_marker
+    bl core_line_is_marker
     cbnz x0, .Lwfl_marker
     // message?
     mov x0, x19
@@ -3253,7 +2993,7 @@ watch_fold_lines:
     b.eq .Lwfl_done
     mov x0, x27
     mov x1, x28
-    bl watch_line_is_marker
+    bl core_line_is_marker
     cbnz x0, .Lwfl_last_marker
     mov x0, x19
     mov x1, x27
@@ -3283,7 +3023,8 @@ watch_fold_line:
     cmp x21, #11
     b.lt .Lwfln_skip
     mov x0, x20                        // line
-    bl watch_check_timestamp_prefix    // x0 = 1 if the prefix matches
+    mov x1, x21                        // len
+    bl core_is_timestamp_header        // x0 = 1 if the prefix matches
     cbz x0, .Lwfln_skip
     // find the first ": " in the rest
     add x24, x20, #11
@@ -3343,13 +3084,15 @@ watch_fold_line:
     sub w5, w5, #'0'
     add x9, x9, x5
     add x28, x28, x9                   // second
-    // core_speaker_login
-    mov x0, x25
-    mov x1, x26
-    bl watch_speaker_login2                  // x0 = login ptr or 0, x1 = len
+    // core_speaker_login_to(speaker, slen, dst) -> x0 = login len (0 = fail);
+    // the lowercased login is written NUL-terminated into dst.
+    mov x0, x25                        // speaker
+    mov x1, x26                        // slen
+    LEA x2, watch_scratch2             // dst
+    bl core_speaker_login_to
     cbz x0, .Lwfln_skip
-    mov x23, x0                        // login ptr
-    mov x24, x1                        // login len
+    mov x24, x0                        // login len
+    LEA x23, watch_scratch2            // login ptr (dst)
     mov x25, x22                       // state (callee-saved)
     cbnz x25, .Lwfln_state_set
     mov x25, #TC_ST_UNKNOWN
@@ -3796,7 +3539,7 @@ watch_reader_window:
     mov x1, x28
     mov x2, #WW_SZ
     mul x2, x23, x2
-    bl watch_copy_to
+    bl tc_copy_bytes
     // drop: out[(login,state)] -= n.  The cursor is re-derived from the
     // callee-saved index x28 each pass: x9/x10 die in watch_ww_sub.
     mov x28, x24
@@ -5540,7 +5283,7 @@ watch_scan_markers:
     mov x0, x21
     add x0, x0, x24
     mov x1, x27
-    bl watch_line_is_marker
+    bl core_line_is_marker
     cbnz x0, .Lwsm_marker
     b .Lwsm_line_done
 .Lwsm_marker:
@@ -5552,7 +5295,7 @@ watch_scan_markers:
     mov x0, x21
     add x0, x0, x24
     sub x1, x22, x24
-    bl watch_line_is_marker
+    bl core_line_is_marker
     cbnz x0, .Lwsm_marker2
     b .Lwsm_done
 .Lwsm_marker2:
@@ -6301,13 +6044,6 @@ watch_ramp_key_str:
 dbl_neg1:           .double -1.0
 s_collapse_mid2:    .asciz " with fade_k "
 
-    .text
-    .bss
-    .p2align 3
-watch_dtmp2:     .skip 8
-watch_dtmp3:     .skip 8
-watch_dtmp4:     .skip 8
-watch_wait:      .skip 8             // double: interval - elapsed (watch_next_wait)
     .text
 
 // ============================================================================
@@ -7815,7 +7551,7 @@ watch_next_tint_change:
 watch_build_status:
     PROLOGUE 4
     // blank line (append at the captured line count)
-    LEA x9, tc_frame_count
+    LEA_OFF x9, tc_frame, TC_FRAME_COUNT
     ldr x10, [x9]
     LEA x11, watch_lines
     ldr x11, [x11]
@@ -7986,7 +7722,7 @@ watch_build_status:
     mov w1, #0
     strb w1, [x0]
     // bump the captured count
-    LEA x9, tc_frame_count
+    LEA_OFF x9, tc_frame, TC_FRAME_COUNT
     ldr x10, [x9]
     add x10, x10, #1
     str x10, [x9]
@@ -8001,7 +7737,7 @@ watch_build_status:
 watch_prepare_frame:
     PROLOGUE 3
     // estimate the frame height
-    LEA x19, tc_plan_reported_n
+    LEA_OFF x19, tc_plan, TC_PLAN_REPORTED_N
     ldr x20, [x19]
     cbz x20, .Lwpf_empty
     // header lines
@@ -8010,7 +7746,7 @@ watch_prepare_frame:
     mov x23, #0
     cmp x22, #TC_HDR_FULL
     b.ne .Lwpf_hdr_compact
-    LEA x22, tc_plan_hdr_count
+    LEA_OFF x22, tc_plan, TC_PLAN_HDR_COUNT
     ldr x23, [x22]
     add x23, x23, #2                  // rows + files + blank
     b .Lwpf_hdr_done
@@ -8021,17 +7757,17 @@ watch_prepare_frame:
 .Lwpf_hdr_done:
     // table: header + rule + displayed + [others] + rule + footer
     add x23, x23, #2                  // header + rule
-    LEA x22, tc_plan_displayed_n
+    LEA_OFF x22, tc_plan, TC_PLAN_DISPLAYED_N
     ldr x22, [x22]
     add x23, x23, x22
-    LEA x22, tc_plan_hidden_n
+    LEA_OFF x22, tc_plan, TC_PLAN_HIDDEN_N
     ldr x22, [x22]
     cbz x22, .Lwpf_no_others
     add x23, x23, #1
 .Lwpf_no_others:
     add x23, x23, #1                  // closing rule
     add x23, x23, #1                  // footer line
-    LEA x22, tc_plan_excl_appeared
+    LEA_OFF x22, tc_plan, TC_PLAN_EXCL_APPEARED
     ldr x22, [x22]
     cbz x22, .Lwpf_slack
     add x23, x23, #1                  // excluded line
@@ -8042,7 +7778,7 @@ watch_prepare_frame:
     ldr x22, [x22, #TC_O_HEADER_MODE]
     cmp x22, #TC_HDR_FULL
     b.ne .Lwpf_empty_compact
-    LEA x22, tc_plan_hdr_count
+    LEA_OFF x22, tc_plan, TC_PLAN_HDR_COUNT
     ldr x23, [x22]
     add x23, x23, #2
     b .Lwpf_empty_done
@@ -8052,7 +7788,7 @@ watch_prepare_frame:
     mov x23, #2
 .Lwpf_empty_done:
     add x23, x23, #1                  // "No users met the threshold"
-    LEA x22, tc_plan_excl_appeared
+    LEA_OFF x22, tc_plan, TC_PLAN_EXCL_APPEARED
     ldr x22, [x22]
     cbz x22, .Lwpf_slack
     add x23, x23, #1
@@ -8167,13 +7903,13 @@ watch_free_plan:
     // The slot addresses live in callee-saved registers: free() clobbers
     // x9-x17 (musl's happened not to, libSystem's does), and the slot is
     // cleared after the call.
-    LEA x19, tc_plan_reported
+    LEA_OFF x19, tc_plan, TC_PLAN_REPORTED
     ldr x0, [x19]
     cbz x0, .Lwfp2_reported_ok
     bl free
     str xzr, [x19]
 .Lwfp2_reported_ok:
-    LEA x19, tc_plan_excl_names
+    LEA_OFF x19, tc_plan, TC_PLAN_EXCL_NAMES
     ldr x0, [x19]
     cbz x0, .Lwfp2_excl_ok
     bl free
@@ -8196,7 +7932,7 @@ watch_screen_paint:
     PROLOGUE 5
     bl watch_terminal_width
     mov x19, x0                        // width
-    LEA x9, tc_frame_count
+    LEA_OFF x9, tc_frame, TC_FRAME_COUNT
     ldr x20, [x9]                      // frame line count
     LEA x9, watch_lines
     ldr x21, [x9]                      // lines array
@@ -8414,7 +8150,7 @@ watch_clip:
     mov x0, x22
     add x1, x19, x24
     mov x2, x26
-    bl watch_copy_to
+    bl tc_copy_bytes
     mov x22, x0
     add x24, x24, x26
     mov x25, #1

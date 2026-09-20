@@ -8,7 +8,19 @@ Hand-written **ARMv8-A / ARMv8.6-A AArch64 assembly** project. Two deliverables,
 - **`fibonacci`** — pure Linux syscalls, no libc (`as` + `ld`); Linux-only.
 
 ## Repo layout
-- `tc_*.S`, `tc_platform.h`, `tc_layout.inc` — the assembly modules.
+- `tc_*.S`, `tc_platform.h`, `tc_layout.inc` — the assembly modules.  The
+  `twitch-counts` module set (the Makefile's `TC_MODS`) is:
+  - `tc_main.S` — `main()` dispatch/orchestration
+  - `tc_util.S` — shared helpers (`tc_puts`, `tc_fail`, `tc_fmt_u64`,
+    `tc_read_all`, ...) and the Wave-1 shared constants
+  - `tc_cli.S` — CLI parsing, resolves `[[watch.highlight]]`
+  - `tc_config.S` — config / env / exclusions
+  - `tc_core.S` — the counting core
+  - `tc_cache.S` — the SQLite rollup cache
+  - `tc_render.S` — output formatting
+  - `tc_json.S` — the JSON report
+  - `tc_misc.S` — `--manual` / `--fish` / `--complete`
+  - `tc_watch.S` — watch mode
 - `*.inc` (`tc_manual.inc`, `tc_fish.inc`, `tc_json_schema.inc`) — committed generated blobs (regenerate only with `make gen-inc`).
 - `build/<os>/` — per-platform objects, drivers, third-party build products (never share objects between Linux/macOS).
 - `third_party/` — vendored C (toml, sqlite3), bootstrapped musl, fetched pcre2 tarball.

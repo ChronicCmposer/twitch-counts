@@ -173,6 +173,11 @@
     .globl tc_tally
     .globl tc_users
     .globl tc_cat_cstr
+    .globl tc_entry_ptr
+    .globl tc_state_str
+    .globl tc_str_live
+    .globl tc_str_offline
+    .globl tc_str_unknown
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -251,9 +256,6 @@ s_env_home:         .asciz "HOME"
 s_home_cache_tail:  .asciz "/.cache"
 s_cache_default:    .asciz "~/.cache/twitch-counts/rollup.db"
 s_path_tail:        .asciz "/twitch-counts/rollup.db"
-s_state_live:       .asciz "live"
-s_state_offline:    .asciz "offline"
-s_state_unknown:    .asciz "unknown"
 s_sep:              .asciz "\n"
 s_schema_version:   .asciz "2"
 s_pragma_wal:       .asciz "PRAGMA journal_mode=WAL"
@@ -659,7 +661,7 @@ tc_cache_put_day:
     mov x0, x24
     mov x1, x27
     mov x2, #TC_US_ENTRY_SZ
-    bl entry_ptr
+    bl tc_entry_ptr
     mov x28, x0
     ldr x16, [x28, #TC_US_LIVE]
     ldr x17, [x28, #TC_US_OFFLINE]
@@ -708,7 +710,7 @@ tc_cache_put_day:
     cbz x9, .Lcp_no_live
     mov x0, x21
     mov x1, #5
-    LEA x2, s_state_live
+    LEA x2, tc_str_live
     bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #6
@@ -724,7 +726,7 @@ tc_cache_put_day:
     cbz x9, .Lcp_no_off
     mov x0, x21
     mov x1, #5
-    LEA x2, s_state_offline
+    LEA x2, tc_str_offline
     bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #6
@@ -740,7 +742,7 @@ tc_cache_put_day:
     cbz x9, .Lcp_no_unk
     mov x0, x21
     mov x1, #5
-    LEA x2, s_state_unknown
+    LEA x2, tc_str_unknown
     bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #6
@@ -1495,14 +1497,8 @@ cache_get_day:
     ret
 
 // ============================================================================
-// entry_ptr(x0=base, x1=i, x2=sz) — x0 = base + i*sz (a record pointer).
-//   The one repeated `mul i, sz; add base` of the entry loops, in one place.
+// (record-pointer arithmetic is the shared tc_entry_ptr in tc_util.S)
 // ============================================================================
-    .p2align 2
-entry_ptr:
-    mul x2, x1, x2
-    add x0, x0, x2
-    ret
 
 // ============================================================================
 // cache_snapshot_users — malloc an array of old_count*3 u64s holding the live/
@@ -1531,12 +1527,12 @@ cache_snapshot_users:
     mov x0, x21
     mov x1, x24
     mov x2, #TC_US_ENTRY_SZ
-    bl entry_ptr
+    bl tc_entry_ptr
     mov x9, x0                      // entry
     mov x0, x22
     mov x1, x24
     mov x2, #24
-    bl entry_ptr
+    bl tc_entry_ptr
     mov x10, x0                     // snap slot
     ldr x11, [x9, #TC_US_LIVE]
     ldr x12, [x9, #TC_US_OFFLINE]
@@ -1574,26 +1570,12 @@ cache_drop_stash:
 
 // ============================================================================
 // cache_state_str(x0=state 0/1/2/3) -> x0 = "live"/"offline"/"unknown"/0
+//   Thin wrapper over the shared tc_state_str (TC_ST_* ids are 1/2/3 and 0
+//   means "no state", which is exactly this function's contract).
 // ============================================================================
     .p2align 2
 cache_state_str:
-    cmp w0, #1
-    b.eq .Lss_live
-    cmp w0, #2
-    b.eq .Lss_off
-    cmp w0, #3
-    b.eq .Lss_unk
-    mov x0, #0
-    ret
-.Lss_live:
-    LEA x0, s_state_live
-    ret
-.Lss_off:
-    LEA x0, s_state_offline
-    ret
-.Lss_unk:
-    LEA x0, s_state_unknown
-    ret
+    b tc_state_str
 
 // ============================================================================
 // cache_state_id(x0=str) -> x0 = 0/1/2/3 (unknown/live/offline/unknown-string)
@@ -1603,11 +1585,11 @@ cache_state_id:
     PROLOGUE 1
     cbz x0, .Lsi_zero
     mov x19, x0
-    LEA x0, s_state_live
+    LEA x0, tc_str_live
     mov x1, x19
     bl strcmp
     cbz w0, .Lsi_one
-    LEA x0, s_state_offline
+    LEA x0, tc_str_offline
     mov x1, x19
     bl strcmp
     cbz w0, .Lsi_two
