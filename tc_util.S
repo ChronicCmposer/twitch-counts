@@ -52,6 +52,7 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
+    .equ DIV10_MAGIC, 0xCCCCCCCCCCCCCCCD   // divide-by-10 magic (umulh >> 3)
 
 // ----------------------------------------------------------------------------
 // tc_strlen — length of a NUL-terminated string.
@@ -160,7 +161,7 @@ tc_putu64:
     mov x19, x0                     // x19 = value (safe across tc_puts)
     add x1, sp, #20                 // write digits downward from buf+20
     mov x2, #0                      // x2 = digit count
-    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    ldr x4, =DIV10_MAGIC            // divide-by-10 magic (umulh >> 3)
     cmp x19, #0
     b.ne .Lputu_digit_loop
     mov x3, #'0'                    // zero case: emit a single '0'
@@ -319,8 +320,8 @@ util_pu_copy_n:
     ret
 
 // util_pu_cat(x0=dst, x1=src) -> x0 = end (at the NUL); clobbers x0-x3, x9-x10
-//   (length via tc_strlen, then a wide copy so short strings are fast too;
-//   LR is saved because this routine now makes a call)
+//   (length via tc_strlen, then util_pu_copy_n; LR is saved because this
+//   routine makes calls)
     .p2align 2
 util_pu_cat:
     stp x29, x30, [sp, #-16]!       // keep the return address across tc_strlen
@@ -331,27 +332,7 @@ util_pu_cat:
     mov x2, x0                      // n
     mov x0, x9
     mov x1, x3
-.Lpuk_w16:
-    cmp x2, #16
-    b.lt .Lpuk_w8
-    ldp x9, x10, [x1], #16
-    stp x9, x10, [x0], #16
-    sub x2, x2, #16
-    b .Lpuk_w16
-.Lpuk_w8:
-    cmp x2, #8
-    b.lt .Lpuk_tail
-    ldr x9, [x1], #8
-    str x9, [x0], #8
-    sub x2, x2, #8
-.Lpuk_tail:
-    cbz x2, .Lpuk_done
-    ldrb w9, [x1], #1
-    strb w9, [x0], #1
-    sub x2, x2, #1
-    b .Lpuk_tail
-.Lpuk_done:
-    strb wzr, [x0]                  // NUL at dst+n; x0 = its position
+    bl util_pu_copy_n               // x0 = dst+n (position of the NUL)
     ldp x29, x30, [sp], #16
     ret
 
@@ -904,7 +885,7 @@ tc_streq:
 tc_fmt2:
     stp x2, x3, [sp, #-16]!
     stp x4, x5, [sp, #-16]!
-    ldr x2, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    ldr x2, =DIV10_MAGIC            // divide-by-10 magic (umulh >> 3)
     umulh x3, x1, x2
     lsr x3, x3, #3                  // tens digit
     mov x5, #10
@@ -923,27 +904,23 @@ tc_fmt2:
 tc_fmt4:
     stp x2, x3, [sp, #-16]!
     stp x4, x5, [sp, #-16]!
-    stp x6, x7, [sp, #-16]!
-    ldr x2, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
-    mov x7, #10
+    stp x6, x30, [sp, #-16]!
+    ldr x2, =DIV10_MAGIC            // divide-by-10 magic (umulh >> 3)
     umulh x3, x1, x2
     lsr x3, x3, #3                  // q1 = v/10
-    msub x4, x3, x7, x1             // ones
-    umulh x5, x3, x2
-    lsr x5, x5, #3                  // q2 = q1/10
-    msub x6, x5, x7, x3             // tens
-    umulh x3, x5, x2
-    lsr x3, x3, #3                  // q3 = q2/10  (thousands digit)
-    msub x5, x3, x7, x5             // hundreds
-    add x3, x3, #'0'                // thousands
-    strb w3, [x0], #1
-    add x5, x5, #'0'                // hundreds
-    strb w5, [x0], #1
-    add x6, x6, #'0'                // tens
-    strb w6, [x0], #1
-    add x4, x4, #'0'                // ones
-    strb w4, [x0], #1
-    ldp x6, x7, [sp], #16
+    umulh x3, x3, x2
+    lsr x3, x3, #3                  // q2 = v/100  (thousands + hundreds)
+    mov x6, #100
+    msub x4, x3, x6, x1             // low = v % 100 (tens + ones)
+    mov x6, x3                      // high (x2-x5 survive the tc_fmt2 calls)
+    mov x5, x0                      // dst
+    mov x0, x5
+    mov x1, x6
+    bl tc_fmt2                      // high digits; x0 = dst+2
+    mov x5, x0
+    mov x1, x4
+    bl tc_fmt2                      // low digits; x0 = dst+4
+    ldp x6, x30, [sp], #16
     ldp x4, x5, [sp], #16
     ldp x2, x3, [sp], #16
     ret

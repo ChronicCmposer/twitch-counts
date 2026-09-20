@@ -144,6 +144,8 @@
     .equ VT_FLAGS,    32
     .equ VT_REC_SZ,   40
 
+    .equ LONGOPT_REC_SZ, 32            // getopt_long entry {name, has_arg, pad, flag, val, pad}
+
     .equ SP_ENV,      0
     .equ SP_KEY,      8
     .equ SP_SECTION,  16
@@ -1562,6 +1564,40 @@ cli_build_arg_msg:
     ret
 
 // ----------------------------------------------------------------------------
+// cli_cat_quoted(x0=cursor, x1=pre, x2=display, x3=suf) -> cursor
+//   Appends pre + quote + display + quote + suf to the scratch cursor.
+//   Shared by the .Lmb_quote and .Lmb_dt paths of cli_emit_msg_body.
+// ----------------------------------------------------------------------------
+    .p2align 2
+cli_cat_quoted:
+    PROLOGUE 2
+    mov x19, x0                     // cursor
+    mov x20, x2                     // display
+    mov x21, x3                     // suf
+    mov x0, x19
+    bl tc_cat_cstr                  // pre
+    mov x19, x0
+    mov x0, x19
+    LEA x1, s_q
+    bl tc_cat_cstr
+    mov x19, x0
+    mov x0, x19
+    mov x1, x20
+    bl tc_cat_cstr                  // display
+    mov x19, x0
+    mov x0, x19
+    LEA x1, s_q
+    bl tc_cat_cstr
+    mov x19, x0
+    mov x0, x19
+    mov x1, x21
+    bl tc_cat_cstr                  // suf
+    mov x19, x0
+    mov x0, x19
+    EPILOGUE 2
+    ret
+
+// ----------------------------------------------------------------------------
 // cli_emit_msg_body(x0=cursor, x1=parser, x2=display, x3=status) -> cursor
 //   Uses the cli_msg_table: {pre, suf, alt}; status 2 uses alt (range msg).
 // ----------------------------------------------------------------------------
@@ -1593,24 +1629,10 @@ cli_emit_msg_body:
     cbnz x27, .Lmb_alt
 .Lmb_quote:
     mov x0, x19
-    mov x1, x25
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    LEA x1, s_q
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    mov x1, x21
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    LEA x1, s_q
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    mov x1, x26
-    bl tc_cat_cstr
+    mov x1, x25                     // pre
+    mov x2, x21                     // display
+    mov x3, x26                     // suf
+    bl cli_cat_quoted
     mov x19, x0
     b .Lmb_done
 .Lmb_alt:
@@ -1625,23 +1647,9 @@ cli_emit_msg_body:
     b.eq .Lmb_dt_week
     mov x0, x19
     LEA x1, s_dt_unrec_prefix
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    LEA x1, s_q
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    mov x1, x21
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    LEA x1, s_q
-    bl tc_cat_cstr
-    mov x19, x0
-    mov x0, x19
-    LEA x1, s_dt_unrec_suffix
-    bl tc_cat_cstr
+    mov x2, x21                     // display
+    LEA x3, s_dt_unrec_suffix
+    bl cli_cat_quoted
     mov x19, x0
     b .Lmb_done
 .Lmb_dt_week:
@@ -1824,9 +1832,9 @@ cli_pp_long:
     // comparison pointer: the token name WITHOUT the leading "--"
     // (getopt's longopts names have no dashes)
     add x23, x19, #2
-    // exact match in cli_longopts
+    // exact match in cli_longopts (x25 is the prefix-match counter; it is
+    // re-zeroed below in .Lpl_no_exact)
     LEA x24, cli_longopts
-    mov x25, #0
 .Lpl_exact:
     ldr x26, [x24]
     cbz x26, .Lpl_no_exact
@@ -1834,8 +1842,7 @@ cli_pp_long:
     mov x1, x26
     bl tc_streq
     cbnz x0, .Lpl_found
-    add x24, x24, #32
-    add x25, x25, #1
+    add x24, x24, #LONGOPT_REC_SZ
     b .Lpl_exact
 .Lpl_found:
     mov x26, x24
@@ -1859,7 +1866,7 @@ cli_pp_long:
     add x25, x25, #1
     mov x27, x24
 .Lpl_pre_next:
-    add x24, x24, #32
+    add x24, x24, #LONGOPT_REC_SZ
     b .Lpl_pre
 .Lpl_pre_done:
     cmp x25, #1
@@ -1900,67 +1907,37 @@ cli_pp_long:
     bl cli_is_value_token
     cbz x0, .Lpl_no_value
     // value available: rebuild the slot as "fullname=value"
-    strb wzr, [x21]
-    mov w2, #'-'
-    strb w2, [x21]
-    mov w2, #'-'
-    strb w2, [x21, #1]
-    add x0, x21, #2
+    mov x0, x21
     mov x1, x28
-    bl tc_cat_cstr
-    mov x23, x0
-    mov w2, #'='
-    strb w2, [x23], #1
-    mov x0, x23
     LEA x24, cli_argv_saved
     ldr x24, [x24]
-    ldr x1, [x24, x25, lsl #3]
-    bl tc_cat_cstr
-    mov x0, x21
+    ldr x2, [x24, x25, lsl #3]
+    bl cli_pp_rewrite_long
     bl cli_pp_emit
     add x0, x20, #2
     b .Lpl_ret
 .Lpl_inline:
     // rebuild slot = fullname + "=" + rest
-    strb wzr, [x21]
-    mov w2, #'-'
-    strb w2, [x21]
-    mov w2, #'-'
-    strb w2, [x21, #1]
-    add x0, x21, #2
-    mov x1, x28
-    bl tc_cat_cstr
-    mov x23, x0
-    mov w2, #'='
-    strb w2, [x23], #1
-    mov x0, x23
-    mov x1, x22
-    bl tc_cat_cstr
     mov x0, x21
+    mov x1, x28
+    mov x2, x22
+    bl cli_pp_rewrite_long
     bl cli_pp_emit
     add x0, x20, #1
     b .Lpl_ret
-.Lpl_space:
-    // unused; the space-form merge happens in .Lpl_have above
-    b .Lpl_no_value
 .Lpl_bool:
     cbnz x22, .Lpl_bool_explicit
     // rewrite to the full name in the slot
-    strb wzr, [x21]
-    mov w2, #'-'
-    strb w2, [x21]
-    mov w2, #'-'
-    strb w2, [x21, #1]
-    add x0, x21, #2
-    mov x1, x28
-    bl tc_cat_cstr
     mov x0, x21
+    mov x1, x28
+    mov x2, #0
+    bl cli_pp_rewrite_long
     bl cli_pp_emit
     add x0, x20, #1
     b .Lpl_ret
 .Lpl_bool_explicit:
     LEA x0, cli_scratch2
-    mov x1, x26
+    ldr x1, [x26, #24]              // val
     mov x2, x22
     bl cli_build_ignored_explicit
     LEA x0, cli_scratch2
@@ -1968,16 +1945,11 @@ cli_pp_long:
 .Lpl_no_value:
     cmp w27, #1
     b.eq .Lpl_missing
-    // optional: no value (from-config)
-    strb wzr, [x21]
-    mov w2, #'-'
-    strb w2, [x21]
-    mov w2, #'-'
-    strb w2, [x21, #1]
-    add x0, x21, #2
-    mov x1, x28
-    bl tc_cat_cstr
+    // optional: no value (from-config); rewrite to the full name
     mov x0, x21
+    mov x1, x28
+    mov x2, #0
+    bl cli_pp_rewrite_long
     bl cli_pp_emit
     add x0, x20, #1
     b .Lpl_ret
@@ -1986,6 +1958,32 @@ cli_pp_long:
     bl cli_arg_missing_value
 .Lpl_ret:
     EPILOGUE 5
+    ret
+
+// ----------------------------------------------------------------------------
+// cli_pp_rewrite_long(x0=slot, x1=name, x2=value_or_0) -> x0 = slot
+//   Rebuilds an argv slot as "--name", appending "=value" when value_or_0 is
+//   non-zero.  Shared by the four full-name rewrites in cli_pp_long.
+// ----------------------------------------------------------------------------
+    .p2align 2
+cli_pp_rewrite_long:
+    PROLOGUE 1
+    mov x19, x0                     // slot
+    mov x20, x2                     // value (0 = none)
+    strb wzr, [x0]
+    mov w3, #'-'
+    strb w3, [x0]
+    strb w3, [x0, #1]
+    add x0, x0, #2
+    bl tc_cat_cstr                  // append name
+    cbz x20, .Lprl_done
+    mov w3, #'='
+    strb w3, [x0], #1
+    mov x1, x20
+    bl tc_cat_cstr                  // append value
+.Lprl_done:
+    mov x0, x19                     // slot
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
@@ -2065,14 +2063,17 @@ cli_build_ambiguous:
     bl tc_cat_cstr
     mov x21, x0
 .Lba_next:
-    add x24, x24, #32
+    add x24, x24, #LONGOPT_REC_SZ
     b .Lba
 .Lba_done:
     EPILOGUE 5
     ret
 
 // ----------------------------------------------------------------------------
-// cli_build_ignored_explicit(x0=dst, x1=longopts record, x2=value)
+// cli_build_ignored_explicit(x0=dst, x1=val, x2=value) -> cursor
+//   Composes "argument <canonical>: ignored explicit argument '<value>" for
+//   the bool-with-explicit-value error (shared by long and short options;
+//   the caller resolves val from the longopts record or the short map).
 // ----------------------------------------------------------------------------
     .p2align 2
 cli_build_ignored_explicit:
@@ -2085,7 +2086,7 @@ cli_build_ignored_explicit:
     LEA x1, s_arg_prefix
     bl tc_cat_cstr
     mov x22, x0
-    ldr w0, [x20, #24]              // val
+    mov x0, x20
     bl cli_val_canon
     mov x1, x0
     mov x0, x22
@@ -2192,7 +2193,7 @@ cli_pp_short:
     LEA x0, cli_scratch2
     mov x1, x23
     mov x2, x26
-    bl cli_build_ignored_short_explicit
+    bl cli_build_ignored_explicit
     LEA x0, cli_scratch2
     bl cli_arg_error
 .Lps_unknown:
@@ -2354,7 +2355,7 @@ cli_pp_build_long_val:
     ldr w2, [x0, #24]
     cmp w2, w19
     b.eq .Lpbv_found
-    add x0, x0, #32
+    add x0, x0, #LONGOPT_REC_SZ
     b .Lpbv_scan
 .Lpbv_found:
     mov x22, x1
@@ -2423,39 +2424,6 @@ cli_short_lookup:
     ret
 
 // ----------------------------------------------------------------------------
-// cli_build_ignored_short_explicit(x0=dst, x1=val, x2=value)
-// ----------------------------------------------------------------------------
-    .p2align 2
-cli_build_ignored_short_explicit:
-    PROLOGUE 5
-    mov x19, x0
-    mov x20, x1
-    mov x21, x2
-    mov x22, x19
-    mov x0, x22
-    LEA x1, s_arg_prefix
-    bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x20
-    bl cli_val_canon
-    mov x1, x0
-    mov x0, x22
-    bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
-    LEA x1, s_ignored_explicit
-    bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
-    mov x1, x21
-    bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
-    LEA x1, s_q
-    EPILOGUE 5
-    ret
-
-// ============================================================================
 // cli_is_value_token(x0=s) -> x0 = 1 when a following option may consume it.
 //   Non-destructive mirror of argparse's _parse_optional(s) is None.
 // ============================================================================
@@ -3013,6 +2981,12 @@ cli_resolve_window:
     bl cli_win_set
     b .Lrw_convert
 .Lrw_env:
+    // .Lrw_env / .Lrw_cfg are intentionally near-duplicated: they differ in
+    // the getter (tc_env_get vs tc_config_get — different arg counts), the
+    // source ids, the mutex strings, and their fall-through targets.  A
+    // shared helper would need a function pointer (a pattern this file
+    // otherwise avoids) for a net-zero line saving, so the duplication is
+    // kept explicit.
     LEA x0, s_env_begin
     bl tc_env_get
     mov x21, x0
@@ -3402,7 +3376,7 @@ cli_choose_columns:
 //     "rule {i}: '{text}' is not a hex colour like '#0000ff'"
 //
 //   Documented deviations (the layout caps):
-//     * TC_HL_MAX (8) rules / TC_HL_PAT_MAX (8) patterns per rule are the
+//     * TC_HL_MAX (32) rules / TC_HL_PAT_MAX (64) patterns per rule are the
 //       fixed caps; beyond them the config fails with a new message
 //       ("too many highlight rules (max 32)" / "rule {i}: too many patterns
 //       (max 64)") and patterns longer than 255 bytes fail with "rule {i}:
@@ -3608,7 +3582,6 @@ cli_hl_parse_rule:
     mov x0, x25
     LEA x1, s_key_match
     bl toml_raw_in
-    mov x0, x0
     mov x1, x22
     bl toml_rtos
     cbnz x0, .Lrh_need_pattern
@@ -3650,46 +3623,29 @@ cli_hl_parse_rule:
     str xzr, [x0]
 .Lrh_pat_copy:
     // x25 = pattern text, x27 = pattern count, x21 = pattern index
+    // pattern slot address (x26 is dead here, and survives the calls below)
+    LEA x26, tc_hl_patterns
+    mov x10, #TC_HL_PAT_MAX
+    mul x10, x24, x10                   // rule index (x24)
+    add x10, x10, x21                   // + pattern index (x21)
+    mov x11, #TC_HL_PAT_SZ
+    mul x10, x10, x11
+    add x26, x26, x10                   // pattern slot
     mov x0, x25
     bl tc_strlen
     cmp x0, #(TC_HL_PAT_SZ - 1)
     b.gt .Lrh_pat_long
     mov x2, x0                          // len
-    LEA x9, tc_hl_patterns
-    mov x10, #TC_HL_PAT_MAX
-    mul x10, x24, x10                   // rule index (x24)
-    add x10, x10, x21                   // + pattern index (x21)
-    mov x11, #TC_HL_PAT_SZ
-    mul x10, x10, x11
-    add x0, x9, x10                     // pattern slot
+    mov x0, x26
     mov x1, x25
     bl cli_copy_n
-    LEA x9, tc_hl_patterns
-    mov x10, #TC_HL_PAT_MAX
-    mul x10, x24, x10                   // rule index (x24)
-    add x10, x10, x21                   // + pattern index (x21)
-    mov x11, #TC_HL_PAT_SZ
-    mul x10, x10, x11
-    add x0, x9, x10                     // pattern slot
-    add x0, x0, x2
+    add x0, x26, x2
     strb wzr, [x0]                      // NUL-terminate the slot
     // compile-validate from the slot (the slot is the contract text)
-    LEA x9, tc_hl_patterns
-    mov x10, #TC_HL_PAT_MAX
-    mul x10, x24, x10                   // rule index (x24)
-    add x10, x10, x21                   // + pattern index (x21)
-    mov x11, #TC_HL_PAT_SZ
-    mul x10, x10, x11
-    add x0, x9, x10                     // pattern slot
+    mov x0, x26
     bl tc_strlen
     mov x1, x0
-    LEA x9, tc_hl_patterns
-    mov x10, #TC_HL_PAT_MAX
-    mul x10, x24, x10                   // rule index (x24)
-    add x10, x10, x21                   // + pattern index (x21)
-    mov x11, #TC_HL_PAT_SZ
-    mul x10, x10, x11
-    add x0, x9, x10                     // pattern slot
+    mov x0, x26
     ldr w2, =PCRE2_OPTS                 // Python re: Unicode \w \s \d, case folding
     LEA x3, cli_hl_errcode
     LEA x4, cli_hl_erroff
@@ -5153,47 +5109,47 @@ cli_parse_int_core:
 
 // cli_parse_positive_int(x0=s) -> (x0=value, x1=status)
 cli_parse_positive_int:
-    PROLOGUE 5
+    PROLOGUE 0
     bl cli_parse_int_core
     cbz x1, .Lppi_bad
     cmp x0, #1
     b.lt .Lppi_range
     mov x1, #0
-    EPILOGUE 5
+    EPILOGUE 0
     ret
 .Lppi_bad:
     mov x0, #0
     mov x1, #1
-    EPILOGUE 5
+    EPILOGUE 0
     ret
 .Lppi_range:
     mov x0, #0
     mov x1, #2
-    EPILOGUE 5
+    EPILOGUE 0
     ret
 
 cli_parse_nonnegative_int:
-    PROLOGUE 5
+    PROLOGUE 0
     bl cli_parse_int_core
     cbz x1, .Lpni_bad
     cmp x0, #0
     b.lt .Lpni_range
     mov x1, #0
-    EPILOGUE 5
+    EPILOGUE 0
     ret
 .Lpni_bad:
     mov x0, #0
     mov x1, #1
-    EPILOGUE 5
+    EPILOGUE 0
     ret
 .Lpni_range:
     mov x0, #0
     mov x1, #2
-    EPILOGUE 5
+    EPILOGUE 0
     ret
 
 cli_parse_float_core:
-    PROLOGUE 5
+    PROLOGUE 3
     mov x19, x0
     LEA x0, cli_scratch2
     mov x1, x19
@@ -5232,7 +5188,7 @@ cli_parse_float_core:
     mov x0, #0
     mov x1, #1
 .Lpfc_ret:
-    EPILOGUE 5
+    EPILOGUE 3
     ret
 
 // cli_remove_underscores(x0=s)
@@ -5254,7 +5210,7 @@ cli_remove_underscores:
 // cli_parse_nonnegative_float(x0=s) -> (x0=bits, x1=status)
     .p2align 2
 cli_parse_nonnegative_float:
-    PROLOGUE 5
+    PROLOGUE 1
     mov x19, x0
     bl cli_parse_float_core
     cbz x1, .Lpnnf_ok
@@ -5275,7 +5231,7 @@ cli_parse_nonnegative_float:
     mov x0, x20
     mov x1, #0
 .Lpnnf_ret:
-    EPILOGUE 5
+    EPILOGUE 1
     ret
 
 // cli_parse_positive_float(x0=s) -> (x0=bits, x1=status)

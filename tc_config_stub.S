@@ -58,6 +58,12 @@ tc_aliases_apply:
 
 // ----------------------------------------------------------------------------
 // tc_excl_contains(x0=ptr, x1=len) -> x0 = 1 if excluded (test model).
+//
+// NOTE (deliberate drift from tc_config.S): this stub omits the real
+// function's `len==0` / `len>25` guards and its first-byte-lowercase fast
+// path, and it consults tc_opts directly instead of tc_excl_set.  The
+// behavior is intentionally different — the exclusion tests depend on it.
+// Do NOT sync it with the real tc_excl_contains.
 // ----------------------------------------------------------------------------
     .p2align 2
 tc_excl_contains:
@@ -199,6 +205,12 @@ stub_eq_lower:
 
 // tc_excl_src_count() -> x0 = 0: the stub has no exclusion sources (the
 // render/json modules linked into tc-core-test ask for the count).
+//
+// DANGER: this is a FUNCTION here but a .bss DATA variable (`.skip 8`) in
+// the real tc_config.S.  Any `LEA xN, tc_excl_src_count` followed by
+// `ldr` (as tc_render.S / check_tc_config.S do against the real module)
+// would read the function's first instructions as a count in this stub.
+// The tests depend on the function form — do NOT convert it to data.
     .p2align 2
     .global tc_excl_src_count
     FUNC_TYPE(tc_excl_src_count)

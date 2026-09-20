@@ -50,6 +50,17 @@
     .equ JBUF_SZ,         16384
     .equ JISO_SZ,         64
 
+// Record layouts this module reads (mirrors tc_render.S's local constants):
+    .equ PLAN_CACHE_USED,    0          // tc_plan_cache_used + these offsets
+    .equ PLAN_CACHE_REUSED,  8          // tc_plan_cache_reused
+    .equ PLAN_CACHE_PROBLEM, 24         // tc_plan_cache_problem
+    .equ ROW_SZ,             72         // displayed row: {login[26] pad, count, live, offline, unknown, key}
+    .equ ROW_COUNT,          32
+    .equ ROW_LIVE,           40
+    .equ ROW_OFFLINE,        48
+    .equ ROW_UNKNOWN,        56
+    .equ LOGIN_SZ,           26         // exclusion-name record stride
+
 // ----------------------------------------------------------------------------
 // .bss
 // ----------------------------------------------------------------------------
@@ -123,8 +134,6 @@ s_j_rows_close: .asciz "  ]"
 s_j_close4: .asciz "\n    }"
 s_j_close4nl: .asciz "    }"
 s_j_close6nl: .asciz "      }"
-s_j_close6: .asciz "\n      }"
-s_j_close8: .asciz "\n        }"
 s_j_end: .asciz "\n}\n"
 
     .p2align 3
@@ -409,6 +418,14 @@ json_jhex:
     EPILOGUE 0
     ret
 
+// json_entry_ptr(x0=base, x1=i, x2=sz) — x0 = base + i*sz (a record pointer).
+//   The one repeated `mul i, sz; add base` of the entry loops, in one place.
+    .p2align 2
+json_entry_ptr:
+    mul x2, x1, x2
+    add x0, x0, x2
+    ret
+
 // json_jint(v) — append a decimal integer (no commas)
     .p2align 2
 json_jint:
@@ -558,7 +575,7 @@ json_fmt_dt:
     .global tc_json_emit
     FUNC_TYPE(tc_json_emit)
 tc_json_emit:
-    PROLOGUE 5
+    PROLOGUE 2
     mov x0, #STDOUT
     bl json_jinit
     // { + schema blob
@@ -727,7 +744,7 @@ tc_json_emit:
     bl json_jputs
     bl json_jflush
     mov x0, #0
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -752,9 +769,10 @@ json_emit_excluded_array:
     LEA x0, s_j_ind6
     mov x1, #6
     bl json_jputraw
-    mov x2, #26
-    mul x2, x22, x2
-    add x0, x21, x2
+    mov x0, x21
+    mov x1, x22
+    mov x2, #LOGIN_SZ
+    bl json_entry_ptr
     bl json_jquoted
     add x9, x22, #1
     cmp x9, x20
@@ -782,67 +800,66 @@ json_emit_excluded_array:
     EPILOGUE 2
     ret
 
-// json_src_entry(key, set_id) — emit `      "key": <source of set_id>,\n`
+// ============================================================================
+// json_src_emit(key, value_ptr, last) — `      "key": "<value>",\n` with a
+//   trailing comma unless last != 0.  Shared body of the three source-entry
+//   emitters (json_src_entry / json_src_entry_ptr / json_src_entry_last).
+// ============================================================================
+    .p2align 2
+json_src_emit:
+    PROLOGUE 2
+    mov x19, x0                        // key
+    mov x20, x1                        // value ptr
+    mov x21, x2                        // last 0/1
+    LEA x0, s_j_ind6
+    mov x1, #6
+    bl json_jputraw
+    mov x0, x19
+    bl json_jquoted
+    LEA x0, s_j_colon
+    bl json_jputs
+    mov x0, x20
+    bl json_jquoted
+    cbnz x21, .Ljse_nocomma
+    LEA x0, s_j_comma_nl
+    bl json_jputs
+    b .Ljse_done
+.Ljse_nocomma:
+    mov w0, #'\n'
+    bl json_jputc
+.Ljse_done:
+    EPILOGUE 2
+    ret
+
+// json_src_entry(key, set_id) — resolve the set id to its source string, then
+//   the direct-pointer form (same output as before).
     .p2align 2
 json_src_entry:
     PROLOGUE 1
     mov x19, x0                        // key
     mov x20, x1                        // set id
-    LEA x0, s_j_ind6
-    mov x1, #6
-    bl json_jputraw
-    mov x0, x19
-    bl json_jquoted
-    LEA x0, s_j_colon
-    bl json_jputs
     mov x0, x20
     bl tc_setting_src_str
-    bl json_jquoted
-    LEA x0, s_j_comma_nl
-    bl json_jputs
+    mov x1, x0                         // value ptr
+    mov x0, x19                        // key
+    mov w2, #0
+    bl json_src_emit
     EPILOGUE 1
     ret
 
 // json_src_entry_ptr(key, value_ptr) — `      "key": "<value>",\n` (value is a
-// direct pointer, not a set id; same shape as json_src_entry)
+//   direct pointer, not a set id)
     .p2align 2
 json_src_entry_ptr:
-    PROLOGUE 1
-    mov x19, x0                        // key
-    mov x20, x1                        // value ptr
-    LEA x0, s_j_ind6
-    mov x1, #6
-    bl json_jputraw
-    mov x0, x19
-    bl json_jquoted
-    LEA x0, s_j_colon
-    bl json_jputs
-    mov x0, x20
-    bl json_jquoted
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    EPILOGUE 1
-    ret
+    mov w2, #0
+    b json_src_emit
 
-// json_src_entry_last(key, value_ptr) — `      "key": "<value>",\n` (last, no comma)
+// json_src_entry_last(key, value_ptr) — `      "key": "<value>\n` (last, no
+//   comma)
     .p2align 2
 json_src_entry_last:
-    PROLOGUE 1
-    mov x19, x0                        // key
-    mov x20, x1                        // value ptr
-    LEA x0, s_j_ind6
-    mov x1, #6
-    bl json_jputraw
-    mov x0, x19
-    bl json_jquoted
-    LEA x0, s_j_colon
-    bl json_jputs
-    mov x0, x20
-    bl json_jquoted
-    mov w0, #'\n'
-    bl json_jputc
-    EPILOGUE 1
-    ret
+    mov w2, #1
+    b json_src_emit
 
 // ============================================================================
 // json_emit_sources — the sorted provenance map.
@@ -935,7 +952,7 @@ json_emit_sources:
 // ============================================================================
     .p2align 2
 json_emit_totals:
-    PROLOGUE 3
+    PROLOGUE 2
     // users_shown
     LEA x0, s_j_t_shown
     bl json_jputs
@@ -1043,7 +1060,7 @@ json_emit_totals:
     LEA x0, s_j_cache_used
     bl json_jputs
     LEA x19, tc_plan_cache_used
-    ldr x20, [x19]
+    ldr x20, [x19, #PLAN_CACHE_USED]
     cbz x20, .Ljt_used_false
     LEA x0, s_j_true
     bl json_jputs
@@ -1056,13 +1073,13 @@ json_emit_totals:
     bl json_jputs
     LEA x0, s_j_cache_days
     bl json_jputs
-    ldr x0, [x19, #8]                 // reused
+    ldr x0, [x19, #PLAN_CACHE_REUSED]  // reused
     bl json_jint
     LEA x0, s_j_comma_nl
     bl json_jputs
     LEA x0, s_j_cache_prob
     bl json_jputs
-    ldr x20, [x19, #24]               // problem
+    ldr x20, [x19, #PLAN_CACHE_PROBLEM] // problem
     cbz x20, .Ljt_prob_null
     mov x0, x20
     bl json_jquoted
@@ -1081,75 +1098,25 @@ json_emit_totals:
     LEA x0, s_j_t_unreadable
     bl json_jputs
     bl json_emit_unreadable
-    EPILOGUE 3
+    EPILOGUE 2
     ret
 
-// json_emit_totals_states — the all-state split object (nonzero only)
+// json_emit_totals_states — the all-state split object (nonzero only).
+//   The `{`/`}` shape is shared with json_emit_row_states.
     .p2align 2
 json_emit_totals_states:
-    PROLOGUE 4
+    PROLOGUE 2
     LEA x19, tc_tally
     ldr x20, [x19, #TC_T_STATES + 0]
     ldr x21, [x19, #TC_T_STATES + 8]
     ldr x22, [x19, #TC_T_STATES + 16]
-    orr x23, x20, x21
-    orr x23, x23, x22
-    cbz x23, .Ljts_empty
-    mov w0, #'{'
-    bl json_jputc
-    mov w0, #'\n'
-    bl json_jputc
-    mov x24, #0                        // state idx
-.Ljts_loop:
-    cmp x24, #3
-    b.ge .Ljts_done
-    add x25, x19, #TC_T_STATES
-    ldr x25, [x25, x24, lsl #3]
-    cbz x25, .Ljts_next
-    LEA x0, s_j_ind6
-    mov x1, #6
-    bl json_jputraw
-    LEA x0, state_names_json
-    ldr x0, [x0, x24, lsl #3]
-    bl json_jquoted
-    LEA x0, s_j_colon
-    bl json_jputs
-    mov x0, x25
-    bl json_jint
-    add x9, x24, #1
-    // is there a later nonzero state?
-    mov x10, x9
-.Ljts_find:
-    cmp x10, #3
-    b.ge .Ljts_nocomma
-    add x11, x19, #TC_T_STATES
-    ldr x11, [x11, x10, lsl #3]
-    cbnz x11, .Ljts_comma
-    add x10, x10, #1
-    b .Ljts_find
-.Ljts_comma:
-    mov w0, #','
-    bl json_jputc
-    b .Ljts_nl
-.Ljts_nocomma:
-    b .Ljts_nl
-.Ljts_nl:
-    mov w0, #'\n'
-    bl json_jputc
-.Ljts_next:
-    add x24, x24, #1
-    b .Ljts_loop
-.Ljts_done:
-    LEA x0, s_j_close4nl
-    bl json_jputs
-    b .Ljts_out
-.Ljts_empty:
-    mov w0, #'{'
-    bl json_jputc
-    mov w0, #'}'
-    bl json_jputc
-.Ljts_out:
-    EPILOGUE 4
+    mov x0, x20
+    mov x1, x21
+    mov x2, x22
+    LEA x3, s_j_ind6
+    LEA x4, s_j_close4nl
+    bl json_emit_state_obj
+    EPILOGUE 2
     ret
 
 // json_emit_unreadable — the array of {file, problem}
@@ -1183,9 +1150,10 @@ json_emit_unreadable:
     bl json_jputraw
     LEA x0, s_j_file
     bl json_jputs
+    mov x0, x21
+    mov x1, x22
     mov x2, #TC_T_UNR_ENTRY_SZ
-    mul x2, x22, x2
-    add x0, x21, x2
+    bl json_entry_ptr
     bl json_jquoted
     LEA x0, s_j_comma_nl
     bl json_jputs
@@ -1194,9 +1162,10 @@ json_emit_unreadable:
     bl json_jputraw
     LEA x0, s_j_problem
     bl json_jputs
+    mov x0, x21
+    mov x1, x22
     mov x2, #TC_T_UNR_ENTRY_SZ
-    mul x2, x22, x2
-    add x0, x21, x2
+    bl json_entry_ptr
     add x0, x0, #TC_T_UNR_NAME_SZ
     bl json_jquoted
     mov w0, #'\n'
@@ -1247,9 +1216,11 @@ json_emit_rows:
 .Ljer_loop:
     cmp x22, x20
     b.ge .Ljer_done
-    mov x0, #72                        // ROW_SZ
-    mul x0, x22, x0
-    add x23, x21, x0                   // rec
+    mov x0, x21
+    mov x1, x22
+    mov x2, #ROW_SZ
+    bl json_entry_ptr
+    mov x23, x0                        // rec
     LEA x0, s_j_ind4
     mov x1, #4
     bl json_jputraw
@@ -1266,7 +1237,7 @@ json_emit_rows:
     // count
     LEA x0, s_j_count
     bl json_jputs
-    ldr x0, [x23, #32]                 // ROW_COUNT
+    ldr x0, [x23, #ROW_COUNT]
     bl json_jint
     LEA x0, s_j_comma_nl
     bl json_jputs
@@ -1305,14 +1276,14 @@ json_emit_rows:
 //   expects x23 = rec, x20 = displayed_n (unused here)
     .p2align 2
 json_emit_row_states:
-    PROLOGUE 5
+    PROLOGUE 3
     mov x19, x23                       // rec
     LEA x20, tc_window
     ldr x21, [x20, #TC_W_STATE_FILTER]
     // gather the three (state, count) pairs
-    ldr x22, [x19, #40]                // ROW_LIVE
-    ldr x23, [x19, #48]                // ROW_OFFLINE
-    ldr x24, [x19, #56]                // ROW_UNKNOWN
+    ldr x22, [x19, #ROW_LIVE]
+    ldr x23, [x19, #ROW_OFFLINE]
+    ldr x24, [x19, #ROW_UNKNOWN]
     // filter: keep only the matching state
     cmp x21, #TC_ST_NONE
     b.eq .Ljrs_write
@@ -1330,83 +1301,106 @@ json_emit_row_states:
 .Ljrs_off_only:
     mov x22, #0
     mov x24, #0
-    b .Ljrs_write
 .Ljrs_write:
-    orr x25, x22, x23
-    orr x25, x25, x24
-    cbz x25, .Ljrs_empty
+    mov x0, x22
+    mov x1, x23
+    mov x2, x24
+    LEA x3, s_j_ind8
+    LEA x4, s_j_close6nl
+    bl json_emit_state_obj
+    EPILOGUE 3
+    ret
+
+// ============================================================================
+// json_emit_state_obj(live=x0, offline=x1, unknown=x2, entry_indent=x3,
+//   close_indent=x4) — the `{`/`}` object of the nonzero state counts:
+//   "{", newline, each nonzero `"name": n` at entry_indent, comma when a
+//   later state is nonzero, newline, then close_indent + "}".  Shared by
+//   json_emit_totals_states (indent 6, close 4) and json_emit_row_states
+//   (indent 8, close 6).
+// ============================================================================
+    .p2align 2
+json_emit_state_obj:
+    PROLOGUE 4
+    mov x19, x0                        // live
+    mov x20, x1                        // offline
+    mov x21, x2                        // unknown
+    mov x22, x3                        // entry indent (asciz)
+    mov x23, x4                        // close indent (asciz)
+    orr x24, x19, x20
+    orr x24, x24, x21
+    cbz x24, .Ljeso_empty
     mov w0, #'{'
     bl json_jputc
     mov w0, #'\n'
     bl json_jputc
-    mov x26, #0                        // idx (0=live,1=offline,2=unknown)
-.Ljrs_loop:
-    cmp x26, #3
-    b.ge .Ljrs_done
-    cmp x26, #0
-    b.eq .Ljrs_live_v
-    cmp x26, #1
-    b.eq .Ljrs_off_v
-    mov x27, x24
-    b .Ljrs_emit
-.Ljrs_live_v:
-    mov x27, x22
-    b .Ljrs_emit
-.Ljrs_off_v:
-    mov x27, x23
-.Ljrs_emit:
-    cbz x27, .Ljrs_next
-    LEA x0, s_j_ind8
-    mov x1, #8
-    bl json_jputraw
+    mov x25, #0                        // state idx (0=live,1=offline,2=unknown)
+.Ljeso_loop:
+    cmp x25, #3
+    b.ge .Ljeso_done
+    cmp x25, #0
+    b.eq .Ljeso_live_v
+    cmp x25, #1
+    b.eq .Ljeso_off_v
+    mov x26, x21                       // unknown
+    b .Ljeso_emit
+.Ljeso_live_v:
+    mov x26, x19
+    b .Ljeso_emit
+.Ljeso_off_v:
+    mov x26, x20
+.Ljeso_emit:
+    cbz x26, .Ljeso_next
+    mov x0, x22
+    bl json_jputs
     LEA x0, state_names_json
-    ldr x0, [x0, x26, lsl #3]
+    ldr x0, [x0, x25, lsl #3]
     bl json_jquoted
     LEA x0, s_j_colon
     bl json_jputs
-    mov x0, x27
+    mov x0, x26
     bl json_jint
     // comma if a later state is nonzero
-    mov x10, x26
+    mov x10, x25
     add x10, x10, #1
-.Ljrs_find:
+.Ljeso_find:
     cmp x10, #3
-    b.ge .Ljrs_nocomma
+    b.ge .Ljeso_nocomma
     cmp x10, #0
-    b.eq .Ljrs_f_live
+    b.eq .Ljeso_f_live
     cmp x10, #1
-    b.eq .Ljrs_f_off
-    mov x11, x24
-    b .Ljrs_f_check
-.Ljrs_f_live:
-    mov x11, x22
-    b .Ljrs_f_check
-.Ljrs_f_off:
-    mov x11, x23
-.Ljrs_f_check:
-    cbnz x11, .Ljrs_comma
+    b.eq .Ljeso_f_off
+    mov x11, x21                       // unknown
+    b .Ljeso_f_check
+.Ljeso_f_live:
+    mov x11, x19
+    b .Ljeso_f_check
+.Ljeso_f_off:
+    mov x11, x20
+.Ljeso_f_check:
+    cbnz x11, .Ljeso_comma
     add x10, x10, #1
-    b .Ljrs_find
-.Ljrs_comma:
+    b .Ljeso_find
+.Ljeso_comma:
     mov w0, #','
     bl json_jputc
-.Ljrs_nocomma:
+.Ljeso_nocomma:
     mov w0, #'\n'
     bl json_jputc
-.Ljrs_next:
-    add x26, x26, #1
-    b .Ljrs_loop
-.Ljrs_done:
-    LEA x0, s_j_close6nl
+.Ljeso_next:
+    add x25, x25, #1
+    b .Ljeso_loop
+.Ljeso_done:
+    mov x0, x23
     bl json_jputs
-    b .Ljrs_out
-.Ljrs_empty:
+    b .Ljeso_out
+.Ljeso_empty:
     mov w0, #'{'
     bl json_jputc
     mov w0, #'}'
     bl json_jputc
-.Ljrs_out:
-    EPILOGUE 5
+.Ljeso_out:
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -1447,7 +1441,6 @@ s_js_show:          .asciz "show"
 s_js_sort:          .asciz "sort"
 s_js_state:         .asciz "state"
 s_js_top:           .asciz "top"
-s_j_ind10:          .ascii "          "
 s_j_file:           .asciz "\"file\": "
 s_j_problem:        .asciz "\"problem\": "
 

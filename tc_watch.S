@@ -1378,6 +1378,24 @@ watch_build_dirpath:
     ret
 
 // ============================================================================
+// watch_build_fpath(entry) — watch_fpath = dirpath + "/" + entry.name.
+//   Clobbers x0-x17 (caller-saved) and x19-x20 (saved/restored here).
+// ============================================================================
+    .p2align 2
+watch_build_fpath:
+    PROLOGUE 1
+    mov x19, x0                        // entry
+    LEA x0, watch_fpath
+    LEA x1, watch_dirpath
+    bl watch_wc_cat
+    mov w2, #'/'
+    strb w2, [x0], #1
+    add x1, x19, #TC_L_NAME
+    bl watch_wc_cat
+    EPILOGUE 1
+    ret
+
+// ============================================================================
 // watch_build_listing — fill tc_listing with dated log files (ascending),
 //   memoized on the channel directory's mtime_ns.
 // ============================================================================
@@ -2006,22 +2024,13 @@ watch_bucket_insert:
     ldr x24, [x19, #RD_BUCKET_N]
     ldr x25, [x19, #RD_BUCKET_CAP]
     // grow?
-    cmp x24, x25
-    b.lt .Lwbi_grown
-    cbz x25, .Lwbi_new
-    lsl x25, x25, #1
-    b .Lwbi_alloc
-.Lwbi_new:
-    mov x25, #BK_INIT
-.Lwbi_alloc:
-    mov x26, x25                       // new cap
-    ldr x0, [x19, #RD_BUCKETS]
-    mov x1, #BK_SZ
-    mul x1, x25, x1
-    bl realloc
+    add x0, x19, #RD_BUCKETS
+    add x1, x19, #RD_BUCKET_CAP
+    mov x2, x24                        // n
+    mov x3, #BK_SZ
+    mov x4, #BK_INIT
+    bl watch_grow_array                // x0 = array ptr or 0
     cbz x0, .Lwbi_oom
-    str x0, [x19, #RD_BUCKETS]
-    str x26, [x19, #RD_BUCKET_CAP]
 .Lwbi_grown:
     // find the insertion position: lower_bound over (second, login, state)
     ldr x24, [x19, #RD_BUCKET_N]
@@ -2202,22 +2211,6 @@ watch_memcmp_n:
     mov x0, #-1
     ret
 
-// ============================================================================
-// watch_reader_refresh(rd, stat, enter, floor) -> x0 = RD_OK_NEW / RD_OK_NONE
-//   / RD_ERR.  The Python TailReader.refresh: identity + size checks, cold
-//   seek, read the appended bytes, fold complete lines.
-//   in: x0 = rd, x1 = stat ptr, x2 = enter state, x3 = floor (u64)
-//   Register roles: x19=rd, x20=stat, x21=enter, x22=floor, x23=fd,
-//   x24=text buf, x25=text len, x26=scratch, x27=cold flag (survives calls),
-//   x28=scratch2.
-// ============================================================================
-// watch_reader_refresh(rd, stat, enter, floor) -> x0 = RD_OK_NEW / RD_OK_NONE
-//   / RD_ERR.  The Python TailReader.refresh: identity + size checks, cold
-//   seek, read the appended bytes, fold complete lines.
-//   in: x0 = rd, x1 = stat ptr, x2 = enter state, x3 = floor (u64)
-//   Register roles: x19=rd, x20=stat, x21=enter, x22=floor, x23=fd,
-//   x24=text buf, x25=text len, x26=scratch, x27=cold flag (survives calls),
-//   x28=scratch2.
 // ============================================================================
 // watch_reader_refresh(rd, stat, enter, floor) -> x0 = RD_OK_NEW / RD_OK_NONE
 //   / RD_ERR.  The Python TailReader.refresh: identity + size checks, cold
@@ -2575,6 +2568,84 @@ watch_copy_to:
     add x0, x0, x2
     ret
 
+// watch_copy_login(dst, src) -> x0 = dst.  Copies a login (up to 25 bytes,
+//   NUL-terminated) into dst and NUL-terminates it.  Clobbers x0, x1, x5,
+//   x6 only (callers keep live state in x3/x4 or callee-saved regs).
+    .p2align 2
+watch_copy_login:
+    mov x5, #0
+.Lwcol_loop:
+    ldrb w6, [x1, x5]
+    cbz w6, .Lwcol_done
+    cmp x5, #25
+    b.ge .Lwcol_done
+    strb w6, [x0, x5]
+    add x5, x5, #1
+    b .Lwcol_loop
+.Lwcol_done:
+    mov w6, #0
+    strb w6, [x0, x5]
+    ret
+
+// watch_login_eq(a, b) -> x0 = 1 if the two NUL-terminated strings match
+//   byte-for-byte, else 0.  Clobbers x0, x1, x5, x6, x7 only (callers keep
+//   live state in x2/x3/x4/x8 or callee-saved regs).
+    .p2align 2
+watch_login_eq:
+    mov x5, #0
+.Lwle_loop:
+    ldrb w6, [x0, x5]
+    ldrb w7, [x1, x5]
+    cmp w6, w7
+    b.ne .Lwle_ne
+    cbz w6, .Lwle_eq
+    add x5, x5, #1
+    b .Lwle_loop
+.Lwle_eq:
+    mov x0, #1
+    ret
+.Lwle_ne:
+    mov x0, #0
+    ret
+
+// watch_grow_array(ptr_slot, cap_slot, n, elem_sz, init) -> x0 = array ptr
+//   (0 on OOM).  When n == *cap_slot, double the cap (or init when 0) and
+//   realloc; the new ptr/cap are written back through the slots.  When
+//   n < *cap_slot the array is returned unchanged.  Clobbers x0-x17 only;
+//   x19-x28 are preserved.
+    .p2align 2
+watch_grow_array:
+    PROLOGUE 3
+    mov x19, x0                        // ptr_slot
+    mov x20, x1                        // cap_slot
+    mov x21, x2                        // n
+    mov x22, x3                        // elem_sz
+    mov x23, x4                        // init
+    ldr x24, [x20]                     // cap
+    cmp x21, x24
+    b.lt .Lwga_no
+    cbz x24, .Lwga_new
+    lsl x24, x24, #1
+    b .Lwga_alloc
+.Lwga_new:
+    mov x24, x23
+.Lwga_alloc:
+    ldr x0, [x19]                      // old ptr
+    mov x1, x22
+    mul x1, x1, x24                    // elem_sz * new cap
+    bl realloc
+    cbz x0, .Lwga_oom
+    str x0, [x19]                      // write back the new ptr
+    str x24, [x20]                     // write back the new cap
+.Lwga_no:
+    ldr x0, [x19]                      // current array ptr
+    EPILOGUE 3
+    ret
+.Lwga_oom:
+    mov x0, #0
+    EPILOGUE 3
+    ret
+
 // watch_last_newline(buf, len) -> x0 = index of the last '\n' or -1
     .p2align 2
 watch_last_newline:
@@ -2631,9 +2702,6 @@ watch_seek_window:
     bl watch_line_at_or_after          // x0 = offset or len
     cmp x0, #0
     b.le .Lwsw_zero                    // start <= 0 -> (0, None) ... Python returns 0
-    // Python: if start <= 0: return 0, None  (start==0 means the whole text is inside)
-    cmp x0, #0
-    b.eq .Lwsw_zero
     mov x22, x0                        // start
     // scan the prefix for the last " is live!" / " is now offline." marker
     mov x23, #-1                       // state
@@ -2999,6 +3067,56 @@ watch_rfind:
     EPILOGUE 1
     ret
 
+// watch_check_timestamp_prefix(line) -> x0 = 1 if line[0..10] == "[HH:MM:SS] "
+//   (the shape prefix both marker and message folds demand), else 0.  The
+//   length guards stay in the callers.  Clobbers x0-x9 only.
+    .p2align 2
+watch_check_timestamp_prefix:
+    ldrb w9, [x0]
+    cmp w9, #'['
+    b.ne .Lwctp_no
+    ldrb w9, [x0, #1]
+    sub w9, w9, #'0'
+    cmp w9, #9
+    b.hi .Lwctp_no
+    ldrb w9, [x0, #2]
+    sub w9, w9, #'0'
+    cmp w9, #9
+    b.hi .Lwctp_no
+    ldrb w9, [x0, #3]
+    cmp w9, #':'
+    b.ne .Lwctp_no
+    ldrb w9, [x0, #4]
+    sub w9, w9, #'0'
+    cmp w9, #9
+    b.hi .Lwctp_no
+    ldrb w9, [x0, #5]
+    sub w9, w9, #'0'
+    cmp w9, #9
+    b.hi .Lwctp_no
+    ldrb w9, [x0, #6]
+    cmp w9, #':'
+    b.ne .Lwctp_no
+    ldrb w9, [x0, #7]
+    sub w9, w9, #'0'
+    cmp w9, #9
+    b.hi .Lwctp_no
+    ldrb w9, [x0, #8]
+    sub w9, w9, #'0'
+    cmp w9, #9
+    b.hi .Lwctp_no
+    ldrb w9, [x0, #9]
+    cmp w9, #']'
+    b.ne .Lwctp_no
+    ldrb w9, [x0, #10]
+    cmp w9, #' '
+    b.ne .Lwctp_no
+    mov x0, #1
+    ret
+.Lwctp_no:
+    mov x0, #0
+    ret
+
 // watch_line_is_marker(line, len) -> x0 = 1 (live) / 2 (offline) / 0.
 //   LIVE_RE: ^\[\d{2}:\d{2}:\d{2}\] \S+ is (live!|now offline\.)$
     .p2align 2
@@ -3009,45 +3127,9 @@ watch_line_is_marker:
     // shape: [HH:MM:SS] then space then \S+ then " is live!" / " is now offline."
     cmp x20, #12
     b.lt .Lwlim_no
-    ldrb w3, [x19]
-    cmp w3, #'['
-    b.ne .Lwlim_no
-    ldrb w3, [x19, #1]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwlim_no
-    ldrb w3, [x19, #2]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwlim_no
-    ldrb w3, [x19, #3]
-    cmp w3, #':'
-    b.ne .Lwlim_no
-    ldrb w3, [x19, #4]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwlim_no
-    ldrb w3, [x19, #5]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwlim_no
-    ldrb w3, [x19, #6]
-    cmp w3, #':'
-    b.ne .Lwlim_no
-    ldrb w3, [x19, #7]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwlim_no
-    ldrb w3, [x19, #8]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwlim_no
-    ldrb w3, [x19, #9]
-    cmp w3, #']'
-    b.ne .Lwlim_no
-    ldrb w3, [x19, #10]
-    cmp w3, #' '
-    b.ne .Lwlim_no
+    mov x0, x19                        // line
+    bl watch_check_timestamp_prefix    // x0 = 1 if the prefix matches
+    cbz x0, .Lwlim_no
     // \S+ = at least one char without a space before the trailing literal
     // find " is live!" at the end
     add x9, x19, #11                  // speaker start
@@ -3212,45 +3294,9 @@ watch_fold_line:
     // LINE_RE shape (mirror core_process_message)
     cmp x21, #11
     b.lt .Lwfln_skip
-    ldrb w3, [x20]
-    cmp w3, #'['
-    b.ne .Lwfln_skip
-    ldrb w3, [x20, #1]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwfln_skip
-    ldrb w3, [x20, #2]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwfln_skip
-    ldrb w3, [x20, #3]
-    cmp w3, #':'
-    b.ne .Lwfln_skip
-    ldrb w3, [x20, #4]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwfln_skip
-    ldrb w3, [x20, #5]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwfln_skip
-    ldrb w3, [x20, #6]
-    cmp w3, #':'
-    b.ne .Lwfln_skip
-    ldrb w3, [x20, #7]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwfln_skip
-    ldrb w3, [x20, #8]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lwfln_skip
-    ldrb w3, [x20, #9]
-    cmp w3, #']'
-    b.ne .Lwfln_skip
-    ldrb w3, [x20, #10]
-    cmp w3, #' '
-    b.ne .Lwfln_skip
+    mov x0, x20                        // line
+    bl watch_check_timestamp_prefix    // x0 = 1 if the prefix matches
+    cbz x0, .Lwfln_skip
     // find the first ": " in the rest
     add x24, x20, #11
     add x23, x20, x21                  // end
@@ -3367,23 +3413,13 @@ watch_fold_line:
     mov x27, x0                        // rule index (x27 now free)
     // matches append: {second, login, rule}
     ldr x26, [x19, #RD_MATCH_N]
-    ldr x9, [x19, #RD_MATCH_CAP]
-    cmp x26, x9
-    b.lt .Lwfln_mapp
-    cbz x9, .Lwfln_mnew
-    lsl x9, x9, #1
-    b .Lwflm_alloc
-.Lwfln_mnew:
-    mov x9, #MT_INIT
-.Lwflm_alloc:
-    mov x25, x9
-    ldr x0, [x19, #RD_MATCHES]
-    mov x1, #MT_SZ
-    mul x1, x9, x1
-    bl realloc
+    add x0, x19, #RD_MATCHES
+    add x1, x19, #RD_MATCH_CAP
+    mov x2, x26                        // n
+    mov x3, #MT_SZ
+    mov x4, #MT_INIT
+    bl watch_grow_array                // x0 = array ptr or 0
     cbz x0, .Lwflm_oom
-    str x0, [x19, #RD_MATCHES]
-    str x25, [x19, #RD_MATCH_CAP]
 .Lwfln_mapp:
     ldr x26, [x19, #RD_MATCH_N]
     ldr x9, [x19, #RD_MATCHES]
@@ -3907,7 +3943,7 @@ watch_ww_find:
     PROLOGUE 1
     mov x19, x0                        // win
     mov x20, x1                        // n
-    mov x0, x2                         // login
+    mov x8, x2                         // login (parked: survives watch_login_eq)
     mov x2, x3                         // state
     mov x3, #0                         // i
 .Lwwf_loop:
@@ -3919,19 +3955,12 @@ watch_ww_find:
     ldrb w5, [x4, #WW_STATE]
     cmp w5, w2
     b.ne .Lwwf_next
-    // compare login (NUL-terminated in the record)
-    mov x5, #0
-.Lwwf_cmp:
-    ldrb w6, [x4, #WW_LOGIN + 0]
-    // use offset-free compare via a register
-    add x6, x4, #WW_LOGIN
-    ldrb w7, [x6, x5]
-    ldrb w8, [x0, x5]
-    cmp w7, w8
-    b.ne .Lwwf_next
-    cbz w7, .Lwwf_found
-    add x5, x5, #1
-    b .Lwwf_cmp
+    // compare login (NUL-terminated in the record; WW_LOGIN == 0)
+    mov x0, x4                        // a = record login
+    mov x1, x8                        // b = login
+    bl watch_login_eq                 // x0 = 1 if equal
+    cbnz x0, .Lwwf_found
+    b .Lwwf_next
 .Lwwf_found:
     mov x0, x3
     EPILOGUE 1
@@ -3954,20 +3983,11 @@ watch_ww_set:
     mul x9, x20, x9
     add x9, x19, x9
     // copy login (up to 25 bytes) + NUL
-    mov x10, #0
-.Lwws_copy:
-    ldrb w11, [x2, x10]
-    cbz w11, .Lwws_copy_done
-    cmp x10, #25
-    b.ge .Lwws_copy_done
-    strb w11, [x9, x10]                  // login[i] (WW_LOGIN == 0)
-    add x10, x10, #1
-    b .Lwws_copy
-.Lwws_copy_done:
-    mov w11, #0
-    strb w11, [x9, x10]
-    strb w3, [x9, #(WW_STATE - WW_LOGIN)]
-    str x4, [x9, #(WW_N - WW_LOGIN)]
+    mov x0, x9                         // dst (field start)
+    mov x1, x2                         // src (login)
+    bl watch_copy_login                // x0 = dst
+    strb w3, [x0, #(WW_STATE - WW_LOGIN)]
+    str x4, [x0, #(WW_N - WW_LOGIN)]
     mov x0, x20
     EPILOGUE 1
     ret
@@ -3996,16 +4016,11 @@ watch_ww_add:
     ldrb w10, [x9, #WW_STATE]
     cmp w10, w21
     b.ne .Lwwa_next
-    mov x10, #0
-.Lwwa_cmp:
-    add x11, x9, #WW_LOGIN
-    ldrb w12, [x11, x10]
-    ldrb w13, [x20, x10]
-    cmp w12, w13
-    b.ne .Lwwa_next
-    cbz w12, .Lwwa_found
-    add x10, x10, #1
-    b .Lwwa_cmp
+    mov x0, x9                        // a = record login (WW_LOGIN == 0)
+    mov x1, x20                       // b = login
+    bl watch_login_eq                 // x0 = 1 if equal
+    cbnz x0, .Lwwa_found
+    b .Lwwa_next
 .Lwwa_found:
     ldr x10, [x9, #WW_N]
     add x10, x10, x22
@@ -4068,17 +4083,13 @@ watch_ww_trim:
     cbz x10, .Lwwt_next
     cmp x20, x21
     b.eq .Lwwt_keep
-    mov x11, #0
-.Lwwt_copy:
-    cmp x11, #WW_SZ
-    b.ge .Lwwt_keep
-    ldrb w12, [x9, x11]
-    mov x13, #WW_SZ
-    mul x13, x20, x13
-    add x13, x19, x13
-    strb w12, [x13, x11]
-    add x11, x11, #1
-    b .Lwwt_copy
+    mov x0, x19
+    mov x1, #WW_SZ
+    mul x0, x1, x20                    // dst = win + out*WW_SZ
+    add x0, x19, x0
+    mov x1, x9                         // src
+    mov x2, #WW_SZ
+    bl watch_memcpy_copy               // copy the whole record down
 .Lwwt_keep:
     add x20, x20, #1
 .Lwwt_next:
@@ -4290,25 +4301,13 @@ watch_memo_put:
     ldr x10, [x9]
     LEA x11, watch_days_cap
     ldr x12, [x11]
-    cmp x10, x12
-    b.lt .Lwmp_append
-    cbz x12, .Lwmp_new
-    lsl x12, x12, #1
-    b .Lwmp_alloc
-.Lwmp_new:
-    mov x12, #DAYS_INIT
-.Lwmp_alloc:
-    mov x26, x12
-    LEA x9, watch_days
-    ldr x0, [x9]
-    mov x1, #DM_SZ
-    mul x1, x12, x1
-    bl realloc
+    LEA x0, watch_days
+    LEA x1, watch_days_cap
+    mov x2, x10                        // n
+    mov x3, #DM_SZ
+    mov x4, #DAYS_INIT
+    bl watch_grow_array                // x0 = array ptr or 0
     cbz x0, .Lwmp_oom
-    LEA x9, watch_days
-    str x0, [x9]
-    LEA x9, watch_days_cap
-    str x26, [x9]
 .Lwmp_append:
     LEA x9, watch_days_n
     ldr x10, [x9]
@@ -4366,17 +4365,13 @@ watch_memo_retain:
 .Lwmr_keep:
     cmp x23, x24
     b.eq .Lwmr_next
-    mov x11, #0
-.Lwmr_copy:
-    cmp x11, #DM_SZ
-    b.ge .Lwmr_next
-    ldrb w12, [x10, x11]
-    mov x13, #DM_SZ
-    mul x13, x23, x13
-    add x13, x22, x13
-    strb w12, [x13, x11]
-    add x11, x11, #1
-    b .Lwmr_copy
+    mov x0, x22
+    mov x1, #DM_SZ
+    mul x0, x1, x23                    // dst = memos + out*DM_SZ
+    add x0, x22, x0
+    mov x1, x10                        // src
+    mov x2, #DM_SZ
+    bl watch_memcpy_copy               // copy the whole record down
 .Lwmr_next:
     add x23, x23, #1
     add x24, x24, #1
@@ -4459,14 +4454,8 @@ watch_count_tick:
     add x14, x14, #1
     b .Lwct_unr_loop
 .Lwct_unr_done:
-    // retain readers + day memos to the in-range paths/dates
-    LEA x9, watch_win_n
-    ldr x9, [x9]
-    cbz x9, .Lwct_retain_done
-    LEA x0, watch_wins
-    ldr x0, [x0]
-    // (the windows list is handled in watch_gather; readers are retained below)
-.Lwct_retain_done:
+    // retain readers + day memos to the in-range paths/dates; the windows
+    // list itself is handled in watch_gather.
     bl watch_retain_readers
     EPILOGUE 5
     ret
@@ -4622,13 +4611,8 @@ watch_gather_file:
     mov x25, #1                        // whole_day
 .Lwgf_wd_done:
     // build the file path
-    LEA x0, watch_fpath
-    LEA x1, watch_dirpath
-    bl watch_wc_cat
-    mov w2, #'/'
-    strb w2, [x0], #1
-    add x1, x19, #TC_L_NAME
-    bl watch_wc_cat
+    mov x0, x19                        // entry
+    bl watch_build_fpath
     // stat (x19, the entry, is callee-saved: it survives the calls above)
     LEA x0, watch_fpath
     LEA x20, watch_stat
@@ -4917,25 +4901,13 @@ watch_win_add:
     ldr x10, [x9]
     LEA x11, watch_wins_cap
     ldr x12, [x11]
-    cmp x10, x12
-    b.lt .Lwina_append
-    cbz x12, .Lwina_new
-    lsl x12, x12, #1
-    b .Lwina_alloc
-.Lwina_new:
-    mov x12, #WINLIST_INIT
-.Lwina_alloc:
-    mov x20, x12
-    LEA x9, watch_wins
-    ldr x0, [x9]
-    mov x1, #8
-    mul x1, x12, x1
-    bl realloc
+    LEA x0, watch_wins
+    LEA x1, watch_wins_cap
+    mov x2, x10                        // n
+    mov x3, #8
+    mov x4, #WINLIST_INIT
+    bl watch_grow_array                // x0 = array ptr or 0
     cbz x0, .Lwina_oom
-    LEA x9, watch_wins
-    str x0, [x9]
-    LEA x9, watch_wins_cap
-    str x20, [x9]
 .Lwina_append:
     LEA x9, watch_win_n
     ldr x10, [x9]
@@ -5409,13 +5381,8 @@ watch_seed_state:
     mul x9, x24, x9
     add x25, x22, x9                   // last entry
     // build its path
-    LEA x0, watch_fpath
-    LEA x1, watch_dirpath
-    bl watch_wc_cat
-    mov w2, #'/'
-    strb w2, [x0], #1
-    add x1, x25, #TC_L_NAME
-    bl watch_wc_cat
+    mov x0, x25                        // entry
+    bl watch_build_fpath
     LEA x0, watch_fpath
     LEA x1, watch_stat
     bl stat
@@ -5475,13 +5442,8 @@ watch_seed_state:
     mul x9, x24, x9
     add x10, x22, x9                   // entry
     // build the path
-    LEA x0, watch_fpath
-    LEA x1, watch_dirpath
-    bl watch_wc_cat
-    mov w2, #'/'
-    strb w2, [x0], #1
-    add x1, x10, #TC_L_NAME
-    bl watch_wc_cat
+    mov x0, x10                        // entry
+    bl watch_build_fpath
     LEA x0, watch_fpath
     bl watch_scan_markers              // x0 = state 0/1/2 (0 = none found)
     cbnz x0, .Lwss_found
@@ -5492,7 +5454,6 @@ watch_seed_state:
 .Lwss_done:
     // memoize only when the earlier-file stat succeeded (Python: key None)
     cbz x20, .Lwss_out
-    LEA x9, watch_seed_key1
     // store the key (begin_ymd, earlier_ymd, size, mtime)
     LEA x9, watch_seed_key1
     LEA x10, tc_window
@@ -6036,8 +5997,6 @@ watch_rule_curve_k:
     LEA x9, watch_fade_k
     ldr d0, [x9]
 .Lwrck_k_ok:
-    mov x0, x2
-    mov x1, x0                        // (k bits are stored as an x-reg below)
     // store the double bits in x1
     LEA x9, watch_dtmp
     str d0, [x9]
@@ -6047,6 +6006,36 @@ watch_rule_curve_k:
     ret
 
 // ============================================================================
+// watch_emit_channel(cursor, channel, delim) -> x0 = cursor after delim.
+//   Emits rint(channel + (255-channel)*towards) as decimal digits then the
+//   delim byte at cursor.  towards is read from watch_dtmp3.  in: x0 =
+//   cursor, x1 = channel (0-255), w2 = delim byte.  Clobbers x0-x17 and
+//   d0-d7; x19-x28 preserved.
+    .p2align 2
+watch_emit_channel:
+    PROLOGUE 2
+    mov x19, x0                        // cursor
+    mov x20, x1                        // channel
+    mov x21, x2                        // delim
+    LEA x9, watch_dtmp3
+    ldr d0, [x9]                       // towards
+    mov x9, #255
+    scvtf d1, x9
+    scvtf d2, x20
+    fsub d1, d1, d2                    // 255 - channel
+    fmul d0, d1, d0                    // (255-channel)*towards
+    scvtf d1, x20
+    fadd d0, d1, d0                    // channel + ...
+    bl rint                            // banker's rounding
+    fcvtzs x9, d0
+    mov x0, x19
+    mov x1, x9
+    bl watch_fmt_u64                   // digits into the shade
+    mov w1, w21
+    strb w1, [x0], #1
+    EPILOGUE 2
+    ret
+
 // watch_build_one_ramp(rgb_ptr, steps, key) — build a ramp with the global
 //   curve/k; x0 = ramp base.  watch_build_one_ramp_full(rgb, steps, key,
 //   curve, kbits) uses explicit curve/k.
@@ -6199,58 +6188,22 @@ watch_build_one_ramp_full:
     bl watch_wc_cat
     mov x19, x0                        // cursor AT the NUL (append in place)
     // r channel
-    LEA x9, watch_dtmp3
-    ldr d0, [x9]
-    mov x9, #255
-    scvtf d1, x9
-    scvtf d2, w24
-    fsub d1, d1, d2                    // 255 - r
-    fmul d0, d1, d0                    // (255-r)*towards
-    scvtf d1, w24
-    fadd d0, d1, d0                    // r + ...
-    bl rint                            // banker's rounding
-    fcvtzs x9, d0
     mov x0, x19
-    mov x1, x9
-    bl watch_fmt_u64                   // digits into the shade
-    mov w1, #';'
-    strb w1, [x0], #1
+    mov x1, x24                        // r
+    mov w2, #';'
+    bl watch_emit_channel              // x0 = cursor after ';'
     mov x19, x0
     // g
-    LEA x9, watch_dtmp3
-    ldr d0, [x9]
-    mov x9, #255
-    scvtf d1, x9
-    scvtf d2, w25
-    fsub d1, d1, d2
-    fmul d0, d1, d0
-    scvtf d1, w25
-    fadd d0, d1, d0
-    bl rint
-    fcvtzs x9, d0
     mov x0, x19
-    mov x1, x9
-    bl watch_fmt_u64
-    mov w1, #';'
-    strb w1, [x0], #1
+    mov x1, x25                        // g
+    mov w2, #';'
+    bl watch_emit_channel              // x0 = cursor after ';'
     mov x19, x0
     // b
-    LEA x9, watch_dtmp3
-    ldr d0, [x9]
-    mov x9, #255
-    scvtf d1, x9
-    scvtf d2, w26
-    fsub d1, d1, d2
-    fmul d0, d1, d0
-    scvtf d1, w26
-    fadd d0, d1, d0
-    bl rint
-    fcvtzs x9, d0
     mov x0, x19
-    mov x1, x9
-    bl watch_fmt_u64
-    mov w1, #'m'
-    strb w1, [x0], #1
+    mov x1, x26                        // b
+    mov w2, #'m'
+    bl watch_emit_channel              // x0 = cursor after 'm'
     mov w1, #0
     strb w1, [x0]
     add x27, x27, #1
@@ -6947,7 +6900,9 @@ watch_launch_tints:
     mov x1, x12
     mov x2, x13
     bl watch_reader_window             // x0 = window record
-    // fold into the replay map (apply the state filter)
+    // fold into the replay map (apply the state filter).  win/rec/tmp use
+    // caller-saved x14/x15/x16: x20/x21/x22 still hold begin_epoch/end_epoch/
+    // begin_rolls, which the step loop re-reads at the top of every iteration.
     mov x14, x0                        // win
     mov x15, #0                        // rec index
 .Lwlt_ww:
@@ -7026,7 +6981,8 @@ watch_launch_tints:
 // ============================================================================
 // watch_replay_add(n, login) — counts[login] += n in the replay map
 //   (watch_replay_map: PREV_MAX records of {login[26], n u64 at
-//   PV_COUNT}, watch_prev's layout).
+//   PV_COUNT}, watch_prev's layout).  Preserves x14-x17: the caller's
+//   fold loop keeps win/rec/tmp live across the call.
 // ============================================================================
     .p2align 2
 watch_replay_add:
@@ -7045,15 +7001,11 @@ watch_replay_add:
     add x9, x21, x9
     ldrb w10, [x9, #PV_LOGIN]
     cbz w10, .Lwra_append
-    mov x10, #0
-.Lwra_cmp:
-    ldrb w11, [x9, x10]
-    ldrb w12, [x20, x10]
-    cmp w11, w12
-    b.ne .Lwra_next
-    cbz w11, .Lwra_found
-    add x10, x10, #1
-    b .Lwra_cmp
+    mov x0, x9                        // a = record login (PV_LOGIN == 0)
+    mov x1, x20                       // b = login
+    bl watch_login_eq                 // x0 = 1 if equal
+    cbnz x0, .Lwra_found
+    b .Lwra_next
 .Lwra_found:
     ldr x10, [x9, #PV_COUNT]
     add x10, x10, x19
@@ -7064,25 +7016,14 @@ watch_replay_add:
     b .Lwra_loop
 .Lwra_append:
     // x9 = the empty slot found above (index x22 < PREV_MAX)
-    mov x10, #0
-.Lwra_copy:
-    ldrb w11, [x20, x10]
-    cbz w11, .Lwra_copy_done
-    cmp x10, #25
-    b.ge .Lwra_copy_done
-    strb w11, [x9, x10]
-    add x10, x10, #1
-    b .Lwra_copy
-.Lwra_copy_done:
-    mov w11, #0
-    strb w11, [x9, x10]
-    str x19, [x9, #PV_COUNT]
+    mov x0, x9                         // dst (slot start)
+    mov x1, x20                        // src (login)
+    bl watch_copy_login                // x0 = dst
+    str x19, [x0, #PV_COUNT]
 .Lwra_done:
     ldp x16, x17, [sp], #16
     ldp x14, x15, [sp], #16
-    ldp x21, x22, [sp], #16
-    ldp x19, x20, [sp], #16
-    ldp x29, x30, [sp], #16
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -7200,15 +7141,11 @@ watch_tint_find:
     mov x13, #TT_SZ
     mul x13, x12, x13
     add x13, x11, x13
-    mov x14, #0
-.Lwtf_cmp:
-    ldrb w15, [x13, x14]
-    ldrb w16, [x19, x14]
-    cmp w15, w16
-    b.ne .Lwtf_next
-    cbz w15, .Lwtf_found
-    add x14, x14, #1
-    b .Lwtf_cmp
+    mov x0, x13                       // a = record login (TT_LOGIN == 0)
+    mov x1, x19                       // b = login
+    bl watch_login_eq                 // x0 = 1 if equal
+    cbnz x0, .Lwtf_found
+    b .Lwtf_next
 .Lwtf_found:
     mov x0, x13
     EPILOGUE 1
@@ -7248,22 +7185,13 @@ watch_tint_set:
     mov x12, #TT_SZ
     mul x12, x10, x12
     add x11, x11, x12
-    mov x13, #0
-.Lwts_copy:
-    ldrb w14, [x19, x13]
-    cbz w14, .Lwts_copy_done
-    cmp x13, #25
-    b.ge .Lwts_copy_done
-    strb w14, [x11, x13]
-    add x13, x13, #1
-    b .Lwts_copy
-.Lwts_copy_done:
-    mov w14, #0
-    strb w14, [x11, x13]
-    strb w21, [x11, #TT_DIR]
+    mov x0, x11                        // dst (slot start)
+    mov x1, x19                        // src (login)
+    bl watch_copy_login                // x0 = dst
+    strb w21, [x0, #TT_DIR]
     LEA x9, watch_dtmp4
     ldr d0, [x9]
-    str d0, [x11, #TT_WHEN]
+    str d0, [x0, #TT_WHEN]
     add x10, x10, #1
     LEA x9, watch_tint_count
     str x10, [x9]
@@ -7296,22 +7224,14 @@ watch_tint_remove:
     add x15, x14, #1
     mov x9, #TT_SZ
     mul x9, x15, x9
-    add x15, x11, x9
+    add x15, x11, x9                   // src = one past the removed
     mov x9, #TT_SZ
     mul x9, x14, x9
-    add x16, x11, x9
-    mov x17, #0
-.Lwtr_copy:
-    cmp x17, #TT_SZ
-    b.ge .Lwtr_shift_next
-    // x9 (byte value temp) instead of x18 (reserved on Darwin): x9's last
-    // write above was to help form x16 (line before this loop) and it is
-    // not read again until the next outer iteration recomputes it fresh,
-    // so it is dead across this whole inner loop.
-    ldrb w9, [x15, x17]
-    strb w9, [x16, x17]
-    add x17, x17, #1
-    b .Lwtr_copy
+    add x16, x11, x9                   // dst
+    mov x0, x16
+    mov x1, x15
+    mov x2, #TT_SZ
+    bl watch_memcpy_copy               // copy the whole record down
 .Lwtr_shift_next:
     add x14, x14, #1
     b .Lwtr_shift
@@ -7338,15 +7258,11 @@ watch_prev_find:
     mov x13, #PV_SZ
     mul x13, x12, x13
     add x13, x11, x13
-    mov x14, #0
-.Lwpf_cmp:
-    ldrb w15, [x13, x14]
-    ldrb w16, [x19, x14]
-    cmp w15, w16
-    b.ne .Lwpf_next
-    cbz w15, .Lwpf_found
-    add x14, x14, #1
-    b .Lwpf_cmp
+    mov x0, x13                       // a = record login (PV_LOGIN == 0)
+    mov x1, x19                       // b = login
+    bl watch_login_eq                 // x0 = 1 if equal
+    cbnz x0, .Lwpf_found
+    b .Lwpf_next
 .Lwpf_found:
     ldr x0, [x13, #PV_COUNT]
     EPILOGUE 1
@@ -7394,19 +7310,11 @@ watch_build_prev:
     mov x12, #PV_SZ
     mul x12, x10, x12
     add x11, x11, x12
-    mov x13, #0
-.Lwbp_copy:
-    ldrb w14, [x23, x13]
-    cbz w14, .Lwbp_copy_done
-    cmp x13, #25
-    b.ge .Lwbp_copy_done
-    strb w14, [x11, x13]
-    add x13, x13, #1
-    b .Lwbp_copy
-.Lwbp_copy_done:
-    mov w14, #0
-    strb w14, [x11, x13]
-    str x0, [x11, #PV_COUNT]
+    mov x24, x0                        // count (survives the copy; x24 is free)
+    mov x0, x11                        // dst (slot start)
+    mov x1, x23                        // src (login)
+    bl watch_copy_login                // x0 = dst
+    str x24, [x0, #PV_COUNT]
     add x10, x10, #1
     str x10, [x9]
 .Lwbp_next:
@@ -7448,15 +7356,11 @@ watch_filter_tints:
     b.eq .Lwft_keep
     mov x9, #TT_SZ
     mul x9, x21, x9
-    add x24, x20, x9
-    mov x9, #0
-.Lwft_copy:
-    cmp x9, #TT_SZ
-    b.ge .Lwft_keep
-    ldrb w10, [x23, x9]
-    strb w10, [x24, x9]
-    add x9, x9, #1
-    b .Lwft_copy
+    add x24, x20, x9                   // dst
+    mov x0, x24
+    mov x1, x23                        // src
+    mov x2, #TT_SZ
+    bl watch_memcpy_copy               // copy the whole record down
 .Lwft_keep:
     add x21, x21, #1
 .Lwft_next:
@@ -7677,12 +7581,10 @@ watch_tint_apply:
     mov x1, x0
     mov x0, x19
     bl watch_tint_find
-    cbz x0, .Lwta_down_default
+    cbz x0, .Lwta_down_set
     ldrb w9, [x0, #TT_DIR]
     cmp w9, #2
     b.ne .Lwta_no_before
-    b .Lwta_down_set
-.Lwta_down_default:
     b .Lwta_down_set
 .Lwta_down_set:
     mov x0, x19
@@ -8325,9 +8227,7 @@ watch_screen_paint:
     LEA x9, watch_full_repaint
     ldr x10, [x9]
     cbz x10, .Lwsp_diff
-    LEA x9, watch_full_repaint
-    ldr x11, [x9]
-    cbz x11, .Lwsp_diff
+    mov x11, x10                       // x10 is nonzero here; keep for cmp
     LEA x9, watch_since_full
     ldr x10, [x9]
     cmp x10, x11
@@ -8650,11 +8550,6 @@ watch_ansi_match:
     mov x0, #0
     EPILOGUE 0
     ret
-    .text
-
-    .text
-
-    .text
 
     RODATA
 s_watch_fade_curve: .asciz "watch.fade_curve "
@@ -8663,17 +8558,3 @@ s_key_min_interval: .asciz "min_interval"
 s_key_replay_steps: .asciz "replay_steps"
 s_key_full_repaint: .asciz "full_repaint"
 s_key_tint_falling: .asciz "tint_falling"
-    .text
-
-    .text
-    .text
-    .text
-    .text
-    .text
-    .text
-    .text
-    .text
-    .text
-
-    RODATA
-    .text

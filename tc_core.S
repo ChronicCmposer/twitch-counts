@@ -147,10 +147,10 @@
     .equ CF_ENTRY,        0               // core_count_final frame slots
     .equ CF_LO,           8
     .equ CF_HI,           16
-    .equ CF_CPTR,         24
     .equ CF_BUF,          32              // malloc'd file buffer across calls
     .equ CF_LEN,          40
-    .equ CF_FRAME_SZ,     48
+    .equ CF_FRAME_SZ,     48              // 48 (not 40) keeps sp 16-byte aligned
+                                        // across the calls below; 24-31 unused
 
 // ============================================================================
 // .bss — private scratch (not part of the shared contract; the contract
@@ -311,22 +311,18 @@ core_eff_threshold:
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
     cmp x2, #TC_M_OFFLINE_SHARE
-    b.ge .Lef_shown
+    b.ge .Lef_floor
     ldr x3, [x0, #TC_O_COLUMN_COUNT]
     mov x4, #0
 .Lef_col:
     cmp x4, x3
-    b.ge .Lef_check
+    b.ge .Lef_out
     add x5, x0, #TC_O_COLUMNS
     ldr x6, [x5, x4, lsl #3]
     cmp x6, #TC_M_OFFLINE_SHARE
-    b.ge .Lef_shown
+    b.ge .Lef_floor
     add x4, x4, #1
     b .Lef_col
-.Lef_shown:
-    b .Lef_floor
-.Lef_check:
-    b .Lef_out
 .Lef_floor:
     ldr x2, [x0, #TC_O_SHARE_FLOOR]
     cbz x2, .Lef_out
@@ -403,17 +399,9 @@ tc_resolve_channel:
     bl core_copy_str
     // dirpath = logs_dir + "/" + name
     LEA x0, core_dirpath
-    mov x23, x0
-    LEA x0, tc_opts
-    add x1, x0, #TC_O_LOGS_DIR
-    mov x0, x23
-    bl tc_cat_cstr
-    mov w2, #'/'
-    strb w2, [x0], #1
-    mov x23, x0
-    LEA x1, core_name
-    mov x0, x23
-    bl tc_cat_cstr
+    LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
+    LEA x2, core_name
+    bl core_build_fpath
     EPILOGUE 5
     ret
 
@@ -576,28 +564,10 @@ core_list_channel_dirs:
     add x6, x6, x7
     LEA x8, core_dnames
     str x6, [x8, x3, lsl #3]
-    mov x9, x5                      // remaining
-.Llcd_copy:
-    cmp x9, #16
-    b.lt .Llcd_copy8
-    ldp x10, x11, [x1], #16
-    stp x10, x11, [x6], #16
-    sub x9, x9, #16
-    b .Llcd_copy
-.Llcd_copy8:
-    cmp x9, #8
-    b.lt .Llcd_copy_tail
-    ldr x10, [x1], #8
-    str x10, [x6], #8
-    sub x9, x9, #8
-.Llcd_copy_tail:
-    cbz x9, .Llcd_copy_done
-    ldrb w10, [x1], #1
-    strb w10, [x6], #1
-    sub x9, x9, #1
-    b .Llcd_copy_tail
-.Llcd_copy_done:
-    strb wzr, [x6]
+    mov x0, x6
+    mov x2, x5                      // len (x1 already = the d_name source)
+    bl core_copy_cstr
+    ldr x3, [x20]                   // reload: the copy clobbered x3
     add x3, x3, #1
     str x3, [x20]
     b .Llcd_list
@@ -672,28 +642,10 @@ core_build_listing:
     add x25, x25, x26
     str x21, [x25, #TC_L_YMD]
     add x26, x25, #TC_L_NAME
-    mov x9, x23                     // remaining (x23 = name len)
-.Lbl_copy:
-    cmp x9, #16
-    b.lt .Lbl_copy8
-    ldp x10, x11, [x22], #16
-    stp x10, x11, [x26], #16
-    sub x9, x9, #16
-    b .Lbl_copy
-.Lbl_copy8:
-    cmp x9, #8
-    b.lt .Lbl_copy_tail
-    ldr x10, [x22], #8
-    str x10, [x26], #8
-    sub x9, x9, #8
-.Lbl_copy_tail:
-    cbz x9, .Lbl_copy_done
-    ldrb w10, [x22], #1
-    strb w10, [x26], #1
-    sub x9, x9, #1
-    b .Lbl_copy_tail
-.Lbl_copy_done:
-    strb wzr, [x26]
+    mov x0, x26
+    mov x1, x22
+    mov x2, x23                     // name len
+    bl core_copy_cstr               // NUL-terminated name copy
     add x24, x24, #1
     str x24, [x19, #TC_L_COUNT]
     b .Lbl_list
@@ -759,9 +711,8 @@ core_parse_log_filename:
     ldrb w3, [x19, x2]
     cmp w3, #'-'
     b.ne .Lplf_fail
-    // the channel part before the date must be nonempty
-    sub x2, x20, #15
-    cbz x2, .Lplf_fail
+    // the channel part before the date must be nonempty: the len >= 16 check
+    // above already guarantees len - 15 >= 1, so no separate check is needed
     // year (len-14 .. len-11)
     sub x2, x20, #14
     mov x3, #0
@@ -963,8 +914,6 @@ core_size_users:
     b.ge .Lsu_ceiling_ok
     mov x21, #1
 .Lsu_ceiling_ok:
-    bl core_eff_threshold
-    mov x22, x0                        // eff
     // widest = reported(ceiling)
     mov x0, x21
     bl core_reported_width
@@ -983,10 +932,10 @@ core_size_users:
     stp x9, x10, [sp, #-16]!
     stp x11, x19, [sp, #-16]!
     stp x20, x21, [sp, #-16]!
-    stp x22, x23, [sp, #-16]!
+    str x23, [sp, #-16]!             // widest (x22 was dead: no eff here)
     mov x0, x11
     bl core_reported_width
-    ldp x22, x23, [sp], #16
+    ldr x23, [sp], #16
     ldp x20, x21, [sp], #16
     ldp x11, x19, [sp], #16
     ldp x9, x10, [sp], #16
@@ -1015,12 +964,12 @@ core_size_users:
     stp x9, x10, [sp, #-16]!
     stp x11, x19, [sp, #-16]!
     stp x20, x21, [sp, #-16]!
-    stp x22, x23, [sp, #-16]!
+    str x23, [sp, #-16]!             // widest (x22 was dead: no eff here)
     stp x24, x25, [sp, #-16]!
     mov x0, x11
     bl core_reported_width
     ldp x24, x25, [sp], #16
-    ldp x22, x23, [sp], #16
+    ldr x23, [sp], #16
     ldp x20, x21, [sp], #16
     ldp x11, x19, [sp], #16
     ldp x9, x10, [sp], #16
@@ -1128,28 +1077,11 @@ core_reported_width:
     mov x0, x27
     bl tc_excl_contains
     cbnz x0, .Lrw_next
-    // inline tc_count_column(x26); the entry is already in x27
-    cmp x28, #TC_ST_LIVE
-    b.eq .Lrwcc_live
-    cmp x28, #TC_ST_OFFLINE
-    b.eq .Lrwcc_off
-    cmp x28, #TC_ST_UNKNOWN
-    b.eq .Lrwcc_unk
-    ldr x9, [x27, #TC_US_LIVE]
-    ldr x10, [x27, #TC_US_OFFLINE]
-    add x9, x9, x10
-    ldr x10, [x27, #TC_US_UNKNOWN]
-    add x9, x9, x10
-    b .Lrwcc_done
-.Lrwcc_live:
-    ldr x9, [x27, #TC_US_LIVE]
-    b .Lrwcc_done
-.Lrwcc_off:
-    ldr x9, [x27, #TC_US_OFFLINE]
-    b .Lrwcc_done
-.Lrwcc_unk:
-    ldr x9, [x27, #TC_US_UNKNOWN]
-.Lrwcc_done:
+    // count-column for the entry (the filter is already hoisted in x28)
+    mov x0, x27
+    mov x1, x28
+    bl core_count_column_for_entry
+    mov x9, x0
     cmp x9, x21
     b.lt .Lrw_next
     add x25, x25, #1
@@ -1217,13 +1149,9 @@ core_count_final:
     // build the file path
     LEA x0, core_fpath
     LEA x1, core_dirpath
-    bl tc_cat_cstr
-    mov w2, #'/'
-    strb w2, [x0], #1
-    str x0, [sp, #CF_CPTR]
-    ldr x1, [sp, #CF_ENTRY]
-    add x1, x1, #TC_L_NAME
-    bl tc_cat_cstr
+    ldr x2, [sp, #CF_ENTRY]
+    add x2, x2, #TC_L_NAME
+    bl core_build_fpath
     // ---- rollup-cache hook ----
     // A whole-day file inside the range may come from the rollup.  The cache
     // module stats the path and returns 0 = parse normally, 1 = reused (x1 =
@@ -1412,29 +1340,11 @@ core_finish_tally:
     str x12, [x19, #TC_T_STATES + 16]
     b .Lft_next
 .Lft_not_excl:
-    // inline tc_count_column(x27); the entry is already in x28 and the
-    // state filter was hoisted into x23 before the loop
-    cmp x23, #TC_ST_LIVE
-    b.eq .Lftcc_live
-    cmp x23, #TC_ST_OFFLINE
-    b.eq .Lftcc_off
-    cmp x23, #TC_ST_UNKNOWN
-    b.eq .Lftcc_unk
-    ldr x9, [x28, #TC_US_LIVE]
-    ldr x10, [x28, #TC_US_OFFLINE]
-    add x9, x9, x10
-    ldr x10, [x28, #TC_US_UNKNOWN]
-    add x9, x9, x10
-    b .Lftcc_done
-.Lftcc_live:
-    ldr x9, [x28, #TC_US_LIVE]
-    b .Lftcc_done
-.Lftcc_off:
-    ldr x9, [x28, #TC_US_OFFLINE]
-    b .Lftcc_done
-.Lftcc_unk:
-    ldr x9, [x28, #TC_US_UNKNOWN]
-.Lftcc_done:
+    // count-column for the entry (the filter is already hoisted in x23)
+    mov x0, x28
+    mov x1, x23
+    bl core_count_column_for_entry
+    mov x9, x0
     ldr x10, [x19, #TC_T_MESSAGES]
     add x10, x10, x9
     str x10, [x19, #TC_T_MESSAGES]
@@ -1717,13 +1627,8 @@ core_seed_state:
     // build the file path
     LEA x0, core_fpath
     LEA x1, core_dirpath
-    bl tc_cat_cstr
-    mov w2, #'/'
-    strb w2, [x0], #1
-    mov x10, x0
-    add x1, x9, #TC_L_NAME
-    mov x0, x10
-    bl tc_cat_cstr
+    add x2, x9, #TC_L_NAME
+    bl core_build_fpath
     LEA x0, core_fpath
     bl core_read_file                      // x0=status, x1=buf, x2=len
     cbnz x0, .Lss_next
@@ -1941,47 +1846,8 @@ core_line_is_marker:
     PROLOGUE 1
     mov x19, x0
     mov x20, x1
-    cmp x1, #11
-    b.lt .Llim_no
-    ldrb w2, [x0]
-    cmp w2, #'['
-    b.ne .Llim_no
-    ldrb w2, [x0, #1]
-    sub w2, w2, #'0'
-    cmp w2, #9
-    b.hi .Llim_no
-    ldrb w2, [x0, #2]
-    sub w2, w2, #'0'
-    cmp w2, #9
-    b.hi .Llim_no
-    ldrb w2, [x0, #3]
-    cmp w2, #':'
-    b.ne .Llim_no
-    ldrb w2, [x0, #4]
-    sub w2, w2, #'0'
-    cmp w2, #9
-    b.hi .Llim_no
-    ldrb w2, [x0, #5]
-    sub w2, w2, #'0'
-    cmp w2, #9
-    b.hi .Llim_no
-    ldrb w2, [x0, #6]
-    cmp w2, #':'
-    b.ne .Llim_no
-    ldrb w2, [x0, #7]
-    sub w2, w2, #'0'
-    cmp w2, #9
-    b.hi .Llim_no
-    ldrb w2, [x0, #8]
-    sub w2, w2, #'0'
-    cmp w2, #9
-    b.hi .Llim_no
-    ldrb w2, [x0, #9]
-    cmp w2, #']'
-    b.ne .Llim_no
-    ldrb w2, [x0, #10]
-    cmp w2, #' '
-    b.ne .Llim_no
+    bl core_is_timestamp_header
+    cbz x0, .Llim_no
     mov x0, x19
     mov x1, x20
     LEA x2, lit_is_live
@@ -2139,47 +2005,10 @@ core_process_message:
     mov x21, x2                         // lo
     mov x22, x3                         // hi
     mov x23, x4                         // state
-    cmp x20, #11
-    b.lt .Lpm_skip
-    ldrb w3, [x19]
-    cmp w3, #'['
-    b.ne .Lpm_skip
-    ldrb w3, [x19, #1]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lpm_skip
-    ldrb w3, [x19, #2]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lpm_skip
-    ldrb w3, [x19, #3]
-    cmp w3, #':'
-    b.ne .Lpm_skip
-    ldrb w3, [x19, #4]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lpm_skip
-    ldrb w3, [x19, #5]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lpm_skip
-    ldrb w3, [x19, #6]
-    cmp w3, #':'
-    b.ne .Lpm_skip
-    ldrb w3, [x19, #7]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lpm_skip
-    ldrb w3, [x19, #8]
-    sub w3, w3, #'0'
-    cmp w3, #9
-    b.hi .Lpm_skip
-    ldrb w3, [x19, #9]
-    cmp w3, #']'
-    b.ne .Lpm_skip
-    ldrb w3, [x19, #10]
-    cmp w3, #' '
-    b.ne .Lpm_skip
+    mov x0, x19
+    mov x1, x20
+    bl core_is_timestamp_header
+    cbz x0, .Lpm_skip
     // find the first ": " in the rest
     add x24, x19, #11
     add x3, x19, x20
@@ -2258,52 +2087,17 @@ core_process_message:
     mov x0, x24
     mov x1, x25
     LEA x2, tc_users
-    bl tc_find_user                        // x0 = index or -1
-    cmp x0, #0
-    b.ge .Lpm_have_user
-    mov x0, x24
-    mov x1, x25
-    LEA x2, tc_users
-    bl tc_add_user                         // x0 = index
-.Lpm_have_user:
+    bl core_get_user_index              // x0 = index
     // entry = users.entries + index*50
     LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
     add x10, x10, x11                   // entry
-    cmp x26, #TC_ST_LIVE
-    b.eq .Lpm_inc_live
-    cmp x26, #TC_ST_OFFLINE
-    b.eq .Lpm_inc_off
-    b .Lpm_inc_unk
-.Lpm_inc_live:
-    ldr x11, [x10, #TC_US_LIVE]
-    add x11, x11, #1
-    str x11, [x10, #TC_US_LIVE]
-    LEA x12, core_g_live
-    ldr x13, [x12]
-    add x13, x13, #1
-    str x13, [x12]
-    b .Lpm_counted
-.Lpm_inc_off:
-    ldr x11, [x10, #TC_US_OFFLINE]
-    add x11, x11, #1
-    str x11, [x10, #TC_US_OFFLINE]
-    LEA x12, core_g_off
-    ldr x13, [x12]
-    add x13, x13, #1
-    str x13, [x12]
-    b .Lpm_counted
-.Lpm_inc_unk:
-    ldr x11, [x10, #TC_US_UNKNOWN]
-    add x11, x11, #1
-    str x11, [x10, #TC_US_UNKNOWN]
-    LEA x12, core_g_unk
-    ldr x13, [x12]
-    add x13, x13, #1
-    str x13, [x12]
-.Lpm_counted:
+    mov x0, x10                         // entry
+    mov x1, x26                         // state
+    mov x2, #1
+    bl core_inc_user_state              // +1
     mov x0, #1
     b .Lpm_out
 .Lpm_skip:
@@ -2415,25 +2209,17 @@ core_speaker_login:
     b .Lsl_left
 .Lsl_left_ok:
     cbz x7, .Lsl_fail
-    // login = right (already lowercase); copy into login_buf
+    // login = right (already lowercase); copy into login_buf.  The caller reads
+    // x1 as the login length; the original code never touched x1 here, so it
+    // returned the full speaker length slen — preserve that quirk.
     LEA x8, core_login
-    mov x9, x4                      // remaining (x4 = right len)
-.Lsl_copy:
-    cmp x9, #8
-    b.lt .Lsl_copy_tail
-    ldr x10, [x5], #8
-    str x10, [x8], #8
-    sub x9, x9, #8
-    b .Lsl_copy
-.Lsl_copy_tail:
-    cbz x9, .Lsl_copy_done
-    ldrb w10, [x5], #1
-    strb w10, [x8], #1
-    sub x9, x9, #1
-    b .Lsl_copy_tail
-.Lsl_copy_done:
-    strb wzr, [x8]
-    sub x0, x8, x4                  // x0 = core_login base
+    stp x1, x4, [sp, #-16]!         // save slen + right len (clobbered by the copy)
+    mov x0, x8
+    mov x1, x5
+    mov x2, x4
+    bl core_copy_cstr               // x0 = one past the NUL
+    ldp x1, x4, [sp], #16           // restore slen + right len
+    sub x0, x0, x4                  // x0 = core_login base
     EPILOGUE 0
     ret
 .Lsl_fail:
@@ -2591,35 +2377,18 @@ tc_add_user:
     mov x5, #TC_US_ENTRY_SZ
     mul x5, x3, x5
     add x4, x4, x5                      // entry (stays at the base)
-    mov x6, x20                         // remaining
-    mov x7, x4                          // dest (advances)
-.Lau_copy:
-    cmp x6, #16
-    b.lt .Lau_copy8
-    ldp x9, x10, [x19], #16
-    stp x9, x10, [x7], #16
-    sub x6, x6, #16
-    b .Lau_copy
-.Lau_copy8:
-    cmp x6, #8
-    b.lt .Lau_copy_tail
-    ldr x9, [x19], #8
-    str x9, [x7], #8
-    sub x6, x6, #8
-.Lau_copy_tail:
-    cbz x6, .Lau_copy_done
-    ldrb w9, [x19], #1
-    strb w9, [x7], #1
-    sub x6, x6, #1
-    b .Lau_copy_tail
-.Lau_copy_done:
-    strb wzr, [x7]
-    str xzr, [x4, #TC_US_LIVE]
-    str xzr, [x4, #TC_US_OFFLINE]
-    str xzr, [x4, #TC_US_UNKNOWN]
-    add x3, x3, #1
-    str x3, [x21, #TC_US_COUNT]
-    sub x0, x3, #1
+    mov x22, x3                         // count (survives the copy)
+    mov x23, x4                         // entry base (survives the copy)
+    mov x0, x4
+    mov x1, x19
+    mov x2, x20
+    bl core_copy_cstr                   // NUL-terminated login copy
+    str xzr, [x23, #TC_US_LIVE]
+    str xzr, [x23, #TC_US_OFFLINE]
+    str xzr, [x23, #TC_US_UNKNOWN]
+    add x22, x22, #1
+    str x22, [x21, #TC_US_COUNT]
+    sub x0, x22, #1
     EPILOGUE 3
     ret
 .Lau_oom:
@@ -2645,52 +2414,17 @@ tc_reuse_apply:
     LEA x2, tc_users
     mov x0, x19
     mov x1, x20
-    bl tc_find_user                        // x0 = index or -1
-    cmp x0, #0
-    b.ge .Lrua_have
-    mov x0, x19
-    mov x1, x20
-    LEA x2, tc_users
-    bl tc_add_user                         // x0 = index
-.Lrua_have:
+    bl core_get_user_index              // x0 = index
     // entry = users.entries + index*50
     LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
     mul x11, x0, x11
     add x10, x10, x11                   // entry
-    cmp x21, #TC_ST_LIVE
-    b.eq .Lrua_live
-    cmp x21, #TC_ST_OFFLINE
-    b.eq .Lrua_off
-    b .Lrua_unk
-.Lrua_live:
-    ldr x11, [x10, #TC_US_LIVE]
-    add x11, x11, x22
-    str x11, [x10, #TC_US_LIVE]
-    LEA x12, core_g_live
-    ldr x13, [x12]
-    add x13, x13, x22
-    str x13, [x12]
-    b .Lrua_done
-.Lrua_off:
-    ldr x11, [x10, #TC_US_OFFLINE]
-    add x11, x11, x22
-    str x11, [x10, #TC_US_OFFLINE]
-    LEA x12, core_g_off
-    ldr x13, [x12]
-    add x13, x13, x22
-    str x13, [x12]
-    b .Lrua_done
-.Lrua_unk:
-    ldr x11, [x10, #TC_US_UNKNOWN]
-    add x11, x11, x22
-    str x11, [x10, #TC_US_UNKNOWN]
-    LEA x12, core_g_unk
-    ldr x13, [x12]
-    add x13, x13, x22
-    str x13, [x12]
-.Lrua_done:
+    mov x0, x10                         // entry
+    mov x1, x21                         // state
+    mov x2, x22                         // n
+    bl core_inc_user_state              // +n
     mov x0, #0
     EPILOGUE 2
     ret
@@ -2744,23 +2478,14 @@ core_sort_listing:
 .Lsl_outer:
     cmp x22, x20
     b.ge .Lsl_done
-    // key = entry x22, copied into core_list_key
+    // key = entry x22, copied into core_list_key (the helper keeps x24 put)
     mov x23, #TC_L_ENTRY_SZ
     mul x23, x22, x23
     add x23, x21, x23
     LEA x24, core_list_key
-    // key = entry x22, copied into core_list_key (72 bytes: 4x16 + 8)
-    ldp x9, x10, [x23], #16
-    stp x9, x10, [x24], #16
-    ldp x9, x10, [x23], #16
-    stp x9, x10, [x24], #16
-    ldp x9, x10, [x23], #16
-    stp x9, x10, [x24], #16
-    ldp x9, x10, [x23], #16
-    stp x9, x10, [x24], #16
-    ldr x9, [x23], #8
-    str x9, [x24], #8
-    LEA x24, core_list_key              // reset: the copy above advanced x24
+    mov x0, x24
+    mov x1, x23
+    bl core_copy_listing_entry
     mov x25, x22                        // j
 .Lsl_inner:
     cbz x25, .Lsl_place
@@ -2787,34 +2512,20 @@ core_sort_listing:
     mov x10, #TC_L_ENTRY_SZ
     mul x10, x26, x10
     add x10, x21, x10                   // src
-    // shift a whole 72-byte entry: 4x16 + 8
-    ldp x11, x12, [x10], #16
-    stp x11, x12, [x9], #16
-    ldp x11, x12, [x10], #16
-    stp x11, x12, [x9], #16
-    ldp x11, x12, [x10], #16
-    stp x11, x12, [x9], #16
-    ldp x11, x12, [x10], #16
-    stp x11, x12, [x9], #16
-    ldr x11, [x10], #8
-    str x11, [x9], #8
+    // shift a whole 72-byte entry
+    mov x0, x9
+    mov x1, x10
+    bl core_copy_listing_entry
     mov x25, x26
     b .Lsl_inner
 .Lsl_place:
     mov x9, #TC_L_ENTRY_SZ
     mul x9, x25, x9
     add x9, x21, x9
-    // place the key entry: 4x16 + 8
-    ldp x10, x11, [x24], #16
-    stp x10, x11, [x9], #16
-    ldp x10, x11, [x24], #16
-    stp x10, x11, [x9], #16
-    ldp x10, x11, [x24], #16
-    stp x10, x11, [x9], #16
-    ldp x10, x11, [x24], #16
-    stp x10, x11, [x9], #16
-    ldr x10, [x24], #8
-    str x10, [x9], #8
+    // place the key entry (the helper keeps x24 put)
+    mov x0, x9
+    mov x1, x24
+    bl core_copy_listing_entry
     add x22, x22, #1
     b .Lsl_outer
 .Lsl_done:
@@ -2887,6 +2598,233 @@ core_copy_str:
     strb w3, [x0, x2]
     add x2, x2, #1
     cbnz w3, .Lcs
+    ret
+
+// ============================================================================
+// core_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = one past the last copied
+//   byte.  16-byte ldp/stp chunks, then 8-byte ldr/str, then a byte tail; a
+//   wide chunk only runs while that many bytes remain, so the copy never
+//   reads or writes past the copied length.  Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_copy_bytes:
+    cmp x2, #16
+    b.lt .Lccb8
+    ldp x3, x4, [x1], #16
+    stp x3, x4, [x0], #16
+    sub x2, x2, #16
+    b core_copy_bytes
+.Lccb8:
+    cmp x2, #8
+    b.lt .Lccb_tail
+    ldr x3, [x1], #8
+    str x3, [x0], #8
+    sub x2, x2, #8
+    b .Lccb8
+.Lccb_tail:
+    cbz x2, .Lccb_done
+    ldrb w3, [x1], #1
+    strb w3, [x0], #1
+    sub x2, x2, #1
+    b .Lccb_tail
+.Lccb_done:
+    ret
+
+// ============================================================================
+// core_copy_cstr(x0=dst, x1=src, x2=len) -> x0 = the position of the NUL
+//   terminator (the copied bytes plus the NUL).  Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_copy_cstr:
+    str x30, [sp, #-16]!            // the bl below clobbers the return address
+    bl core_copy_bytes
+    strb wzr, [x0]
+    ldr x30, [sp], #16
+    ret
+
+// ============================================================================
+// core_copy_listing_entry(x0=dst, x1=src) — copy a whole listing entry
+//   (TC_L_ENTRY_SZ = 72 = 4x16 + 8).  The caller's pointer registers are
+//   untouched: the copy advances its own x0/x1.  Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_copy_listing_entry:
+    ldp x2, x3, [x1], #16
+    stp x2, x3, [x0], #16
+    ldp x2, x3, [x1], #16
+    stp x2, x3, [x0], #16
+    ldp x2, x3, [x1], #16
+    stp x2, x3, [x0], #16
+    ldp x2, x3, [x1], #16
+    stp x2, x3, [x0], #16
+    ldr x2, [x1], #8
+    str x2, [x0], #8
+    ret
+
+// ============================================================================
+// core_count_column_for_entry(x0=entry, x1=state filter) -> x0 = the sum of
+//   the entry's state buckets matching the filter (all three when unfiltered).
+//   The exported tc_count_column re-derives the entry from an index; the
+//   counting loops already hold it, so they call this instead of inlining.
+//   Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_count_column_for_entry:
+    cmp x1, #TC_ST_LIVE
+    b.eq .Lccfe_live
+    cmp x1, #TC_ST_OFFLINE
+    b.eq .Lccfe_off
+    cmp x1, #TC_ST_UNKNOWN
+    b.eq .Lccfe_unk
+    ldr x2, [x0, #TC_US_LIVE]
+    ldr x3, [x0, #TC_US_OFFLINE]
+    add x2, x2, x3
+    ldr x3, [x0, #TC_US_UNKNOWN]
+    add x0, x2, x3
+    ret
+.Lccfe_live:
+    ldr x0, [x0, #TC_US_LIVE]
+    ret
+.Lccfe_off:
+    ldr x0, [x0, #TC_US_OFFLINE]
+    ret
+.Lccfe_unk:
+    ldr x0, [x0, #TC_US_UNKNOWN]
+    ret
+
+// ============================================================================
+// core_is_timestamp_header(x0=line, x1=len) -> x0 = 1 when the line begins
+//   with "[HH:MM:SS] " (11 bytes) and len >= 11.  The prefix check shared by
+//   core_line_is_marker and core_process_message.  Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_is_timestamp_header:
+    cmp x1, #11
+    b.lt .Lith_no
+    ldrb w2, [x0]
+    cmp w2, #'['
+    b.ne .Lith_no
+    ldrb w2, [x0, #1]
+    sub w2, w2, #'0'
+    cmp w2, #9
+    b.hi .Lith_no
+    ldrb w2, [x0, #2]
+    sub w2, w2, #'0'
+    cmp w2, #9
+    b.hi .Lith_no
+    ldrb w2, [x0, #3]
+    cmp w2, #':'
+    b.ne .Lith_no
+    ldrb w2, [x0, #4]
+    sub w2, w2, #'0'
+    cmp w2, #9
+    b.hi .Lith_no
+    ldrb w2, [x0, #5]
+    sub w2, w2, #'0'
+    cmp w2, #9
+    b.hi .Lith_no
+    ldrb w2, [x0, #6]
+    cmp w2, #':'
+    b.ne .Lith_no
+    ldrb w2, [x0, #7]
+    sub w2, w2, #'0'
+    cmp w2, #9
+    b.hi .Lith_no
+    ldrb w2, [x0, #8]
+    sub w2, w2, #'0'
+    cmp w2, #9
+    b.hi .Lith_no
+    ldrb w2, [x0, #9]
+    cmp w2, #']'
+    b.ne .Lith_no
+    ldrb w2, [x0, #10]
+    cmp w2, #' '
+    b.ne .Lith_no
+    mov x0, #1
+    ret
+.Lith_no:
+    mov x0, #0
+    ret
+
+// ============================================================================
+// core_get_user_index(x0=login, x1=len, x2=table base) -> x0 = user index.
+//   tc_find_user, else tc_add_user — the "find-or-add" both the counting
+//   pass and the cache rollup use.  Clobbers x0-x17 only (preserves x19+).
+// ============================================================================
+    .p2align 2
+core_get_user_index:
+    PROLOGUE 3
+    mov x19, x0
+    mov x20, x1
+    mov x21, x2
+    mov x0, x19
+    mov x1, x20
+    mov x2, x21
+    bl tc_find_user                        // x0 = index or -1
+    cmp x0, #0
+    b.ge .Lgui_have
+    mov x0, x19
+    mov x1, x20
+    mov x2, x21
+    bl tc_add_user                         // x0 = index
+.Lgui_have:
+    EPILOGUE 3
+    ret
+
+// ============================================================================
+// core_inc_user_state(x0=entry, x1=state, x2=n) — add n to the entry's state
+//   bucket and the matching core_g_* all-state total (the per-state increment
+//   shared by the counting pass and tc_reuse_apply).  Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_inc_user_state:
+    cmp x1, #TC_ST_LIVE
+    b.eq .Lius_live
+    cmp x1, #TC_ST_OFFLINE
+    b.eq .Lius_off
+    ldr x3, [x0, #TC_US_UNKNOWN]
+    add x3, x3, x2
+    str x3, [x0, #TC_US_UNKNOWN]
+    LEA x4, core_g_unk
+    ldr x5, [x4]
+    add x5, x5, x2
+    str x5, [x4]
+    ret
+.Lius_live:
+    ldr x3, [x0, #TC_US_LIVE]
+    add x3, x3, x2
+    str x3, [x0, #TC_US_LIVE]
+    LEA x4, core_g_live
+    ldr x5, [x4]
+    add x5, x5, x2
+    str x5, [x4]
+    ret
+.Lius_off:
+    ldr x3, [x0, #TC_US_OFFLINE]
+    add x3, x3, x2
+    str x3, [x0, #TC_US_OFFLINE]
+    LEA x4, core_g_off
+    ldr x5, [x4]
+    add x5, x5, x2
+    str x5, [x4]
+    ret
+
+// ============================================================================
+// core_build_fpath(x0=dst, x1=dir, x2=name) -> x0 = cursor after the name.
+//   Writes <dir>/<name> into dst (core_dirpath for the resolved channel,
+//   core_fpath for a log file).  Clobbers x0-x17 only.
+// ============================================================================
+    .p2align 2
+core_build_fpath:
+    PROLOGUE 1
+    mov x19, x0                        // dst (survives the first tc_cat_cstr)
+    mov x20, x2                        // name (survives the first tc_cat_cstr)
+    bl tc_cat_cstr                     // x0 = cursor after dir
+    mov w2, #'/'
+    strb w2, [x0], #1
+    mov x1, x20
+    bl tc_cat_cstr                     // x0 = cursor after name
+    EPILOGUE 1
     ret
 
 // ============================================================================

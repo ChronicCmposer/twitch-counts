@@ -615,8 +615,8 @@ cfg_excl_layer_always:
     // compose "config always:<name>" into tc_excl_src_buf
     mov x0, x24
     bl cfg_excl_src_buf_slot
+    mov x26, x0                     // slot base (invariant; recomputed 3x before)
     mov x21, x0
-    mov x0, x21
     LEA x1, s_src_excl_always
     bl tc_cat_cstr
     mov x21, x0
@@ -626,12 +626,10 @@ cfg_excl_layer_always:
     mov x0, x21
     mov x1, x25
     bl tc_cat_cstr
-    mov x0, x24
-    bl cfg_excl_src_buf_slot
+    mov x0, x26                     // slot base
     bl tc_strlen
-    mov x25, x0                     // len (cfg_excl_src_buf_slot clobbers x1)
-    mov x0, x24
-    bl cfg_excl_src_buf_slot
+    mov x25, x0                     // len (same base -> same result as before)
+    mov x0, x26                     // slot base
     mov x1, x25
     bl cfg_source_add
     mov x20, x0
@@ -674,12 +672,11 @@ cfg_excl_layer_group:
     bl cfg_split_toml_array
     cbz x0, .Lbe_grp_next2
     mov x26, x0
-    mov x0, x26
     // compose "--exclude-group <name>" (group labels live in slots 64+)
     add x0, x24, #EX_GROUP_MAX
     bl cfg_excl_src_buf_slot
+    mov x19, x0                     // slot base (invariant; recomputed 3x before)
     mov x21, x0
-    mov x0, x21
     LEA x1, s_src_excl_group
     bl tc_cat_cstr
     mov x21, x0
@@ -688,16 +685,10 @@ cfg_excl_layer_group:
     mul x1, x24, x1
     add x1, x23, x1
     bl tc_cat_cstr
-    add x0, x24, #EX_GROUP_MAX
-    bl cfg_excl_src_buf_slot
+    mov x0, x19                     // slot base
     bl tc_strlen
-    mov x1, x0
-    mov x25, x1
-    add x0, x24, #EX_GROUP_MAX
-    bl cfg_excl_src_buf_slot
-    mov x26, x0
-    mov x1, x25
-    mov x0, x26
+    mov x25, x0                     // len (same base -> same result as before)
+    mov x0, x19                     // slot base
     mov x1, x25
     bl cfg_source_add
     mov x20, x0
@@ -856,8 +847,8 @@ cfg_excl_subtract_include:
     // append "minus --include (N)" (dedicated slot 200)
     mov x0, #200
     bl cfg_excl_src_buf_slot
+    mov x20, x0                     // slot base (invariant; recomputed 3x before)
     mov x21, x0
-    mov x0, x21
     LEA x1, s_minus_include
     bl tc_cat_cstr
     mov x21, x0
@@ -866,12 +857,10 @@ cfg_excl_subtract_include:
     bl cfg_cat_u64
     LEA x1, s_rparen
     bl tc_cat_cstr
-    mov x0, #200
-    bl cfg_excl_src_buf_slot
+    mov x0, x20                     // slot base
     bl tc_strlen
-    mov x25, x0                     // len (cfg_excl_src_buf_slot clobbers x1)
-    mov x0, #200
-    bl cfg_excl_src_buf_slot
+    mov x25, x0                     // len (same base -> same result as before)
+    mov x0, x20                     // slot base
     mov x1, x25
     bl cfg_source_add
 .Lbe_done_ok:
@@ -1677,7 +1666,6 @@ cfg_build_groups:
     bl cfg_toml_value_to_string
     mov x25, x0                     // name
     mov x0, x25
-    mov x0, x25
     bl cfg_group_index_of
     cmn x0, #1
     b.eq .Lbg_always_unknown
@@ -2469,17 +2457,17 @@ cfg_login_matches:
     cbz w4, .Llm_no                 // stored ended before len -> no match
     ldrb w5, [x20, x22]
     cmp w4, #'A'
-    b.lt 1f
+    b.lt .Llm_stored_norm
     cmp w4, #'Z'
-    b.gt 1f
+    b.gt .Llm_stored_norm
     add w4, w4, #0x20
-1:
+.Llm_stored_norm:
     cmp w5, #'A'
-    b.lt 2f
+    b.lt .Llm_cand_norm
     cmp w5, #'Z'
-    b.gt 2f
+    b.gt .Llm_cand_norm
     add w5, w5, #0x20
-2:
+.Llm_cand_norm:
     cmp w4, w5
     b.ne .Llm_no
     add x22, x22, #1
@@ -2674,24 +2662,6 @@ cfg_copy_n_nul:
     ret
 
 // ----------------------------------------------------------------------------
-// cfg_starts_with(x0=s, x1=prefix) -> x0 = 0/1
-// ----------------------------------------------------------------------------
-    .p2align 2
-cfg_starts_with:
-    ldrb w2, [x1], #1
-    cbz w2, .Lsw_yes
-    ldrb w3, [x0], #1
-    cmp w2, w3
-    b.ne .Lsw_no
-    b cfg_starts_with
-.Lsw_yes:
-    mov x0, #1
-    ret
-.Lsw_no:
-    mov x0, #0
-    ret
-
-// ----------------------------------------------------------------------------
 // cfg_lowercase_copy(x0=dst, x1=src) -> x0 = end (NUL-terminated, A-Z lowercased)
 // ----------------------------------------------------------------------------
     .p2align 2
@@ -2709,39 +2679,6 @@ cfg_lowercase_copy:
 .Llc_done:
     mov w2, #0
     strb w2, [x0]
-    ret
-
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-    .p2align 2
-    PROLOGUE 0
-    sub sp, sp, #32
-    mov x2, x0
-    add x3, sp, #28
-    mov x4, #0
-    cmp x1, #0
-    b.ne 1f
-    mov x5, #'0'
-    strb w5, [x3, #-1]!
-    mov x4, #1
-    b 2f
-1:
-    mov x5, #10
-    udiv x6, x1, x5
-    msub x7, x6, x5, x1
-    add x7, x7, #'0'
-    strb w7, [x3, #-1]!
-    add x4, x4, #1
-    mov x1, x6
-    cbnz x1, 1b
-2:
-    ldrb w5, [x3], #1
-    strb w5, [x2], #1
-    cbnz w5, 2b
-    sub x0, x2, #1
-    add sp, sp, #32
-    EPILOGUE 0
     ret
 
 // ============================================================================

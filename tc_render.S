@@ -95,6 +95,7 @@
     .globl tc_fmt2
     .globl tc_fmt4
     .globl tc_setting_src_str
+    .globl tc_term_lines
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -594,6 +595,37 @@ render_str_cat_n:
     mov x0, x3
     ret
 
+// render_u64_digits(v) -> x0 = number of decimal digits (v==0 -> 1)
+//   Shared reciprocal divide-by-10 count used by every u64 formatter: the
+//   digit count is identical for plain, comma and length-only output.
+    .p2align 2
+render_u64_digits:
+    mov x2, x0                      // t = v
+    mov x3, #0                      // n = digit count
+    cbz x0, .Lrud_one
+    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+.Lrud_count:
+    umulh x5, x2, x4
+    lsr x5, x5, #3
+    add x3, x3, #1
+    mov x2, x5
+    cbnz x2, .Lrud_count
+    mov x0, x3
+    ret
+.Lrud_one:
+    mov x0, #1
+    ret
+
+// render_u64_zero(dst) -> dst+1 — the single "0" digit for the v==0 case
+//   (the MSB-first write loops below would walk before dst for v==0, so the
+//   zero case is a direct store instead of a loop).
+    .p2align 2
+render_u64_zero:
+    mov w2, #'0'
+    strb w2, [x0]
+    add x0, x0, #1
+    ret
+
 // render_fmt_u64_plain(dst, v) -> dst after digits (no NUL)
 //   Counts the digits first (reciprocal divide-by-10), then writes the digits
 //   MSB-first directly into dst walking the pointer down — no stack temp
@@ -601,25 +633,14 @@ render_str_cat_n:
     .p2align 2
 render_fmt_u64_plain:
     PROLOGUE 0
-    mov x2, x1                      // t = v
-    mov x3, #0                      // n = digit count
+    mov x6, x0                      // dst (x6 survives the helper call)
+    mov x0, x1                      // digits(v)
+    bl render_u64_digits
+    mov x3, x0                      // n = digit count
     cbz x1, .Lfup_zero
     ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
-.Lfup_count:
-    umulh x5, x2, x4
-    lsr x5, x5, #3
-    add x3, x3, #1
-    mov x2, x5
-    cbnz x2, .Lfup_count
-    b .Lfup_write
-.Lfup_zero:
-    mov w2, #'0'
-    strb w2, [x0]
-    add x0, x0, #1
-    EPILOGUE 0
-    ret
 .Lfup_write:
-    add x2, x0, x3                  // cursor = dst + n
+    add x2, x6, x3                  // cursor = dst + n
     mov x5, #10
 .Lfup_wloop:
     umulh x6, x1, x4
@@ -633,6 +654,11 @@ render_fmt_u64_plain:
     add x0, x2, x3                  // dst + n
     EPILOGUE 0
     ret
+.Lfup_zero:
+    mov x0, x6
+    bl render_u64_zero
+    EPILOGUE 0
+    ret
 
 // render_fmt_u64_commas(dst, v) -> dst after digits (no NUL), thousands commas
 //   Same count-first structure; the comma count (n-1)/3 is known up front, so
@@ -640,28 +666,17 @@ render_fmt_u64_plain:
     .p2align 2
 render_fmt_u64_commas:
     PROLOGUE 0
-    mov x2, x1                      // t = v
-    mov x3, #0                      // n = digit count
+    mov x12, x0                     // dst (x12 survives the helper call)
+    mov x0, x1                      // digits(v)
+    bl render_u64_digits
+    mov x3, x0                      // n = digit count
     cbz x1, .Lfuc_zero
     ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
-.Lfuc_count:
-    umulh x5, x2, x4
-    lsr x5, x5, #3
-    add x3, x3, #1
-    mov x2, x5
-    cbnz x2, .Lfuc_count
-    b .Lfuc_write
-.Lfuc_zero:
-    mov w2, #'0'
-    strb w2, [x0]
-    add x0, x0, #1
-    EPILOGUE 0
-    ret
 .Lfuc_write:
     sub x2, x3, #1
     mov x5, #3
     udiv x6, x2, x5                 // comma count = (n-1)/3
-    add x7, x0, x3
+    add x7, x12, x3                 // dst + n
     add x7, x7, x6                  // end = dst + n + commas
     mov x2, x7                      // cursor = end
     mov x8, #3                      // comma countdown
@@ -686,40 +701,43 @@ render_fmt_u64_commas:
     mov x0, x7                      // end
     EPILOGUE 0
     ret
+.Lfuc_zero:
+    mov x0, x12
+    bl render_u64_zero
+    EPILOGUE 0
+    ret
 
 // render_fmt_u64_commas_len(v) -> x0 = rendered length of fmt_u64_commas(v)
 //   Pure arithmetic (digit count + commas) — used by the table width pass so
 //   integer cells never need a render + strlen to size themselves.
     .p2align 2
 render_fmt_u64_commas_len:
-    mov x1, x0                      // v
-    mov x2, #0                      // n
-    cbz x1, .Lfucl_zero
-    ldr x3, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
-.Lfucl_count:
-    umulh x4, x1, x3
-    lsr x4, x4, #3
-    add x2, x2, #1
-    mov x1, x4
-    cbnz x1, .Lfucl_count
-    sub x1, x2, #1
+    PROLOGUE 0
+    bl render_u64_digits            // x0 = n (v == 0 -> 1)
+    sub x1, x0, #1
     mov x3, #3
     udiv x4, x1, x3
-    add x0, x2, x4                  // n + (n-1)/3
-    ret
-.Lfucl_zero:
-    mov x0, #1
+    add x0, x0, x4                  // n + (n-1)/3
+    EPILOGUE 0
     ret
 
 // render_fmt_datetime(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
     .p2align 2
 render_fmt_datetime:
-    PROLOGUE 2
-    mov x19, x0
-    mov x20, x1
-    mov x21, x2
-    mov w22, w3
-    mov x1, x20
+    PROLOGUE 4
+    mov x19, x0                        // dst
+    mov x20, x1                        // ymd
+    mov x21, x2                        // sod
+    mov w22, w3                        // sep
+    // time components from sod, computed once (they survive the tc_fmt2 calls
+    // in x23-x26 as callee-saved)
+    mov x2, #SECS_PER_HOUR
+    udiv x23, x21, x2                  // hour
+    msub x24, x23, x2, x21             // rem
+    mov x2, #60
+    udiv x25, x24, x2                  // minute
+    msub x26, x25, x2, x24             // second
+    // year
     mov x2, #YMD_YEAR_SCALE
     udiv x6, x20, x2
     mov x0, x19
@@ -727,6 +745,7 @@ render_fmt_datetime:
     bl tc_fmt4
     mov w7, #'-'
     strb w7, [x0], #1
+    // month: (ymd / YMD_MONTH_SCALE) % 100
     mov x2, #YMD_MONTH_SCALE
     udiv x6, x20, x2
     mov x8, #100
@@ -736,37 +755,27 @@ render_fmt_datetime:
     bl tc_fmt2
     mov w7, #'-'
     strb w7, [x0], #1
+    // day: ymd % 100
     mov x2, #100
     udiv x6, x20, x2
     msub x6, x6, x2, x20
     mov w1, w6
     bl tc_fmt2
     strb w22, [x0], #1
-    mov x1, x21
-    mov x2, #SECS_PER_HOUR
-    udiv x6, x21, x2
-    mov w1, w6
+    // hour
+    mov w1, w23
     bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
-    mov x2, #SECS_PER_HOUR
-    udiv x8, x21, x2
-    msub x9, x8, x2, x21
-    mov x2, #60
-    udiv x6, x9, x2
-    mov w1, w6
+    // minute
+    mov w1, w25
     bl tc_fmt2
     mov w7, #':'
     strb w7, [x0], #1
-    mov x2, #SECS_PER_HOUR
-    udiv x8, x21, x2
-    msub x9, x8, x2, x21
-    mov x2, #60
-    udiv x6, x9, x2
-    msub x6, x6, x2, x9
-    mov w1, w6
+    // second
+    mov w1, w26
     bl tc_fmt2
-    EPILOGUE 2
+    EPILOGUE 4
     ret
 
 // render_fmt_hhmm(dst, sod) -> dst+5, "HH:MM"  (sod survives the fmt2 calls)
@@ -1785,7 +1794,6 @@ render_hdr_row_threshold:
     bl render_fmt_u64_plain
     LEA x1, s_msgs
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     bl render_arena_get
     mov x23, x0
@@ -1839,7 +1847,6 @@ render_hdr_row_users:
     sub x0, x0, #1
     mov x1, x23
     bl render_fmt_human_duration
-    mov x0, x0
     bl render_arena_set_end
     // source = policy.source + " " + policy value
     bl render_arena_get
@@ -1857,7 +1864,6 @@ render_hdr_row_users:
     ldr x2, [x2, #TC_O_USERS_POLICY]
     ldr x1, [x1, x2, lsl #3]
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     // compact = "M/N users" when found != requested
     ldr x26, [x20, #TC_W_USERS_REQ]
@@ -1876,7 +1882,6 @@ render_hdr_row_users:
     bl render_fmt_u64_commas
     LEA x1, s_users_c
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_users_add
 .Lbhr_users_noc:
@@ -1966,14 +1971,12 @@ render_hdr_row_state:
     sub x2, x25, #1
     ldr x1, [x1, x2, lsl #3]
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_state_src_done
 .Lbhr_state_nofilter:
     mov x0, x22
     LEA x1, s_not_filtered
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
 .Lbhr_state_src_done:
     // compact: "NAME only" when filtered, else "name N" joined " "
@@ -1988,7 +1991,6 @@ render_hdr_row_state:
     sub x0, x0, #1
     LEA x1, s_only
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_state_add
 .Lbhr_state_comp_split:
@@ -2105,7 +2107,6 @@ render_hdr_row_exclude:
     LEA x1, s_more
     bl render_str_cat
 .Lbhr_excl_val_done:
-    mov x0, x0
     bl render_arena_set_end
     // source = joined sources
     LEA x24, tc_plan_src_join
@@ -2122,7 +2123,6 @@ render_hdr_row_exclude:
     bl render_fmt_u64_plain
     LEA x1, s_excl
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_excl_add
 .Lbhr_excl_noc:
@@ -2214,7 +2214,6 @@ render_hdr_row_sort:
     LEA x1, metric_names
     ldr x1, [x1, x20, lsl #3]
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     mov x0, x19
     mov x1, x21
@@ -2242,9 +2241,6 @@ render_hdr_row_share_floor:
     mov x23, #1
 .Lbhr_sf_asked_done:
     cbz x20, .Lbhr_sf_not_acted
-    cbnz x23, .Lbhr_sf_acted
-    // (acted implies asked)
-.Lbhr_sf_acted:
     LEA x19, s_label_share_floor
     bl render_arena_get
     mov x24, x0
@@ -2263,7 +2259,6 @@ render_hdr_row_share_floor:
     bl render_fmt_u64_commas
     LEA x1, s_floor_dropped
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     // compact "floor >=N, -M"
     bl render_arena_get
@@ -2296,7 +2291,6 @@ render_hdr_row_share_floor:
     mov x0, x24
     LEA x1, s_floor_disabled
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     mov x26, x0                       // compact ptr placeholder
     bl render_arena_get
@@ -2304,7 +2298,6 @@ render_hdr_row_share_floor:
     mov x0, x26
     LEA x1, s_floor_off
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_noshare:
@@ -2315,14 +2308,12 @@ render_hdr_row_share_floor:
     mov x0, x24
     LEA x1, s_floor_not
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     bl render_arena_get
     mov x26, x0
     mov x0, x26
     LEA x1, s_floor_unused
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_sf_add
 .Lbhr_sf_skip:
@@ -2360,7 +2351,6 @@ render_hdr_row_config:
     mov x0, x21
     mov x1, x20
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     mov x0, x19
     mov x1, x21
@@ -2396,7 +2386,6 @@ render_hdr_row_cache:
     sub x0, x0, #1
     mov x1, x23
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     mov x0, x19
     mov x1, x26
@@ -2418,7 +2407,6 @@ render_hdr_row_cache:
     bl render_fmt_u64_commas
     LEA x1, s_parsed
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     // source
     cbnz x24, .Lbhr_cache_rebuilt
@@ -2434,7 +2422,6 @@ render_hdr_row_cache:
     sub x0, x0, #1
     mov x1, x24
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbhr_cache_src_done
 .Lbhr_cache_path:
@@ -2446,7 +2433,6 @@ render_hdr_row_cache:
     mov x0, x28
     mov x1, x27
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     mov x27, x28
 .Lbhr_cache_src_done:
@@ -2539,7 +2525,6 @@ render_hdr_row_unreadable:
     bl render_fmt_u64_plain
     LEA x1, s_unread
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     mov x0, x19
     mov x1, x21
@@ -2793,7 +2778,6 @@ render_build_top_row:
     LEA x1, s_hidden
     bl render_str_cat
 .Lbtr_val_done:
-    mov x0, x0
     bl render_arena_set_end
     // source
     LEA x24, tc_plan_limit_src
@@ -2812,7 +2796,6 @@ render_build_top_row:
     bl render_fmt_u64_commas
     LEA x1, s_rows
     bl render_str_cat
-    mov x0, x0
     bl render_arena_set_end
     b .Lbtr_add
 .Lbtr_noc:
@@ -2940,7 +2923,6 @@ render_full_header:
     bl render_emit_header_line
     add x23, x23, #1
     b .Lrfh_line_loop
-.Lrfh_ret:
 .Lrfh_lines_done:
     // files line
     LEA x0, s_label_files
@@ -2952,6 +2934,36 @@ render_full_header:
     // blank line
     bl render_line_blank
     EPILOGUE 4
+    ret
+
+// render_pad_label(buf, w0) -> cursor offset from buf
+//   Pad the label at buf with trailing spaces until its length reaches w0,
+//   then append the 2-space gap.  Shared by the header and files lines
+//   ("label:  value").  Uses only caller-saved registers (x3/x4 survive the
+//   tc_strlen call, which clobbers x0-x2 only).
+    .p2align 2
+render_pad_label:
+    str x30, [sp, #-16]!              // preserve LR across tc_strlen
+    mov x3, x0                        // buf (x3 survives tc_strlen)
+    mov x4, x1                        // w0 (x4 survives tc_strlen)
+    bl tc_strlen
+    mov x5, x0                        // cursor = len
+.Lepl_pad0:
+    cmp x5, x4
+    b.ge .Lepl_gap
+    mov w1, #' '
+    strb w1, [x3, x5]
+    add x5, x5, #1
+    b .Lepl_pad0
+.Lepl_gap:
+    mov w1, #' '
+    strb w1, [x3, x5]
+    add x5, x5, #1
+    mov w1, #' '
+    strb w1, [x3, x5]
+    add x5, x5, #1
+    mov x0, x5                        // cursor offset from buf
+    ldr x30, [sp], #16                // restore LR before returning
     ret
 
 // render_emit_header_line(label, value, source, w0, w1) — "label:  value  [source]"
@@ -2972,24 +2984,11 @@ render_emit_header_line:
     sub x0, x0, #1
     mov w1, #':'
     strb w1, [x0], #1
-    // pad to w0
+    // pad to w0 + 2-space gap
     mov x0, x24
-    bl tc_strlen
+    mov x1, x22
+    bl render_pad_label
     mov x25, x0
-.Lehl_pad0:
-    cmp x25, x22
-    b.ge .Lehl_gap
-    mov w1, #' '
-    strb w1, [x24, x25]
-    add x25, x25, #1
-    b .Lehl_pad0
-.Lehl_gap:
-    mov w1, #' '
-    strb w1, [x24, x25]
-    add x25, x25, #1
-    mov w1, #' '
-    strb w1, [x24, x25]
-    add x25, x25, #1
     // value
     mov x0, x25
     add x0, x24, x0
@@ -3052,23 +3051,11 @@ render_emit_files_line:
     sub x0, x0, #1
     mov w1, #':'
     strb w1, [x0], #1
+    // pad to w0 + 2-space gap
     mov x0, x22
-    bl tc_strlen
+    mov x1, x21
+    bl render_pad_label
     mov x23, x0
-.Leftl_pad0:
-    cmp x23, x21
-    b.ge .Leftl_gap
-    mov w1, #' '
-    strb w1, [x22, x23]
-    add x23, x23, #1
-    b .Leftl_pad0
-.Leftl_gap:
-    mov w1, #' '
-    strb w1, [x22, x23]
-    add x23, x23, #1
-    mov w1, #' '
-    strb w1, [x22, x23]
-    add x23, x23, #1
     add x0, x22, x23
     mov x1, x20
     bl render_fmt_u64_plain
@@ -3401,7 +3388,6 @@ render_table:
     mov x0, x19
     mov x1, x21
     bl render_emit_rule
-.Lrt_end:
     // footer
     bl render_emit_footer
     EPILOGUE 5
@@ -3594,7 +3580,6 @@ render_emit_table_row:
     strb w1, [x22], #1
     mov w1, #' '
     strb w1, [x22], #1
-    LEA x0, render_cell
     mov x1, #TC_M_COUNT
     mov x0, x20
     bl render_cell_render

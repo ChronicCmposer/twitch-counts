@@ -319,7 +319,9 @@ misc_complete_channels:
     bl misc_expand_root
     LEA x0, misc_root
     bl misc_list_dirs                   // adds + sorts when the dir exists
-    bl misc_names_sort
+    cbnz x0, .Lcc_print                 // dir existed: names already sorted
+    bl misc_names_sort                  // dir missing: sort the aliases only
+.Lcc_print:
     bl misc_names_print
     mov x0, #0
     EPILOGUE 2
@@ -356,19 +358,18 @@ misc_complete_groups:
     mov x0, #0
     EPILOGUE 3
     ret// ============================================================================
-// misc_complete_dates() — every dated log file's date, ascending, one per line.
+// misc_emit_dates() — print each dated log's date, ascending, one per line
+//   (tc_listing must already be filled by tc_count_run).
 // ============================================================================
-misc_complete_dates:
+misc_emit_dates:
     PROLOGUE 3
-    bl misc_set_all_window
-    bl tc_count_run                     // fills tc_listing
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #0
-.Lcd_loop:
+.Led_loop:
     cmp x22, x20
-    b.ge .Lcd_done
+    b.ge .Led_done
     mov x23, #TC_L_ENTRY_SZ
     mul x23, x22, x23
     add x23, x21, x23
@@ -379,27 +380,25 @@ misc_complete_dates:
     LEA x0, misc_buf
     bl misc_print_line
     add x22, x22, #1
-    b .Lcd_loop
-.Lcd_done:
-    mov x0, #0
+    b .Led_loop
+.Led_done:
     EPILOGUE 3
     ret
 
 // ============================================================================
-// misc_complete_weeks() — ISO weeks of the dated logs, deduped, in date order.
+// misc_emit_weeks() — add each dated log's ISO week to the name list
+//   (tc_listing must already be filled by tc_count_run).
 // ============================================================================
-misc_complete_weeks:
+misc_emit_weeks:
     PROLOGUE 3
-    bl misc_set_all_window
-    bl tc_count_run
     bl misc_names_reset
     LEA x19, tc_listing
     ldr x20, [x19, #TC_L_COUNT]
     ldr x21, [x19, #TC_L_ENTRIES]
     mov x22, #0
-.Lcw_loop:
+.Lew_loop:
     cmp x22, x20
-    b.ge .Lcw_print
+    b.ge .Lew_done
     mov x23, #TC_L_ENTRY_SZ
     mul x23, x22, x23
     add x23, x21, x23
@@ -412,66 +411,51 @@ misc_complete_weeks:
     LEA x0, misc_buf
     bl misc_names_add
     add x22, x22, #1
-    b .Lcw_loop
-.Lcw_print:
-    bl misc_names_sort
-    bl misc_names_print
-    mov x0, #0
+    b .Lew_loop
+.Lew_done:
     EPILOGUE 3
     ret
 
 // ============================================================================
-// misc_complete_periods() — weeks then dates (Python: weeks + dates).
+// misc_complete_dates() — every dated log file's date, ascending, one per line.
 // ============================================================================
-misc_complete_periods:
-    PROLOGUE 3
+misc_complete_dates:
+    PROLOGUE 0
+    bl misc_set_all_window
+    bl tc_count_run                     // fills tc_listing
+    bl misc_emit_dates
+    mov x0, #0
+    EPILOGUE 0
+    ret
+
+// ============================================================================
+// misc_complete_weeks() — ISO weeks of the dated logs, deduped, in date order.
+// ============================================================================
+misc_complete_weeks:
+    PROLOGUE 0
     bl misc_set_all_window
     bl tc_count_run
-    bl misc_names_reset
-    LEA x19, tc_listing
-    ldr x20, [x19, #TC_L_COUNT]
-    ldr x21, [x19, #TC_L_ENTRIES]
-    mov x22, #0
-.Lcp_weeks_loop:
-    cmp x22, x20
-    b.ge .Lcp_weeks_done
-    mov x23, #TC_L_ENTRY_SZ
-    mul x23, x22, x23
-    add x23, x21, x23
-    ldr x23, [x23, #TC_L_YMD]
-    mov x0, x23
-    bl misc_iso_week
-    LEA x24, misc_buf
-    mov x2, x24
-    bl misc_fmt_week
-    LEA x0, misc_buf
-    bl misc_names_add
-    add x22, x22, #1
-    b .Lcp_weeks_loop
-.Lcp_weeks_done:
+    bl misc_emit_weeks
+    bl misc_names_sort
     bl misc_names_print
-    // dates, ascending
-    LEA x19, tc_listing
-    ldr x20, [x19, #TC_L_COUNT]
-    ldr x21, [x19, #TC_L_ENTRIES]
-    mov x22, #0
-.Lcp_dates_loop:
-    cmp x22, x20
-    b.ge .Lcp_dates_done
-    mov x23, #TC_L_ENTRY_SZ
-    mul x23, x22, x23
-    add x23, x21, x23
-    ldr x23, [x23, #TC_L_YMD]
-    mov x0, x23
-    LEA x1, misc_buf
-    bl misc_fmt_ymd
-    LEA x0, misc_buf
-    bl misc_print_line
-    add x22, x22, #1
-    b .Lcp_dates_loop
-.Lcp_dates_done:
     mov x0, #0
-    EPILOGUE 3
+    EPILOGUE 0
+    ret
+
+// ============================================================================
+// misc_complete_periods() — weeks then dates (Python: weeks + dates).
+//   Note: complete_weeks sorts the week names before printing but periods does
+//   not; both yield date-ordered output because tc_listing is date-ordered.
+// ============================================================================
+misc_complete_periods:
+    PROLOGUE 0
+    bl misc_set_all_window
+    bl tc_count_run
+    bl misc_emit_weeks
+    bl misc_names_print
+    bl misc_emit_dates
+    mov x0, #0
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -911,10 +895,10 @@ misc_require_channel:
     add x23, x23, #1
     cmp x23, x21
     b.ge .Lrc_avail_done
-    mov w2, #','
-    strb w2, [x19], #1
-    mov w2, #' '
-    strb w2, [x19], #1
+    mov x0, x19
+    cset x1, lt                        // more names follow
+    bl misc_cat_comma_if
+    mov x19, x0
     b .Lrc_avail_loop
 .Lrc_avail_none:
     LEA x1, s_none_paren
@@ -1256,10 +1240,10 @@ misc_unknown_group_failed:
     add x21, x21, #1
     cmp x21, x20
     b.ge .Lugf_done
-    mov w2, #','
-    strb w2, [x19], #1
-    mov w2, #' '
-    strb w2, [x19], #1
+    mov x0, x19
+    cset x1, lt                        // more names follow
+    bl misc_cat_comma_if
+    mov x19, x0
     b .Lugf_join
 .Lugf_none:
     LEA x1, s_none_defined
@@ -1865,126 +1849,82 @@ misc_in_users:
 
 // misc_split_add(x0=value) — split and add each token to the name list.
 misc_split_add:
-    PROLOGUE 2
-    mov x19, x0                         // scan pointer
-.Lsa_next:
-    ldrb w1, [x19]
-    cbz w1, .Lsa_done
-    cmp w1, #' '
-    b.eq .Lsa_sep
-    cmp w1, #'\t'
-    b.eq .Lsa_sep
-    cmp w1, #'\n'
-    b.eq .Lsa_sep
-    cmp w1, #'\r'
-    b.eq .Lsa_sep
-    cmp w1, #','
-    b.eq .Lsa_sep
-    b .Lsa_token
-.Lsa_sep:
-    add x19, x19, #1
-    b .Lsa_next
-.Lsa_token:
-    mov x20, x19                        // token start
-.Lsa_scan:
-    ldrb w1, [x19]
-    cbz w1, .Lsa_emit
-    cmp w1, #' '
-    b.eq .Lsa_emit
-    cmp w1, #'\t'
-    b.eq .Lsa_emit
-    cmp w1, #'\n'
-    b.eq .Lsa_emit
-    cmp w1, #'\r'
-    b.eq .Lsa_emit
-    cmp w1, #','
-    b.eq .Lsa_emit
-    add x19, x19, #1
-    b .Lsa_scan
-.Lsa_emit:
-    // NUL-terminate the token [x20, x19) in misc_buf
-    LEA x0, misc_buf
-    mov x21, x0                         // cursor
-    mov x2, x20                         // src
-    mov x3, x19                         // end
-.Lsa_emit_copy:
-    cmp x2, x3
-    b.ge .Lsa_emit_nul
-    ldrb w4, [x2], #1
-    strb w4, [x21], #1
-    b .Lsa_emit_copy
-.Lsa_emit_nul:
-    mov w4, #0
-    strb w4, [x21]
-    LEA x0, misc_buf
-    bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
-    cbz x0, .Lsa_continue
-    bl misc_names_add
-.Lsa_continue:
-    b .Lsa_next                         // x19 sits on the separator or NUL
-.Lsa_done:
-    EPILOGUE 2
-    ret
+    mov x1, #0                          // op: add
+    b misc_split_dispatch
 
 // misc_split_remove(x0=value) — split and remove each token.
 misc_split_remove:
+    mov x1, #1                          // op: remove
+    b misc_split_dispatch
+
+// misc_split_dispatch(x0=value, x1=op) — split value on [,\s]+ and apply op to
+//   each non-empty token (strip + lowercase).  op: 0 = misc_names_add,
+//   1 = misc_names_remove.  Entered via the add/remove thunks above, so the
+//   return address is still the caller's own.
+misc_split_dispatch:
     PROLOGUE 2
-    mov x19, x0
-.Lsr_next:
+    mov x19, x0                         // scan pointer
+    mov x20, x1                         // op
+.Lsd_next:
     ldrb w1, [x19]
-    cbz w1, .Lsr_done
+    cbz w1, .Lsd_done
     cmp w1, #' '
-    b.eq .Lsr_sep
+    b.eq .Lsd_sep
     cmp w1, #'\t'
-    b.eq .Lsr_sep
+    b.eq .Lsd_sep
     cmp w1, #'\n'
-    b.eq .Lsr_sep
+    b.eq .Lsd_sep
     cmp w1, #'\r'
-    b.eq .Lsr_sep
+    b.eq .Lsd_sep
     cmp w1, #','
-    b.eq .Lsr_sep
-    b .Lsr_token
-.Lsr_sep:
+    b.eq .Lsd_sep
+    b .Lsd_token
+.Lsd_sep:
     add x19, x19, #1
-    b .Lsr_next
-.Lsr_token:
-    mov x20, x19
-.Lsr_scan:
+    b .Lsd_next
+.Lsd_token:
+    mov x21, x19                        // token start
+.Lsd_scan:
     ldrb w1, [x19]
-    cbz w1, .Lsr_emit
+    cbz w1, .Lsd_emit
     cmp w1, #' '
-    b.eq .Lsr_emit
+    b.eq .Lsd_emit
     cmp w1, #'\t'
-    b.eq .Lsr_emit
+    b.eq .Lsd_emit
     cmp w1, #'\n'
-    b.eq .Lsr_emit
+    b.eq .Lsd_emit
     cmp w1, #'\r'
-    b.eq .Lsr_emit
+    b.eq .Lsd_emit
     cmp w1, #','
-    b.eq .Lsr_emit
+    b.eq .Lsd_emit
     add x19, x19, #1
-    b .Lsr_scan
-.Lsr_emit:
-    LEA x0, misc_buf
-    mov x21, x0
-    mov x2, x20
-    mov x3, x19
-.Lsr_emit_copy:
+    b .Lsd_scan
+.Lsd_emit:
+    // NUL-terminate the token [x21, x19) in misc_buf
+    LEA x22, misc_buf
+    mov x2, x21                         // src
+    mov x3, x19                         // end
+.Lsd_emit_copy:
     cmp x2, x3
-    b.ge .Lsr_emit_nul
+    b.ge .Lsd_emit_nul
     ldrb w4, [x2], #1
-    strb w4, [x21], #1
-    b .Lsr_emit_copy
-.Lsr_emit_nul:
+    strb w4, [x22], #1
+    b .Lsd_emit_copy
+.Lsd_emit_nul:
     mov w4, #0
-    strb w4, [x21]
+    strb w4, [x22]
     LEA x0, misc_buf
-    bl misc_arena_str_lower_strip
-    cbz x0, .Lsr_continue
+    bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
+    cbz x0, .Lsd_continue
+    cmp x20, #1
+    b.ne .Lsd_do_add
     bl misc_names_remove
-.Lsr_continue:
-    b .Lsr_next
-.Lsr_done:
+    b .Lsd_continue
+.Lsd_do_add:
+    bl misc_names_add
+.Lsd_continue:
+    b .Lsd_next                         // x19 sits on the separator or NUL
+.Lsd_done:
     EPILOGUE 2
     ret
 
@@ -2192,32 +2132,46 @@ misc_fmt_dec_pad:
     EPILOGUE 2
     ret
 
+// misc_ymd_split(x0=ymd) -> (x0=year, x1=month, x2=day).
+misc_ymd_split:
+    PROLOGUE 0
+    mov x3, #YMD_MONTH_SCALE            // 100
+    udiv x1, x0, x3                     // q = ymd/100
+    udiv x2, x1, x3                     // q/100
+    msub x2, x2, x3, x1                 // mo = q % 100
+    msub x1, x1, x3, x0                 // d = ymd % 100
+    mov x3, #YMD_YEAR_SCALE
+    udiv x0, x0, x3                     // y
+    mov x3, x2                          // mo
+    mov x2, x1                          // d
+    mov x1, x3                          // (x0=y, x1=mo, x2=d)
+    EPILOGUE 0
+    ret
+
 // misc_fmt_ymd(x0=ymd, x1=dst) -> x0 = cursor past "YYYY-MM-DD".
 misc_fmt_ymd:
     PROLOGUE 2
     mov x19, x0                         // ymd
     mov x20, x1                         // dst
-    mov x21, #YMD_YEAR_SCALE
-    udiv x1, x19, x21                   // y
+    bl misc_ymd_split                   // x0=y, x1=mo, x2=d
+    mov x21, x1                         // mo (survives the fmt_dec_pad calls)
+    mov x22, x2                         // d
+    mov x1, x0                          // y
     mov x0, x20
     mov x2, #4
     bl misc_fmt_dec_pad                 // x0 = cursor
     mov w1, #'-'
     strb w1, [x0], #1
     mov x20, x0
-    mov x22, #YMD_MONTH_SCALE
-    udiv x1, x19, x22                   // ymd/100
-    udiv x2, x1, x22
-    msub x1, x2, x22, x1                // mo = (ymd/100) % 100
     mov x0, x20
+    mov x1, x21
     mov x2, #2
     bl misc_fmt_dec_pad
     mov w1, #'-'
     strb w1, [x0], #1
     mov x20, x0
-    udiv x1, x19, x22                   // ymd/100
-    msub x1, x1, x22, x19               // d = ymd % 100
     mov x0, x20
+    mov x1, x22
     mov x2, #2
     bl misc_fmt_dec_pad
     EPILOGUE 2
@@ -2264,19 +2218,10 @@ misc_print_line:
 
 // misc_ymd_to_days(x0=ymd) -> x0 = days since 1970-01-01.
 misc_ymd_to_days:
-    PROLOGUE 1
-    mov x19, x0                         // ymd
-    mov x0, #YMD_YEAR_SCALE
-    udiv x1, x19, x0                    // y
-    mov x0, #YMD_MONTH_SCALE
-    udiv x2, x19, x0                    // ymd/100
-    udiv x3, x2, x0                     // mo = (ymd/100)/100
-    msub x3, x3, x0, x2                 // mo = (ymd/100) % 100
-    msub x2, x2, x0, x19                // d = ymd % 100
-    mov x0, x1
-    mov x1, x3
+    PROLOGUE 0
+    bl misc_ymd_split                   // x0=y, x1=mo, x2=d
     bl tc_days_from_civil
-    EPILOGUE 1
+    EPILOGUE 0
     ret
 
 // misc_days_to_ymd(x0=days) -> x0 = ymd.
@@ -2291,22 +2236,31 @@ misc_days_to_ymd:
     EPILOGUE 2
     ret
 
+// misc_floor_mod7(x0=v) -> x0 = ((v + 3) mod 7) + 1  (floor mod; Mon=1).
+misc_floor_mod7:
+    PROLOGUE 0
+    add x0, x0, #3
+    mov x1, #7
+    sdiv x2, x0, x1
+    msub x2, x2, x1, x0
+    cmp x2, #0
+    b.ge .Lfm7_done
+    add x2, x2, #7
+.Lfm7_done:
+    add x0, x2, #1
+    EPILOGUE 0
+    ret
+
 // misc_iso_week(x0=ymd) -> (x0=iso_year, x1=iso_week).
 misc_iso_week:
     PROLOGUE 4
     mov x19, x0                         // ymd
     bl misc_ymd_to_days
     mov x20, x0                         // epoch
-    // iso_wd = ((epoch + 3) mod 7) + 1   (floor mod; Mon=1)
-    add x0, x20, #3
-    mov x1, #7
-    sdiv x2, x0, x1
-    msub x2, x2, x1, x0
-    cmp x2, #0
-    b.ge .Liw_wd
-    add x2, x2, #7
-.Liw_wd:
-    add x21, x2, #1                     // iso_wd
+    // iso_wd = misc_floor_mod7(epoch)
+    mov x0, x20
+    bl misc_floor_mod7
+    mov x21, x0                         // iso_wd
     // thu = epoch + (4 - iso_wd)
     sub x0, x20, x21
     add x22, x0, #4
@@ -2319,16 +2273,10 @@ misc_iso_week:
     mov x2, #4
     bl tc_days_from_civil
     mov x24, x0                         // jan4
-    // jw = ((jan4 + 3) mod 7) + 1
-    add x0, x24, #3
-    mov x1, #7
-    sdiv x2, x0, x1
-    msub x2, x2, x1, x0
-    cmp x2, #0
-    b.ge .Liw_jw
-    add x2, x2, #7
-.Liw_jw:
-    add x25, x2, #1                     // jw
+    // jw = misc_floor_mod7(jan4)
+    mov x0, x24
+    bl misc_floor_mod7
+    mov x25, x0                         // jw
     // week1 = jan4 - (jw - 1)
     sub x0, x24, x25
     add x26, x0, #1
@@ -2416,7 +2364,6 @@ s_key_exclude:      .asciz "exclude"
 s_key_always:       .asciz "always"
 s_env_exclude:      .asciz "TWITCH_EXCLUDE"
 s_env_counts_config:.asciz "TWITCH_COUNTS_CONFIG"
-s_env_home:         .asciz "HOME"
 s_none_path:        .asciz "None"
 s_mode_r:           .asciz "r"
 s_flag_exclude:     .asciz "--exclude"

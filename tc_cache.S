@@ -242,7 +242,6 @@ s_colon_space:      .asciz ": "
 s_type_operr:       .asciz "OperationalError"
 s_type_dberr:       .asciz "DatabaseError"
 s_type_memerr:      .asciz "MemoryError"
-s_type_oserr:       .asciz "OSError"
 s_reason_new_cache: .asciz "new cache"
 s_reason_new_layout:.asciz "new cache layout"
 s_reason_new_gen:   .asciz "new parser generation"
@@ -335,7 +334,7 @@ s_fp_parts:
     .global tc_cache_open
     FUNC_TYPE(tc_cache_open)
 tc_cache_open:
-    PROLOGUE 5
+    PROLOGUE 2
     // ---- reset session state ----
     LEA x9, cache_db
     str xzr, [x9]
@@ -437,13 +436,13 @@ tc_cache_open:
     bl cache_db_exec
     cbnz w0, .Lco_fail_commit
 .Lco_open_done:
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 .Lco_no_cache:
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 .Lco_no_path:
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 .Lco_fail_connect:
     LEA x0, s_step_connect
@@ -657,9 +656,11 @@ tc_cache_put_day:
     cmp x27, x23
     b.ge .Lcp_users_done
     // entry pointer (survives the bind calls in x28)
-    mov x28, #TC_US_ENTRY_SZ
-    mul x28, x27, x28
-    add x28, x24, x28
+    mov x0, x24
+    mov x1, x27
+    mov x2, #TC_US_ENTRY_SZ
+    bl entry_ptr
+    mov x28, x0
     ldr x16, [x28, #TC_US_LIVE]
     ldr x17, [x28, #TC_US_OFFLINE]
     ldr x14, [x28, #TC_US_UNKNOWN]
@@ -846,7 +847,7 @@ tc_cache_discard_day:
     .global tc_cache_debug_dump
     FUNC_TYPE(tc_cache_debug_dump)
 tc_cache_debug_dump:
-    PROLOGUE 5
+    PROLOGUE 1
     LEA x9, cache_db
     ldr x9, [x9]
     cbz x9, .Lcdd_done
@@ -876,6 +877,8 @@ tc_cache_debug_dump:
     bl sqlite3_finalize
     // ---- row counts ----
     LEA x0, s_cachecounts
+    bl tc_puts
+    LEA x0, s_lbl_meta
     bl tc_puts
     LEA x0, s_sql_count_meta
     bl cache_dump_count
@@ -1017,7 +1020,7 @@ tc_cache_debug_dump:
     mov x0, x19
     bl sqlite3_finalize
 .Lcdd_done:
-    EPILOGUE 5
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -1426,7 +1429,6 @@ cache_get_day:
     // validity: enter_state — compare ids directly (x25 vs x20, both 0/1/2/3)
     cmp x25, x20
     b.ne .Lcg_miss
-.Lcg_enter_done:
     // hit: apply every counts row
     LEA x0, s_sql_sel_counts
     bl cache_prepare_stmt
@@ -1494,6 +1496,16 @@ cache_get_day:
     ret
 
 // ============================================================================
+// entry_ptr(x0=base, x1=i, x2=sz) — x0 = base + i*sz (a record pointer).
+//   The one repeated `mul i, sz; add base` of the entry loops, in one place.
+// ============================================================================
+    .p2align 2
+entry_ptr:
+    mul x2, x1, x2
+    add x0, x0, x2
+    ret
+
+// ============================================================================
 // cache_snapshot_users — malloc an array of old_count*3 u64s holding the live/
 //   offline/unknown counts per existing user; stashed for the put.
 // ============================================================================
@@ -1517,12 +1529,16 @@ cache_snapshot_users:
 .Lsu_loop:
     cmp x24, x20
     b.ge .Lsu_done
-    mov x9, #TC_US_ENTRY_SZ
-    mul x9, x24, x9
-    add x9, x21, x9                 // entry
-    mov x10, #24
-    mul x10, x24, x10
-    add x10, x22, x10               // snap slot
+    mov x0, x21
+    mov x1, x24
+    mov x2, #TC_US_ENTRY_SZ
+    bl entry_ptr
+    mov x9, x0                      // entry
+    mov x0, x22
+    mov x1, x24
+    mov x2, #24
+    bl entry_ptr
+    mov x10, x0                     // snap slot
     ldr x11, [x9, #TC_US_LIVE]
     ldr x12, [x9, #TC_US_OFFLINE]
     ldr x13, [x9, #TC_US_UNKNOWN]

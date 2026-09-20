@@ -262,7 +262,7 @@ rebuilt=$(sed -n 's/^cachestatus .*rebuilt=\(.*\) path=.*/\1/p' "$tmpdir/gen2.ou
 reused=$(sed -n 's/^cachestatus used=[0-9]* reused=\([0-9]*\).*/\1/p' "$tmpdir/gen2.out")
 parsed=$(sed -n 's/^cachestatus .*parsed=\([0-9]*\) .*/\1/p' "$tmpdir/gen2.out")
 fps2=$(sed -n 's/^cachefile \([0-9a-f]*\) .*/\1/p' "$tmpdir/gen2.out" | sort -u)
-gen=$(sed -n 's/^cachecounts [0-9]* generation=\([0-9]*\).*/\1/p' "$tmpdir/gen2.out")
+gen=$(sed -n 's/^cachecounts meta=[0-9]* generation=\([0-9]*\).*/\1/p' "$tmpdir/gen2.out")
 ok=0
 [ "$rebuilt" = "new parser generation" ] && [ "$reused" = "0" ] && \
     [ "$parsed" = "3" ] && [ "$gen" = "2" ] && ok=1
