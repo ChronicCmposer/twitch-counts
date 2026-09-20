@@ -364,24 +364,46 @@ tc_aliases_apply:
     .global tc_excl_contains
     FUNC_TYPE(tc_excl_contains)
 tc_excl_contains:
-    PROLOGUE 3
+    PROLOGUE 4
     mov x19, x0                     // login ptr
     mov x20, x1                     // login len
-    LEA x21, tc_excl_set
-    ldr x22, [x21]                  // count
-    add x23, x21, #8                // entries base
-    mov x24, #0
+    cbz x20, .Lec_no                // empty login never matches a stored name
+    cmp x20, #25
+    b.gt .Lec_no                    // stored logins are capped at 25 chars
+    // lowercase the candidate's first byte (stored first bytes are lowercase)
+    ldrb w21, [x19]
+    cmp w21, #'A'
+    b.lt .Lec_first_done
+    cmp w21, #'Z'
+    b.gt .Lec_first_done
+    add w21, w21, #0x20
+.Lec_first_done:
+    LEA x22, tc_excl_set
+    ldr x23, [x22]                  // count
+    cbz x23, .Lec_no
+    add x24, x22, #8                // entries base
+    mov x25, #0                     // i
+    mov x26, x24                    // entry ptr (walks, no per-entry mul)
 .Lec_loop:
-    cmp x24, x22
+    cmp x25, x23
     b.ge .Lec_no
-    mov x0, x24
-    bl cfg_excl_entry_off
-    add x0, x23, x0
+    ldrb w9, [x26]                  // stored first byte (lowercased at build)
+    cmp w9, #'A'
+    b.lt .Lec_fcheck
+    cmp w9, #'Z'
+    b.gt .Lec_fcheck
+    add w9, w9, #0x20
+.Lec_fcheck:
+    cmp w9, w21
+    b.ne .Lec_next                  // cheap early-exit: first byte differs
+    mov x0, x26
     mov x1, x19
     mov x2, x20
     bl cfg_login_matches
     cbnz x0, .Lec_yes
-    add x24, x24, #1
+.Lec_next:
+    add x26, x26, #TC_EX_ENTRY_SZ
+    add x25, x25, #1
     b .Lec_loop
 .Lec_yes:
     mov x0, #1
@@ -389,7 +411,7 @@ tc_excl_contains:
 .Lec_no:
     mov x0, #0
 .Lec_done:
-    EPILOGUE 3
+    EPILOGUE 4
     ret
 
 // ============================================================================
@@ -2396,20 +2418,56 @@ cfg_copy_login_entry:
 // ----------------------------------------------------------------------------
 // cfg_login_matches(x0=entry_login, x1=login, x2=len) -> x0 = 0/1
 //   Case-insensitive compare of a stored NUL-terminated login against a
-//   length-delimited login.
+//   length-delimited login.  The bulk is compared word-at-a-time with a SWAR
+//   A-Z lowercase fold; the tail (< 8 bytes) falls back to the byte loop, and
+//   the stored login must end exactly at `len`.  Word loads stay inside the
+//   caller's buffers (full words require remaining >= 8; the tail is bytewise).
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_login_matches:
-    PROLOGUE 1
+    PROLOGUE 3
     mov x19, x0                     // stored base
     mov x20, x1                     // candidate base
-    mov x3, #0
-.Llm_loop:
-    ldrb w4, [x19, x3]
-    cbz w4, .Llm_stored_end
-    cmp x3, x2
-    b.ge .Llm_no                    // stored longer than candidate
-    ldrb w5, [x20, x3]
+    mov x21, x2                     // len
+    mov x22, #0                     // i
+    ldr x6, =0x4141414141414141     // SWAR 'A' threshold (0x41 per byte)
+    ldr x7, =0x5B5B5B5B5B5B5B5B     // SWAR '[' threshold (0x5B per byte)
+.Llm_wloop:
+    sub x23, x21, x22               // remaining
+    cmp x23, #8
+    b.lt .Llm_tail
+    ldr x4, [x19, x22]
+    ldr x5, [x20, x22]
+    // lowercase the stored word (mask = 0x20 where 'A'..'Z')
+    orr x8, x4, #0x8080808080808080
+    sub x9, x8, x6
+    and x9, x9, #0x8080808080808080
+    lsr x9, x9, #2
+    sub x10, x8, x7
+    and x10, x10, #0x8080808080808080
+    lsr x10, x10, #2
+    bic x9, x9, x10
+    orr x4, x4, x9
+    // lowercase the candidate word
+    orr x8, x5, #0x8080808080808080
+    sub x9, x8, x6
+    and x9, x9, #0x8080808080808080
+    lsr x9, x9, #2
+    sub x10, x8, x7
+    and x10, x10, #0x8080808080808080
+    lsr x10, x10, #2
+    bic x9, x9, x10
+    orr x5, x5, x9
+    cmp x4, x5
+    b.ne .Llm_no
+    add x22, x22, #8
+    b .Llm_wloop
+.Llm_tail:
+    cmp x22, x21
+    b.ge .Llm_lencheck
+    ldrb w4, [x19, x22]
+    cbz w4, .Llm_no                 // stored ended before len -> no match
+    ldrb w5, [x20, x22]
     cmp w4, #'A'
     b.lt 1f
     cmp w4, #'Z'
@@ -2424,17 +2482,17 @@ cfg_login_matches:
 2:
     cmp w4, w5
     b.ne .Llm_no
-    add x3, x3, #1
-    b .Llm_loop
-.Llm_stored_end:
-    cmp x3, x2
-    b.ne .Llm_no                    // stored shorter than candidate
+    add x22, x22, #1
+    b .Llm_tail
+.Llm_lencheck:
+    ldrb w4, [x19, x21]             // stored must end exactly at len
+    cbnz w4, .Llm_no
     mov x0, #1
     b .Llm_done
 .Llm_no:
     mov x0, #0
 .Llm_done:
-    EPILOGUE 1
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -2571,7 +2629,8 @@ cfg_cat_u64:
     sub sp, sp, #32
     mov x19, x0
     mov x20, x1
-    add x1, sp, #28
+    add x1, sp, #32
+    strb wzr, [x1, #-1]!                // explicit NUL terminator at sp+31
     mov x2, #0
     cmp x20, #0
     b.ne .Lcu_loop

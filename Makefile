@@ -62,15 +62,41 @@ SQLITE_O   := $(BUILD)/sqlite3.o
 LIBS       := $(TOML_O) $(SQLITE_O) $(PCRE2_LIB)
 
 # ---- per-platform toolchain -------------------------------------------------
+# Dead-code elimination.  The vendored C (toml/sqlite3/pcre2) is compiled with
+# -ffunction-sections/-fdata-sections so each function/data becomes its own
+# section, then the final link garbage-collects unreferenced sections.  The
+# hand-written tc_*.S objects are NOT split this way (their functions share one
+# .text section per module), so gc can only drop whole unused modules — it will
+# not reclaim individual assembly functions.  musl is built by its own Makefile
+# (see bootstrap) and is left un-split, so its code is also kept whole.
+#
+# Platform notes:
+#   Linux  (musl-gcc, GNU ld):   -Wl,--gc-sections + -s (strip symbol table)
+#   macOS  (Apple clang, ld64):  -Wl,-dead_strip is the Apple equivalent of
+#       --gc-sections; GNU --gc-sections does not exist in ld64.  Stripping is
+#       deliberately NOT applied on Darwin (-s would strip the .dylib stubs the
+#       dynamically-linked build needs to resolve), so only the link-time gc is
+#       enabled there.
+CFLAGS      := -ffunction-sections -fdata-sections
+
 ifeq ($(OS),Darwin)
 CC            := clang
-LINK          := $(CC) -o
+LDFLAGS       := -Wl,-dead_strip
+LINK          := $(CC) $(LDFLAGS) -o
 TOOLCHAIN_DEP :=
+TC_MARCH      := -mcpu=apple-m2
 else
 CC            := $(MUSL_GCC)
-LINK          := $(MUSL_GCC) -static -o
+LDFLAGS       := -Wl,--gc-sections -s
+LINK          := $(MUSL_GCC) -static $(LDFLAGS) -o
 TOOLCHAIN_DEP := $(MUSL_GCC)
+TC_MARCH      := -march=armv8.6-a
 endif
+
+# The vendored C (toml/sqlite3/pcre2) is compiled for the host CPU
+# (TC_MARCH above); the hand-written tc_*.S objects stay at baseline
+# ARMv8-a, so this split keeps -march/-mcpu scoped to the C compiles only.
+VENDOR_CFLAGS := $(CFLAGS) $(TC_MARCH)
 
 # The harness scripts find their drivers through this.
 export TC_BUILD := $(BUILD)
@@ -122,6 +148,9 @@ endif
 # (no root).  --syslibdir inside the prefix makes musl-gcc's default
 # (dynamic) test binaries runnable without root; the final link still uses
 # -static.  Kept outside build/ because it is a toolchain, not a product.
+# CFLAGS_MUSL splits musl's functions/data into per-symbol sections so the
+# final -Wl,--gc-sections link can drop the libc code this binary never uses
+# (the largest single dead-code source in the static link).
 $(MUSL_GCC):
 	@if [ ! -d $(MUSL_SRC) ]; then \
 		if [ ! -f $(MUSL_TAR) ]; then \
@@ -131,7 +160,7 @@ $(MUSL_GCC):
 		tar xzf $(MUSL_TAR) -C $(THIRD); \
 	fi
 	cd $(MUSL_SRC) && ./configure --prefix=$$PWD/../musl --syslibdir=$$PWD/../musl/lib
-	$(MAKE) -C $(MUSL_SRC) -j$(NPROC)
+	$(MAKE) -C $(MUSL_SRC) -j$(NPROC) CFLAGS="$(CFLAGS)"
 	$(MAKE) -C $(MUSL_SRC) install
 
 # pcre2-8 static library, built per platform with the platform's compiler
@@ -145,7 +174,7 @@ $(PCRE2_TAR):
 $(PCRE2_LIB): $(PCRE2_TAR) | $(BUILD) $(TOOLCHAIN_DEP)
 	rm -rf $(PCRE2_SRC)
 	tar xzf $(PCRE2_TAR) -C $(BUILD)
-	cd $(PCRE2_SRC) && ./configure --disable-shared --enable-static CC=$(CC) > configure.log
+	cd $(PCRE2_SRC) && ./configure --disable-shared --enable-static CC=$(CC) CFLAGS="$(VENDOR_CFLAGS)" > configure.log
 	$(MAKE) -C $(PCRE2_SRC) -j$(NPROC) libpcre2-8.la > /dev/null
 	mkdir -p $(PCRE2_DIR)/lib
 	cp $(PCRE2_SRC)/.libs/libpcre2-8.a $(PCRE2_LIB)
@@ -154,10 +183,10 @@ $(PCRE2_LIB): $(PCRE2_TAR) | $(BUILD) $(TOOLCHAIN_DEP)
 # vendored C sources compiled with the platform's compiler
 # ---------------------------------------------------------------------------
 $(TOML_O): $(TOML)/toml.c $(TOML)/toml.h | $(BUILD) $(TOOLCHAIN_DEP)
-	$(CC) -std=c99 -c $< -o $@
+	$(CC) -std=c99 -O2 $(VENDOR_CFLAGS) -c $< -o $@
 
 $(SQLITE_O): $(SQLITE)/sqlite3.c $(SQLITE)/sqlite3.h | $(BUILD) $(TOOLCHAIN_DEP)
-	$(CC) -O2 -DSQLITE_THREADSAFE=1 -c $< -o $@
+	$(CC) -O2 -DSQLITE_THREADSAFE=0 $(VENDOR_CFLAGS) -c $< -o $@
 
 third-party: $(LIBS)
 

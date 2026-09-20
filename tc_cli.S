@@ -4190,7 +4190,7 @@ cli_now:
 // ----------------------------------------------------------------------------
     .p2align 2
 cli_format_u64:
-    PROLOGUE 5
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1
     sub sp, sp, #32
@@ -4205,9 +4205,11 @@ cli_format_u64:
     mov x2, #1
     b .Lfu_copy
 .Lfu_loop:
-    mov x4, #10
-    udiv x5, x3, x4
-    msub x6, x5, x4, x3
+    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    mov x7, #10
+    umulh x5, x3, x4
+    lsr x5, x5, #3
+    msub x6, x5, x7, x3
     add x6, x6, #'0'
     strb w6, [x21]
     sub x21, x21, #1
@@ -4229,7 +4231,7 @@ cli_format_u64:
 .Lfu_done:
     mov x0, x3                      // cursor after the digits
     add sp, sp, #32
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -4310,7 +4312,7 @@ cli_format_ymd_sod:
 // ----------------------------------------------------------------------------
     .p2align 2
 cli_format_pad:
-    PROLOGUE 5
+    PROLOGUE 3
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -4326,9 +4328,11 @@ cli_format_pad:
     mov x23, #1
     b .Lfp_pad
 .Lfp_loop:
-    mov x4, #10
-    udiv x5, x3, x4
-    msub x6, x5, x4, x3
+    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    mov x7, #10
+    umulh x5, x3, x4
+    lsr x5, x5, #3
+    msub x6, x5, x7, x3
     add x6, x6, #'0'
     strb w6, [x22]
     sub x22, x22, #1
@@ -4355,7 +4359,7 @@ cli_format_pad:
 .Lfp_done:
     mov x0, x19
     add sp, sp, #32
-    EPILOGUE 5
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -4565,7 +4569,7 @@ tc_parse_datetime:
 // ----------------------------------------------------------------------------
     .p2align 2
 cli_strip_copy:
-    PROLOGUE 5
+    PROLOGUE 2
     mov x19, x0
     mov x20, x1
 .Lsc_lead:
@@ -4594,7 +4598,7 @@ cli_strip_copy:
     b .Lsc_trail
 .Lsc_done:
     mov x0, x19
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 
 // ----------------------------------------------------------------------------
@@ -5050,7 +5054,7 @@ cli_lowercase:
 // cli_parse_int_core(x0=s) -> (x0=value, x1=ok)
     .p2align 2
 cli_parse_int_core:
-    PROLOGUE 5
+    PROLOGUE 3
     mov x19, x0
     mov x20, x19
 .Lpic_lead:
@@ -5143,7 +5147,7 @@ cli_parse_int_core:
     mov x1, #0
     b .Lpic_ret
 .Lpic_ret:
-    EPILOGUE 5
+    EPILOGUE 3
     ret
 
 // cli_parse_positive_int(x0=s) -> (x0=value, x1=status)
@@ -5309,7 +5313,7 @@ cli_parse_positive_float:
     .global tc_parse_state
     FUNC_TYPE(tc_parse_state)
 tc_parse_state:
-    PROLOGUE 5
+    PROLOGUE 2
     mov x19, x0
     LEA x0, cli_scratch2
     mov x1, x19
@@ -5360,7 +5364,7 @@ tc_parse_state:
     mov x0, #TC_ST_NONE
     mov x1, #0
 .Lpst_ret:
-    EPILOGUE 5
+    EPILOGUE 2
     ret
 
 // tc_parse_header(x0=s) -> (x0=TC_HDR_*, x1=status)

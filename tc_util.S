@@ -57,18 +57,47 @@
 // tc_strlen — length of a NUL-terminated string.
 //   in:  x0 = pointer to the string
 //   out: x0 = number of bytes before the NUL
-//   Clobbers x0-x2 only; preserves x19-x28 and the stack.
+//   Word-at-a-time: align to 8 with a byte walk (checking for the NUL as we
+//   go), then scan 8-byte words with the has-zero-byte trick
+//   ((w - 0x0101..01) & ~w & 0x8080..80); aligned 8-byte loads never cross a
+//   page, so the scan cannot fault past the NUL.  x3/x4 are saved so the
+//   clobber set stays exactly x0-x2, as the callers were written against.
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_strlen
     FUNC_TYPE(tc_strlen)
 tc_strlen:
+    stp x3, x4, [sp, #-16]!         // honor the x0-x2-only clobber contract
     mov x1, x0                      // x1 = scan pointer
-.Lstrlen_loop:
-    ldrb w2, [x1], #1               // next byte
-    cbnz w2, .Lstrlen_loop          // until the NUL
-    sub x0, x1, x0                  // length = end - start
-    sub x0, x0, #1                  // the NUL is not counted
+    and x3, x1, #7                  // already 8-aligned?
+    cbz x3, .Lslw_word
+.Lslw_align:
+    ldrb w2, [x1], #1               // byte walk until aligned
+    cbz w2, .Lslw_nul_align         // NUL before the first word
+    and x3, x1, #7
+    cbnz x3, .Lslw_align
+.Lslw_word:
+    ldr x2, =0x0101010101010101     // the 0x01..01 mask
+.Lslw_loop:
+    ldr x3, [x1]                    // next word
+    sub x4, x3, x2                  // w - 0x01..01
+    bic x4, x4, x3                  // & ~w
+    and x4, x4, x2, lsl #7          // & 0x80..80: set bit 7 per zero byte
+    cbnz x4, .Lslw_zero
+    add x1, x1, #8
+    b .Lslw_loop
+.Lslw_zero:
+    rbit x4, x4                     // lowest zero byte -> highest bit
+    clz x4, x4
+    lsr x4, x4, #3                  // byte index of the NUL in this word
+    add x1, x1, x4                  // x1 = &NUL
+    sub x0, x1, x0                  // length = NUL - start
+    ldp x3, x4, [sp], #16
+    ret
+.Lslw_nul_align:
+    sub x0, x1, x0                  // x1 = one past the NUL
+    sub x0, x0, #1
+    ldp x3, x4, [sp], #16
     ret
 
 // ----------------------------------------------------------------------------
@@ -131,6 +160,7 @@ tc_putu64:
     mov x19, x0                     // x19 = value (safe across tc_puts)
     add x1, sp, #20                 // write digits downward from buf+20
     mov x2, #0                      // x2 = digit count
+    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
     cmp x19, #0
     b.ne .Lputu_digit_loop
     mov x3, #'0'                    // zero case: emit a single '0'
@@ -138,9 +168,10 @@ tc_putu64:
     mov x2, #1
     b .Lputu_done
 .Lputu_digit_loop:
-    mov x4, #10
-    udiv x5, x19, x4                // quotient
-    msub x6, x5, x4, x19            // remainder
+    umulh x5, x19, x4               // quotient = value / 10
+    lsr x5, x5, #3
+    mov x3, #10
+    msub x6, x5, x3, x19            // remainder
     add x6, x6, #'0'                // remainder -> ASCII digit
     strb w6, [x1, #-1]!             // store digit, walk the pointer down
     add x2, x2, #1
@@ -259,29 +290,69 @@ util_path_scratch:    .skip PATH_SCRATCH_SZ   // tc_shorten_path result
 util_path_scratch2:   .skip PATH_SCRATCH_SZ   // expanded home / user name
     .text
 
-// util_pu_copy_n(x0=dst, x1=src, x2=n) -- copy n bytes and a NUL (clobbers x0-x3)
+// util_pu_copy_n(x0=dst, x1=src, x2=n) -- copy n bytes and a NUL
+//   (clobbers x0-x3, x9-x10; callers keep their live state in x19+)
     .p2align 2
 util_pu_copy_n:
-    mov x3, #0
-.Lpuc_loop:
-    cmp x3, x2
-    b.ge .Lpuc_done
-    ldrb w9, [x1, x3]
-    strb w9, [x0, x3]
-    add x3, x3, #1
-    b .Lpuc_loop
+    mov x3, x2                      // remaining
+.Lpuc_w16:
+    cmp x3, #16
+    b.lt .Lpuc_w8
+    ldp x9, x10, [x1], #16
+    stp x9, x10, [x0], #16
+    sub x3, x3, #16
+    b .Lpuc_w16
+.Lpuc_w8:
+    cmp x3, #8
+    b.lt .Lpuc_tail
+    ldr x9, [x1], #8
+    str x9, [x0], #8
+    sub x3, x3, #8
+.Lpuc_tail:
+    cbz x3, .Lpuc_done
+    ldrb w9, [x1], #1
+    strb w9, [x0], #1
+    sub x3, x3, #1
+    b .Lpuc_tail
 .Lpuc_done:
-    strb wzr, [x0, x2]
+    strb wzr, [x0]
     ret
 
-// util_pu_cat(x0=dst, x1=src) -> x0 = end (at the NUL); clobbers x0-x2
+// util_pu_cat(x0=dst, x1=src) -> x0 = end (at the NUL); clobbers x0-x3, x9-x10
+//   (length via tc_strlen, then a wide copy so short strings are fast too;
+//   LR is saved because this routine now makes a call)
     .p2align 2
 util_pu_cat:
-.Lpuk_loop:
-    ldrb w2, [x1], #1
-    strb w2, [x0], #1
-    cbnz w2, .Lpuk_loop
-    sub x0, x0, #1
+    stp x29, x30, [sp, #-16]!       // keep the return address across tc_strlen
+    mov x9, x0                      // dst (caller-saved scratch)
+    mov x3, x1                      // src survives the strlen call
+    mov x0, x1
+    bl tc_strlen
+    mov x2, x0                      // n
+    mov x0, x9
+    mov x1, x3
+.Lpuk_w16:
+    cmp x2, #16
+    b.lt .Lpuk_w8
+    ldp x9, x10, [x1], #16
+    stp x9, x10, [x0], #16
+    sub x2, x2, #16
+    b .Lpuk_w16
+.Lpuk_w8:
+    cmp x2, #8
+    b.lt .Lpuk_tail
+    ldr x9, [x1], #8
+    str x9, [x0], #8
+    sub x2, x2, #8
+.Lpuk_tail:
+    cbz x2, .Lpuk_done
+    ldrb w9, [x1], #1
+    strb w9, [x0], #1
+    sub x2, x2, #1
+    b .Lpuk_tail
+.Lpuk_done:
+    strb wzr, [x0]                  // NUL at dst+n; x0 = its position
+    ldp x29, x30, [sp], #16
     ret
 
 // ----------------------------------------------------------------------------
@@ -738,20 +809,62 @@ ts_s_lines:           .asciz "LINES"
 // tc_cat_cstr(x0=cursor, x1=s) -> x0 = the position of the terminating NUL
 //   (the string is copied NUL and all; callers overwrite the NUL with the
 //   next thing they append).
+//   Word-at-a-time: align the source to 8 with a byte walk (copying as we
+//   go), then copy 8-byte words whole until one contains a NUL, then finish
+//   byte-by-byte at the NUL.  Aligned loads never cross a page, and the
+//   destination is never written past the NUL.  x2-x7 are saved, so the
+//   routine still clobbers only x0 (its documented contract).
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_cat_cstr
     FUNC_TYPE(tc_cat_cstr)
 tc_cat_cstr:
     stp x2, x3, [sp, #-16]!
-    mov x2, #0
-.Lcc_loop:
-    ldrb w3, [x1, x2]
-    strb w3, [x0, x2]
-    add x2, x2, #1
-    cbnz w3, .Lcc_loop
-    add x0, x0, x2
-    sub x0, x0, #1
+    stp x4, x5, [sp, #-16]!
+    stp x6, x7, [sp, #-16]!
+    mov x2, x0                      // dst (advances)
+    mov x3, x1                      // src (advances)
+    ldr x7, =0x0101010101010101     // the 0x01..01 mask
+    and x5, x3, #7                  // source already 8-aligned?
+    cbz x5, .Lcc_word
+.Lcc_align:
+    ldrb w4, [x3], #1
+    strb w4, [x2], #1
+    cbz w4, .Lcc_done_align         // NUL during the byte walk
+    and x5, x3, #7
+    cbnz x5, .Lcc_align
+.Lcc_word:
+    ldr x4, [x3]                    // next word
+    sub x6, x4, x7
+    bic x6, x6, x4
+    and x5, x6, x7, lsl #7          // zero-byte mask
+    cbnz x5, .Lcc_zero
+    str x4, [x2]                    // whole word has no NUL: store it all
+    add x2, x2, #8
+    add x3, x3, #8
+    b .Lcc_word
+.Lcc_zero:
+    rbit x5, x5
+    clz x5, x5
+    lsr x5, x5, #3                  // byte index of the NUL in this word
+    mov x6, #0
+.Lcc_tail:
+    cmp x6, x5
+    b.gt .Lcc_done
+    ldrb w4, [x3, x6]               // store up to and including the NUL
+    strb w4, [x2, x6]
+    add x6, x6, #1
+    b .Lcc_tail
+.Lcc_done:
+    add x0, x2, x5                  // x0 = position of the NUL
+    ldp x6, x7, [sp], #16
+    ldp x4, x5, [sp], #16
+    ldp x2, x3, [sp], #16
+    ret
+.Lcc_done_align:
+    sub x0, x2, #1                  // x2 = one past the NUL
+    ldp x6, x7, [sp], #16
+    ldp x4, x5, [sp], #16
     ldp x2, x3, [sp], #16
     ret
 
@@ -791,9 +904,11 @@ tc_streq:
 tc_fmt2:
     stp x2, x3, [sp, #-16]!
     stp x4, x5, [sp, #-16]!
-    mov x2, #10
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
+    ldr x2, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    umulh x3, x1, x2
+    lsr x3, x3, #3                  // tens digit
+    mov x5, #10
+    msub x4, x3, x5, x1             // ones digit
     add x3, x3, #'0'
     strb w3, [x0], #1
     add x4, x4, #'0'
@@ -809,23 +924,25 @@ tc_fmt4:
     stp x2, x3, [sp, #-16]!
     stp x4, x5, [sp, #-16]!
     stp x6, x7, [sp, #-16]!
-    mov x2, #1000
-    udiv x3, x1, x2
-    msub x4, x3, x2, x1
-    add x3, x3, #'0'
+    ldr x2, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    mov x7, #10
+    umulh x3, x1, x2
+    lsr x3, x3, #3                  // q1 = v/10
+    msub x4, x3, x7, x1             // ones
+    umulh x5, x3, x2
+    lsr x5, x5, #3                  // q2 = q1/10
+    msub x6, x5, x7, x3             // tens
+    umulh x3, x5, x2
+    lsr x3, x3, #3                  // q3 = q2/10  (thousands digit)
+    msub x5, x3, x7, x5             // hundreds
+    add x3, x3, #'0'                // thousands
     strb w3, [x0], #1
-    mov x2, #100
-    udiv x3, x4, x2
-    msub x5, x3, x2, x4
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    mov x2, #10
-    udiv x3, x5, x2
-    msub x6, x3, x2, x5
-    add x3, x3, #'0'
-    strb w3, [x0], #1
-    add x6, x6, #'0'
+    add x5, x5, #'0'                // hundreds
+    strb w5, [x0], #1
+    add x6, x6, #'0'                // tens
     strb w6, [x0], #1
+    add x4, x4, #'0'                // ones
+    strb w4, [x0], #1
     ldp x6, x7, [sp], #16
     ldp x4, x5, [sp], #16
     ldp x2, x3, [sp], #16

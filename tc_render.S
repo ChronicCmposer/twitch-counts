@@ -543,107 +543,172 @@ render_pin_cell:
     ret
 
 // render_str_cat(dst, src) -> dst after the copied NUL
+//   Word-at-a-time: bulk-copies 8-byte words while no byte of the source word
+//   is NUL (SWAR haszero), then finishes byte-by-byte from the word that holds
+//   the NUL.  The final word load may transiently read up to 7 bytes past the
+//   NUL of `src`; every render_str_cat source here (rodata, .bss line/cell
+//   buffers, the arena, malloc'd 26-byte login records) is inside a mapped
+//   region with slack past the string, so the over-read is never dereferenced
+//   or written — the byte tail copies exactly through the NUL.
     .p2align 2
 render_str_cat:
     mov x2, x0
+    mov x4, #0x0101010101010101
+    mov x5, #0x8080808080808080
 .Lsc_loop:
+    ldr x3, [x1], #8
+    sub x6, x3, x4
+    bic x7, x6, x3
+    ands x7, x7, x5
+    b.ne .Lsc_tail
+    str x3, [x2], #8
+    b .Lsc_loop
+.Lsc_tail:
+    sub x1, x1, #8                  // rewind once to the word that holds the NUL
+.Lsc_tail_loop:
     ldrb w3, [x1], #1
     strb w3, [x2], #1
-    cbnz w3, .Lsc_loop
+    cbnz w3, .Lsc_tail_loop
     mov x0, x2
     ret
 
 // render_str_cat_n(dst, src, len) -> dst + len (no NUL)
+//   ldp/stp 16-byte bulk copy + byte tail; reads exactly `len` bytes.
     .p2align 2
 render_str_cat_n:
-    mov x3, #0
-.Lscn_loop:
-    cmp x3, x2
-    b.ge .Lscn_done
-    ldrb w4, [x1, x3]
-    strb w4, [x0, x3]
-    add x3, x3, #1
-    b .Lscn_loop
+    mov x3, x0
+.Lscn_wide:
+    cmp x2, #16
+    b.lt .Lscn_tail
+    ldp x4, x5, [x1], #16
+    stp x4, x5, [x3], #16
+    sub x2, x2, #16
+    b .Lscn_wide
+.Lscn_tail:
+    cbz x2, .Lscn_done
+    ldrb w4, [x1], #1
+    strb w4, [x3], #1
+    sub x2, x2, #1
+    b .Lscn_tail
 .Lscn_done:
-    add x0, x0, x2
+    mov x0, x3
     ret
 
 // render_fmt_u64_plain(dst, v) -> dst after digits (no NUL)
+//   Counts the digits first (reciprocal divide-by-10), then writes the digits
+//   MSB-first directly into dst walking the pointer down — no stack temp
+//   buffer, no copy loop.
     .p2align 2
 render_fmt_u64_plain:
     PROLOGUE 0
-    sub sp, sp, #32
-    add x2, sp, #20
-    cmp x1, #0
-    b.ne .Lfup_digits
-    mov w3, #'0'
-    strb w3, [x2, #-1]!
-    b .Lfup_copy
-.Lfup_digits:
-    mov x4, #10
-.Lfup_loop:
-    udiv x5, x1, x4
-    msub x6, x5, x4, x1
-    add x6, x6, #'0'
-    strb w6, [x2, #-1]!
-    mov x1, x5
-    cbnz x1, .Lfup_loop
-.Lfup_copy:
-    add x3, sp, #20
-.Lfup_copy_loop:
-    cmp x2, x3
-    b.ge .Lfup_done
-    ldrb w6, [x2], #1
-    strb w6, [x0], #1
-    b .Lfup_copy_loop
-.Lfup_done:
-    add sp, sp, #32
+    mov x2, x1                      // t = v
+    mov x3, #0                      // n = digit count
+    cbz x1, .Lfup_zero
+    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+.Lfup_count:
+    umulh x5, x2, x4
+    lsr x5, x5, #3
+    add x3, x3, #1
+    mov x2, x5
+    cbnz x2, .Lfup_count
+    b .Lfup_write
+.Lfup_zero:
+    mov w2, #'0'
+    strb w2, [x0]
+    add x0, x0, #1
+    EPILOGUE 0
+    ret
+.Lfup_write:
+    add x2, x0, x3                  // cursor = dst + n
+    mov x5, #10
+.Lfup_wloop:
+    umulh x6, x1, x4
+    lsr x6, x6, #3                  // q = v / 10
+    msub x7, x6, x5, x1             // r = v % 10
+    add x7, x7, #'0'
+    sub x2, x2, #1
+    strb w7, [x2]
+    mov x1, x6
+    cbnz x1, .Lfup_wloop
+    add x0, x2, x3                  // dst + n
     EPILOGUE 0
     ret
 
 // render_fmt_u64_commas(dst, v) -> dst after digits (no NUL), thousands commas
+//   Same count-first structure; the comma count (n-1)/3 is known up front, so
+//   the digits and commas are written in place walking down from the end.
     .p2align 2
 render_fmt_u64_commas:
     PROLOGUE 0
-    sub sp, sp, #40
-    add x2, sp, #28
-    cmp x1, #0
-    b.ne .Lfuc_digits
-    mov w3, #'0'
-    strb w3, [x2, #-1]!
-    b .Lfuc_copy
-.Lfuc_digits:
-    mov x4, #10
-.Lfuc_loop:
-    udiv x5, x1, x4
-    msub x6, x5, x4, x1
-    add x6, x6, #'0'
-    strb w6, [x2, #-1]!
-    mov x1, x5
-    cbnz x1, .Lfuc_loop
-.Lfuc_copy:
-    add x3, sp, #28
-    sub x4, x3, x2
-    mov x5, #0
-.Lfuc_copy_loop:
-    cmp x2, x3
-    b.ge .Lfuc_done
-    ldrb w6, [x2], #1
-    strb w6, [x0], #1
-    add x5, x5, #1
-    sub x7, x4, x5
-    cmp x7, #0
-    b.le .Lfuc_copy_loop
-    mov x8, #3
-    udiv x9, x7, x8
-    msub x10, x9, x8, x7
-    cbnz x10, .Lfuc_copy_loop
-    mov w11, #','
-    strb w11, [x0], #1
-    b .Lfuc_copy_loop
-.Lfuc_done:
-    add sp, sp, #40
+    mov x2, x1                      // t = v
+    mov x3, #0                      // n = digit count
+    cbz x1, .Lfuc_zero
+    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+.Lfuc_count:
+    umulh x5, x2, x4
+    lsr x5, x5, #3
+    add x3, x3, #1
+    mov x2, x5
+    cbnz x2, .Lfuc_count
+    b .Lfuc_write
+.Lfuc_zero:
+    mov w2, #'0'
+    strb w2, [x0]
+    add x0, x0, #1
     EPILOGUE 0
+    ret
+.Lfuc_write:
+    sub x2, x3, #1
+    mov x5, #3
+    udiv x6, x2, x5                 // comma count = (n-1)/3
+    add x7, x0, x3
+    add x7, x7, x6                  // end = dst + n + commas
+    mov x2, x7                      // cursor = end
+    mov x8, #3                      // comma countdown
+    mov x9, #10
+.Lfuc_wloop:
+    umulh x10, x1, x4
+    lsr x10, x10, #3                // q = v / 10
+    msub x11, x10, x9, x1           // r = v % 10
+    add x11, x11, #'0'
+    sub x2, x2, #1
+    strb w11, [x2]
+    sub x8, x8, #1
+    mov x1, x10
+    cbz x1, .Lfuc_done
+    cbnz x8, .Lfuc_wloop
+    sub x2, x2, #1                  // every 3 digits from the right: comma
+    mov w11, #','
+    strb w11, [x2]
+    mov x8, #3
+    b .Lfuc_wloop
+.Lfuc_done:
+    mov x0, x7                      // end
+    EPILOGUE 0
+    ret
+
+// render_fmt_u64_commas_len(v) -> x0 = rendered length of fmt_u64_commas(v)
+//   Pure arithmetic (digit count + commas) — used by the table width pass so
+//   integer cells never need a render + strlen to size themselves.
+    .p2align 2
+render_fmt_u64_commas_len:
+    mov x1, x0                      // v
+    mov x2, #0                      // n
+    cbz x1, .Lfucl_zero
+    ldr x3, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+.Lfucl_count:
+    umulh x4, x1, x3
+    lsr x4, x4, #3
+    add x2, x2, #1
+    mov x1, x4
+    cbnz x1, .Lfucl_count
+    sub x1, x2, #1
+    mov x3, #3
+    udiv x4, x1, x3
+    add x0, x2, x4                  // n + (n-1)/3
+    ret
+.Lfucl_zero:
+    mov x0, #1
     ret
 
 // render_fmt_datetime(dst, ymd, sod, sep) -> dst+19, "YYYY-MM-DD<sep>HH:MM:SS"
@@ -3342,17 +3407,15 @@ render_table:
     EPILOGUE 5
     ret
 
-// render_cell_len(rec, col_id) -> x0 = rendered cell length (renders into cell buf)
+// render_cell_len(rec, col_id) -> x0 = rendered cell length
+//   Integer cells (count/live/offline/unknown) are sized arithmetically
+//   (render_fmt_u64_commas_len) — no render, no strlen, no buffer write.
+//   Share cells still render into the cell buffer (snprintf NUL-terminates).
     .p2align 2
 render_cell_len:
     PROLOGUE 2
     mov x19, x0                        // rec
     mov x20, x1                        // col
-    LEA x0, render_cell
-    mov x1, #0
-    mov x2, #CELL_SZ
-    bl memset
-    LEA x0, render_cell
     cmp x20, #TC_M_COUNT
     b.eq .Lcl_count
     cmp x20, #TC_M_LIVE
@@ -3361,33 +3424,36 @@ render_cell_len:
     b.eq .Lcl_offline
     cmp x20, #TC_M_UNKNOWN
     b.eq .Lcl_unknown
-    // share
     cmp x20, #TC_M_OFFLINE_SHARE
     b.eq .Lcl_offshare
+    // live-share
+    LEA x0, render_cell
     ldr x1, [x19, #ROW_LIVE]
     ldr x2, [x19, #ROW_COUNT]
     bl render_fmt_share_cell
     b .Lcl_len
 .Lcl_offshare:
+    LEA x0, render_cell
     ldr x1, [x19, #ROW_OFFLINE]
     ldr x2, [x19, #ROW_COUNT]
     bl render_fmt_share_cell
     b .Lcl_len
 .Lcl_count:
     ldr x1, [x19, #ROW_COUNT]
-    bl render_fmt_u64_commas
-    b .Lcl_len
+    b .Lcl_u64
 .Lcl_live:
     ldr x1, [x19, #ROW_LIVE]
-    bl render_fmt_u64_commas
-    b .Lcl_len
+    b .Lcl_u64
 .Lcl_offline:
     ldr x1, [x19, #ROW_OFFLINE]
-    bl render_fmt_u64_commas
-    b .Lcl_len
+    b .Lcl_u64
 .Lcl_unknown:
     ldr x1, [x19, #ROW_UNKNOWN]
-    bl render_fmt_u64_commas
+.Lcl_u64:
+    mov x0, x1
+    bl render_fmt_u64_commas_len
+    EPILOGUE 2
+    ret
 .Lcl_len:
     LEA x0, render_cell
     bl tc_strlen

@@ -260,6 +260,13 @@
     .equ SHADE_SZ,       32
     .equ NANOSEC,        1000000000
 
+    // Shared load of the 1e9 nanoseconds-per-second constant (NANOSEC):
+    //   MOV_NANOSEC xN  ==  movz xN, #0xCA00 ; movk xN, #0x3B9A, lsl #16
+    .macro MOV_NANOSEC reg
+    movz \reg, #0xCA00, lsl #0
+    movk \reg, #0x3B9A, lsl #16         // 1000000000
+    .endm
+
     // ramp key ids
     .equ RAMP_UP,        0
     .equ RAMP_DOWN,      1
@@ -1389,8 +1396,7 @@ watch_build_listing:
     // 'bl stat' just filled above.
     LEA x9, watch_stat
     ldr x10, [x9, #ST_MTIM_SEC]
-    movz x11, #0xCA00, lsl #0
-    movk x11, #0x3B9A, lsl #16         // 1000000000
+    MOV_NANOSEC x11
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
@@ -1494,8 +1500,7 @@ watch_build_listing:
     // BUGFIX: same watch_ts -> watch_stat fix as above.
     LEA x9, watch_stat
     ldr x10, [x9, #ST_MTIM_SEC]
-    movz x11, #0xCA00, lsl #0
-    movk x11, #0x3B9A, lsl #16
+    MOV_NANOSEC x11
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
@@ -2070,102 +2075,14 @@ watch_bucket_insert:
     cmp x9, x27
     b.le .Lwbi_shift_done
     sub x11, x10, #BK_SZ
-    ldrb w12, [x11, #0]
-    strb w12, [x10, #0]
-    ldrb w12, [x11, #1]
-    strb w12, [x10, #1]
-    ldrb w12, [x11, #2]
-    strb w12, [x10, #2]
-    ldrb w12, [x11, #3]
-    strb w12, [x10, #3]
-    ldrb w12, [x11, #4]
-    strb w12, [x10, #4]
-    ldrb w12, [x11, #5]
-    strb w12, [x10, #5]
-    ldrb w12, [x11, #6]
-    strb w12, [x10, #6]
-    ldrb w12, [x11, #7]
-    strb w12, [x10, #7]
-    ldrb w12, [x11, #8]
-    strb w12, [x10, #8]
-    ldrb w12, [x11, #9]
-    strb w12, [x10, #9]
-    ldrb w12, [x11, #10]
-    strb w12, [x10, #10]
-    ldrb w12, [x11, #11]
-    strb w12, [x10, #11]
-    ldrb w12, [x11, #12]
-    strb w12, [x10, #12]
-    ldrb w12, [x11, #13]
-    strb w12, [x10, #13]
-    ldrb w12, [x11, #14]
-    strb w12, [x10, #14]
-    ldrb w12, [x11, #15]
-    strb w12, [x10, #15]
-    ldrb w12, [x11, #16]
-    strb w12, [x10, #16]
-    ldrb w12, [x11, #17]
-    strb w12, [x10, #17]
-    ldrb w12, [x11, #18]
-    strb w12, [x10, #18]
-    ldrb w12, [x11, #19]
-    strb w12, [x10, #19]
-    ldrb w12, [x11, #20]
-    strb w12, [x10, #20]
-    ldrb w12, [x11, #21]
-    strb w12, [x10, #21]
-    ldrb w12, [x11, #22]
-    strb w12, [x10, #22]
-    ldrb w12, [x11, #23]
-    strb w12, [x10, #23]
-    ldrb w12, [x11, #24]
-    strb w12, [x10, #24]
-    ldrb w12, [x11, #25]
-    strb w12, [x10, #25]
-    ldrb w12, [x11, #26]
-    strb w12, [x10, #26]
-    ldrb w12, [x11, #27]
-    strb w12, [x10, #27]
-    ldrb w12, [x11, #28]
-    strb w12, [x10, #28]
-    ldrb w12, [x11, #29]
-    strb w12, [x10, #29]
-    ldrb w12, [x11, #30]
-    strb w12, [x10, #30]
-    ldrb w12, [x11, #31]
-    strb w12, [x10, #31]
-    ldrb w12, [x11, #32]
-    strb w12, [x10, #32]
-    ldrb w12, [x11, #33]
-    strb w12, [x10, #33]
-    ldrb w12, [x11, #34]
-    strb w12, [x10, #34]
-    ldrb w12, [x11, #35]
-    strb w12, [x10, #35]
-    ldrb w12, [x11, #36]
-    strb w12, [x10, #36]
-    ldrb w12, [x11, #37]
-    strb w12, [x10, #37]
-    ldrb w12, [x11, #38]
-    strb w12, [x10, #38]
-    ldrb w12, [x11, #39]
-    strb w12, [x10, #39]
-    ldrb w12, [x11, #40]
-    strb w12, [x10, #40]
-    ldrb w12, [x11, #41]
-    strb w12, [x10, #41]
-    ldrb w12, [x11, #42]
-    strb w12, [x10, #42]
-    ldrb w12, [x11, #43]
-    strb w12, [x10, #43]
-    ldrb w12, [x11, #44]
-    strb w12, [x10, #44]
-    ldrb w12, [x11, #45]
-    strb w12, [x10, #45]
-    ldrb w12, [x11, #46]
-    strb w12, [x10, #46]
-    ldrb w12, [x11, #47]
-    strb w12, [x10, #47]
+    // BK_SZ == 48 == 3x16: shift a whole bucket with wide pairs instead of
+    // 48 byte copies.  x12-x17 are caller-saved temps (no calls in this loop).
+    ldp x12, x13, [x11, #0]
+    stp x12, x13, [x10, #0]
+    ldp x14, x15, [x11, #16]
+    stp x14, x15, [x10, #16]
+    ldp x16, x17, [x11, #32]
+    stp x16, x17, [x10, #32]
     mov x10, x11
     sub x9, x9, #BK_SZ
     b .Lwbi_shift
@@ -2176,17 +2093,42 @@ watch_bucket_insert:
     add x10, x25, x9
     str x20, [x10, #BK_SECOND]
     add x10, x10, #BK_LOGIN
-    mov x11, #0
-.Lwbi_copy:
-    cmp x11, x22
-    b.ge .Lwbi_copy_done
-    ldrb w12, [x21, x11]
-    strb w12, [x10, x11]
-    add x11, x11, #1
-    b .Lwbi_copy
+    // login copy: len <= 26, so at most one 16-byte pair, one 8-byte word,
+    // then a byte tail.  x12 = dst cursor, x13 = src cursor, x11 = remaining;
+    // x10 stays the field start so the state/N writes below keep their
+    // immediate offsets.  Bulk loads never pass byte len of the source, and
+    // exactly len bytes + a NUL are written.
+    mov x12, x10
+    mov x13, x21
+    mov x11, x22
+.Lwbi_copy16:
+    cmp x11, #16
+    b.lt .Lwbi_copy8
+    ldp x14, x15, [x13]
+    stp x14, x15, [x12]
+    add x12, x12, #16
+    add x13, x13, #16
+    sub x11, x11, #16
+    b .Lwbi_copy16
+.Lwbi_copy8:
+    cmp x11, #8
+    b.lt .Lwbi_copy_tail
+    ldr x14, [x13]
+    str x14, [x12]
+    add x12, x12, #8
+    add x13, x13, #8
+    sub x11, x11, #8
+.Lwbi_copy_tail:
+    cbz x11, .Lwbi_copy_done
+    ldrb w14, [x13]
+    strb w14, [x12]
+    add x12, x12, #1
+    add x13, x13, #1
+    sub x11, x11, #1
+    b .Lwbi_copy_tail
 .Lwbi_copy_done:
-    mov w12, #0
-    strb w12, [x10, x11]
+    mov w14, #0
+    strb w14, [x12]
     strb w23, [x10, #(BK_STATE - BK_LOGIN)]
     mov x12, #1
     str x12, [x10, #(BK_N - BK_LOGIN)]
@@ -2202,10 +2144,40 @@ watch_bucket_insert:
 
 // watch_memcmp_n(a, b, n1, n2) -> x0 = -1/0/1: compare a[0..n1) (NUL padded)
 //   against b[0..n2); the shorter string sorts first when it is a prefix.
+//   n1 <= 26 from both callers (bucket login fields), so at most three 8-byte
+//   words; a word is only read while it lies wholly inside [0, n1), so the
+//   loads never pass byte n1 of either buffer.  A differing word is resolved
+//   to its first differing byte via eor/rev/clz (little-endian byte order).
     .p2align 2
 watch_memcmp_n:
     mov x3, #0
-.Lwmcn_loop:
+    // NOTE: this function deliberately clobbers ONLY x0-x7 (caller-saved).
+    // x9/x10 are left untouched: both callers (watch_bucket_find/insert)
+    // keep `mid` live in x9 and the mid-bucket pointer in x10 across the
+    // call, relying on this function not to disturb them.
+    .Lwmcn_wloop:
+    add x6, x3, #8
+    cmp x6, x2
+    b.gt .Lwmcn_tail
+    ldr x4, [x0, x3]
+    ldr x5, [x1, x3]
+    eor x7, x4, x5
+    cbz x7, .Lwmcn_wnext
+    rev x7, x7
+    clz x7, x7
+    bic x7, x7, #7                     // first differing byte index * 8
+    lsr x4, x4, x7
+    lsr x5, x5, x7
+    and w4, w4, #0xff
+    and w5, w5, #0xff
+    cmp w4, w5
+    b.lt .Lwmcn_lt
+    mov w0, #1
+    ret
+.Lwmcn_wnext:
+    mov x3, x6
+    b .Lwmcn_wloop
+.Lwmcn_tail:
     cmp x3, x2
     b.ge .Lwmcn_cmp_end
     ldrb w4, [x0, x3]
@@ -2213,7 +2185,7 @@ watch_memcmp_n:
     cmp w4, w5
     b.ne .Lwmcn_cmp
     add x3, x3, #1
-    b .Lwmcn_loop
+    b .Lwmcn_tail
 .Lwmcn_cmp_end:
     ldrb w4, [x0, x3]
     ldrb w5, [x1, x3]
@@ -2298,8 +2270,7 @@ watch_reader_refresh:
     str x24, [x19, #RD_INO]
     str x25, [x19, #RD_SIZE]
     ldr x26, [x20, #ST_MTIM_SEC]
-    movz x27, #0xCA00, lsl #0
-    movk x27, #0x3B9A, lsl #16         // 1000000000
+    MOV_NANOSEC x27
     mul x26, x26, x27
     ldr x27, [x20, #ST_MTIM_NSEC]
     add x26, x26, x27
@@ -2875,17 +2846,52 @@ watch_strncmp_ge:
     ret
 
 // watch_find_char(buf, len, from, ch) -> x0 = index of ch at/after `from`, or -1
+//   Word-at-a-time: the needle is broadcast into all 8 byte lanes, each word
+//   is xor-ed with it, and the has-zero-byte trick
+//   ((w - 0x0101..01) & ~w & 0x8080..80) finds any hit; rev/clz resolves the
+//   exact byte.  The trick's borrow-chain false positives (a 0x01 byte above
+//   a true zero) only appear at HIGHER lanes than a real hit, so the lowest
+//   0x80 lane resolved by rev/clz is always a true match.  Only words wholly
+//   inside [from, len) are read, so a trailing <8-byte span falls back to
+//   the byte scan (never past the buffer end).
     .p2align 2
 watch_find_char:
+    mov w3, w3                         // zero-extend ch (upper bits unused)
+    orr x6, x3, x3, lsl #8
+    orr x6, x6, x6, lsl #16
+    orr x6, x6, x6, lsl #32            // x6 = ch in every byte
+    mov x7, #0x0101
+    movk x7, #0x0101, lsl #16
+    movk x7, #0x0101, lsl #32
+    movk x7, #0x0101, lsl #48          // x7 = 0x0101010101010101
+    lsl x8, x7, #7                     // x8 = 0x8080808080808080
     mov x4, x2
-.Lwfc_loop:
+.Lwfc_wloop:
+    sub x9, x1, x4
+    cmp x9, #8
+    b.lt .Lwfc_bloop
+    ldr x5, [x0, x4]
+    eor x5, x5, x6
+    sub x9, x5, x7
+    bic x9, x9, x5
+    and x9, x9, x8
+    cbnz x9, .Lwfc_scan8
+    add x4, x4, #8
+    b .Lwfc_wloop
+.Lwfc_scan8:
+    rev x9, x9
+    clz x9, x9
+    lsr x9, x9, #3
+    add x0, x4, x9
+    ret
+.Lwfc_bloop:
     cmp x4, x1
     b.ge .Lwfc_none
     ldrb w5, [x0, x4]
     cmp w5, w3
     b.eq .Lwfc_found
     add x4, x4, #1
-    b .Lwfc_loop
+    b .Lwfc_bloop
 .Lwfc_found:
     mov x0, x4
     ret
@@ -2894,17 +2900,57 @@ watch_find_char:
     ret
 
 // watch_rfind_char(buf, len, from, ch) -> x0 = index of ch in [from, len), -1
+//   Reverse word-at-a-time: 8-byte windows are scanned from the end, each
+//   ending inside [from, len); the first window (from the end) containing a
+//   hit holds the last match, and clz on the detection mask resolves the
+//   highest byte.  The classic has-zero-byte trick can flag a 0x01 byte
+//   that follows a true zero (borrow chain), which would corrupt the
+//   "highest byte" resolution, so the per-byte-exact mask
+//   ~(((x & 0x7f7f..7f) + 0x7f7f..7f) | x | 0x7f7f..7f) is used instead.
+//   The leading <8-byte span falls back to bytes.
     .p2align 2
 watch_rfind_char:
-    mov x4, x1
-.Lwrfc_loop:
+    mov w3, w3                         // zero-extend ch (upper bits unused)
+    orr x6, x3, x3, lsl #8
+    orr x6, x6, x6, lsl #16
+    orr x6, x6, x6, lsl #32            // x6 = ch in every byte
+    mov x7, #0x0101
+    movk x7, #0x0101, lsl #16
+    movk x7, #0x0101, lsl #32
+    movk x7, #0x0101, lsl #48          // x7 = 0x0101010101010101
+    lsl x8, x7, #7                     // x8 = 0x8080808080808080
+    mvn x9, x8                         // x9 = 0x7f7f7f7f7f7f7f7f
+    mov x4, x1                         // scan end (exclusive)
+.Lwrfc_wloop:
+    sub x10, x4, x2
+    cmp x10, #8
+    b.lt .Lwrfc_bloop
+    sub x10, x4, #8                    // window start
+    ldr x5, [x0, x10]
+    eor x5, x5, x6
+    and x11, x5, x9
+    add x11, x11, x9
+    orr x11, x11, x5
+    orr x11, x11, x9
+    mvn x11, x11
+    cbnz x11, .Lwrfc_wfound
+    mov x4, x10
+    b .Lwrfc_wloop
+.Lwrfc_wfound:
+    clz x11, x11
+    mov x12, #56
+    sub x11, x12, x11                  // highest matching byte index * 8
+    lsr x11, x11, #3
+    add x0, x10, x11
+    ret
+.Lwrfc_bloop:
     cmp x4, x2
     b.le .Lwrfc_none
     sub x4, x4, #1
     ldrb w5, [x0, x4]
     cmp w5, w3
     b.eq .Lwrfc_found
-    b .Lwrfc_loop
+    b .Lwrfc_bloop
 .Lwrfc_found:
     mov x0, x4
     ret
@@ -3346,17 +3392,42 @@ watch_fold_line:
     add x10, x9, x10
     str x28, [x10, #MT_SECOND]         // second
     add x10, x10, #MT_LOGIN
-    mov x11, #0
-.Lwfln_mcopy:
-    cmp x11, x24                       // login len
-    b.ge .Lwfln_mcopy_done
-    ldrb w12, [x23, x11]               // login ptr (x23, callee-saved)
-    strb w12, [x10, x11]
-    add x11, x11, #1
-    b .Lwfln_mcopy
+    // login copy: len <= 26 (login <= 25 + NUL), so at most one 16-byte
+    // pair, one 8-byte word, then a byte tail.  x12 = dst cursor, x13 = src
+    // cursor, x11 = remaining; x10 stays the field start so the rule write
+    // below keeps its immediate offset.  Bulk loads never pass byte len of
+    // the source; exactly len bytes + a NUL are written.
+    mov x12, x10
+    mov x13, x23
+    mov x11, x24
+.Lwfln_mcopy16:
+    cmp x11, #16
+    b.lt .Lwfln_mcopy8
+    ldp x14, x15, [x13]
+    stp x14, x15, [x12]
+    add x12, x12, #16
+    add x13, x13, #16
+    sub x11, x11, #16
+    b .Lwfln_mcopy16
+.Lwfln_mcopy8:
+    cmp x11, #8
+    b.lt .Lwfln_mcopy_tail
+    ldr x14, [x13]
+    str x14, [x12]
+    add x12, x12, #8
+    add x13, x13, #8
+    sub x11, x11, #8
+.Lwfln_mcopy_tail:
+    cbz x11, .Lwfln_mcopy_done
+    ldrb w14, [x13]
+    strb w14, [x12]
+    add x12, x12, #1
+    add x13, x13, #1
+    sub x11, x11, #1
+    b .Lwfln_mcopy_tail
 .Lwfln_mcopy_done:
-    mov w12, #0
-    strb w12, [x10, x11]
+    mov w14, #0
+    strb w14, [x12]
     strb w27, [x10, #(MT_RULE - MT_LOGIN)]
     add x26, x26, #1
     str x26, [x19, #RD_MATCH_N]
@@ -4158,93 +4229,6 @@ watch_reader_day:
     bl tc_fail
 
 // ============================================================================
-// watch_reader_prune(rd, floor, match_floor) — drop buckets with second <
-//   floor and matches with second < match_floor; mark partial.
-// ============================================================================
-    .p2align 2
-watch_reader_prune:
-    PROLOGUE 4
-    mov x19, x0                        // rd
-    mov x20, x1                        // floor
-    mov x21, x2                        // match_floor
-    cbz x20, .Lwpr_matches
-    ldr x22, [x19, #RD_BUCKET_N]
-    ldr x23, [x19, #RD_BUCKETS]
-    mov x24, #0                        // out index
-    mov x25, #0                        // i
-.Lwpr_loop:
-    cmp x25, x22
-    b.ge .Lwpr_done
-    mov x9, #BK_SZ
-    mul x9, x25, x9
-    add x10, x23, x9
-    ldr x11, [x10, #BK_SECOND]
-    cmp x11, x20
-    b.lt .Lwpr_skip
-    cmp x24, x25
-    b.eq .Lwpr_keep
-    mov x11, #0
-.Lwpr_copy:
-    cmp x11, #BK_SZ
-    b.ge .Lwpr_keep
-    ldrb w12, [x10, x11]
-    mov x13, #BK_SZ
-    mul x13, x24, x13
-    add x13, x23, x13
-    strb w12, [x13, x11]
-    add x11, x11, #1
-    b .Lwpr_copy
-.Lwpr_keep:
-    add x24, x24, #1
-.Lwpr_skip:
-    add x25, x25, #1
-    b .Lwpr_loop
-.Lwpr_done:
-    str x24, [x19, #RD_BUCKET_N]
-.Lwpr_matches:
-    cbz x21, .Lwpr_partial
-    ldr x22, [x19, #RD_MATCH_N]
-    ldr x23, [x19, #RD_MATCHES]
-    mov x24, #0
-    mov x25, #0
-.Lwpr_mloop:
-    cmp x25, x22
-    b.ge .Lwpr_mdone
-    mov x9, #MT_SZ
-    mul x9, x25, x9
-    add x10, x23, x9
-    ldr x11, [x10, #MT_SECOND]
-    cmp x11, x21
-    b.lt .Lwpr_mskip
-    cmp x24, x25
-    b.eq .Lwpr_mkeep
-    mov x11, #0
-.Lwpr_mcopy:
-    cmp x11, #MT_SZ
-    b.ge .Lwpr_mkeep
-    ldrb w12, [x10, x11]
-    mov x13, #MT_SZ
-    mul x13, x24, x13
-    add x13, x23, x13
-    strb w12, [x13, x11]
-    add x11, x11, #1
-    b .Lwpr_mcopy
-.Lwpr_mkeep:
-    add x24, x24, #1
-.Lwpr_mskip:
-    add x25, x25, #1
-    b .Lwpr_mloop
-.Lwpr_mdone:
-    str x24, [x19, #RD_MATCH_N]
-.Lwpr_partial:
-    mov x9, #1
-    str x9, [x19, #RD_PARTIAL]
-    str xzr, [x19, #RD_WINDOW]
-    str xzr, [x19, #RD_WIN_N]
-    EPILOGUE 4
-    ret
-
-// ============================================================================
 // Day memo (the Python readers.days: (channel, date, size, mtime, enter) ->
 //   (counts, exit))
 // watch_memo_find(ymd, size, mtime, enter) -> x0 = DM ptr or 0
@@ -4448,22 +4432,29 @@ watch_count_tick:
     mul x15, x14, x15
     add x16, x13, x15
     add x17, x12, x15
-    // x9 (byte index) instead of x18 (reserved on Darwin): x9 last held
-    // &tc_tally (line above .Lwct_unr_loop, used only to derive x12) and is
-    // not read again until it is freshly reloaded after .Lwct_unr_done, so
-    // it is dead across this whole copy loop.  w19 is a byte temp here; the
-    // routine's prologue/epilogue save/restore x19 around the entire
-    // function (stp x19,x20 on entry, ldp x19,x20 on exit with no early
-    // exit in between), so this in-function scratch use does not leak into
-    // the caller's x19.
-    mov x9, #0
-.Lwct_unr_copy:
-    cmp x9, #TC_T_UNR_ENTRY_SZ
-    b.ge .Lwct_unr_next
-    ldrb w19, [x16, x9]
-    strb w19, [x17, x9]
-    add x9, x9, #1
-    b .Lwct_unr_copy
+    // TC_T_UNR_ENTRY_SZ == 128 == 8x16: copy one entry with eight wide
+    // ldp/stp pairs instead of 128 byte copies.  Temps are x19-x28 (the
+    // routine's prologue/epilogue save/restore x19-x28 around the entire
+    // function, with no early exit in between and no later use of the saved
+    // values, so this in-function scratch use does not leak into callers);
+    // x18 stays untouched (reserved on Darwin).  x9-x17/x15 die here and are
+    // recomputed on the next pass; x11/x12/x13/x14 stay live across the copy.
+    ldp x19, x20, [x16, #0]
+    stp x19, x20, [x17, #0]
+    ldp x21, x22, [x16, #16]
+    stp x21, x22, [x17, #16]
+    ldp x23, x24, [x16, #32]
+    stp x23, x24, [x17, #32]
+    ldp x25, x26, [x16, #48]
+    stp x25, x26, [x17, #48]
+    ldp x27, x28, [x16, #64]
+    stp x27, x28, [x17, #64]
+    ldp x19, x20, [x16, #80]
+    stp x19, x20, [x17, #80]
+    ldp x21, x22, [x16, #96]
+    stp x21, x22, [x17, #96]
+    ldp x23, x24, [x16, #112]
+    stp x23, x24, [x17, #112]
 .Lwct_unr_next:
     add x14, x14, #1
     b .Lwct_unr_loop
@@ -4646,8 +4637,7 @@ watch_gather_file:
     cbnz w0, .Lwgf_stat_fail
     ldr x27, [x20, #ST_SIZE]
     ldr x9, [x20, #ST_MTIM_SEC]
-    movz x10, #0xCA00, lsl #0
-    movk x10, #0x3B9A, lsl #16
+    MOV_NANOSEC x10
     mul x9, x9, x10
     ldr x10, [x20, #ST_MTIM_NSEC]
     add x28, x9, x10                    // mtime_ns
@@ -5434,8 +5424,7 @@ watch_seed_state:
     ldr x26, [x25, #TC_L_YMD]          // earlier_last_ymd
     ldr x27, [x1, #ST_SIZE]            // size
     ldr x9, [x1, #ST_MTIM_SEC]
-    movz x10, #0xCA00, lsl #0
-    movk x10, #0x3B9A, lsl #16
+    MOV_NANOSEC x10
     mul x9, x9, x10
     ldr x10, [x1, #ST_MTIM_NSEC]
     add x28, x9, x10                   // mtime
@@ -7132,14 +7121,15 @@ watch_colorize_step:
     mov x9, #TT_SZ
     mul x9, x21, x9
     add x24, x20, x9
-    mov x9, #0
-.Lwcs_filter_copy:
-    cmp x9, #TT_SZ
-    b.ge .Lwcs_filter_keep
-    ldrb w10, [x23, x9]
-    strb w10, [x24, x9]
-    add x9, x9, #1
-    b .Lwcs_filter_copy
+    // TT_SZ == 40: two 16-byte pairs + one 8-byte word copy the whole record
+    // (login[26], dir, padding, when double).  x10-x14 are caller-saved temps
+    // and no call happens before .Lwcs_filter_keep.
+    ldp x10, x11, [x23, #0]
+    stp x10, x11, [x24, #0]
+    ldp x12, x13, [x23, #16]
+    stp x12, x13, [x24, #16]
+    ldr x14, [x23, #32]
+    str x14, [x24, #32]
 .Lwcs_filter_keep:
     add x21, x21, #1
 .Lwcs_filter_next:

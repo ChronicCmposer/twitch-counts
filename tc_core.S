@@ -576,17 +576,28 @@ core_list_channel_dirs:
     add x6, x6, x7
     LEA x8, core_dnames
     str x6, [x8, x3, lsl #3]
-    mov x9, #0
+    mov x9, x5                      // remaining
 .Llcd_copy:
-    cmp x9, x5
-    b.ge .Llcd_copy_done
-    ldrb w10, [x1, x9]
-    strb w10, [x6, x9]
-    add x9, x9, #1
+    cmp x9, #16
+    b.lt .Llcd_copy8
+    ldp x10, x11, [x1], #16
+    stp x10, x11, [x6], #16
+    sub x9, x9, #16
     b .Llcd_copy
+.Llcd_copy8:
+    cmp x9, #8
+    b.lt .Llcd_copy_tail
+    ldr x10, [x1], #8
+    str x10, [x6], #8
+    sub x9, x9, #8
+.Llcd_copy_tail:
+    cbz x9, .Llcd_copy_done
+    ldrb w10, [x1], #1
+    strb w10, [x6], #1
+    sub x9, x9, #1
+    b .Llcd_copy_tail
 .Llcd_copy_done:
-    mov w10, #0
-    strb w10, [x6, x9]
+    strb wzr, [x6]
     add x3, x3, #1
     str x3, [x20]
     b .Llcd_list
@@ -661,17 +672,28 @@ core_build_listing:
     add x25, x25, x26
     str x21, [x25, #TC_L_YMD]
     add x26, x25, #TC_L_NAME
-    mov x27, #0
+    mov x9, x23                     // remaining (x23 = name len)
 .Lbl_copy:
-    cmp x27, x23
-    b.ge .Lbl_copy_done
-    ldrb w28, [x22, x27]
-    strb w28, [x26, x27]
-    add x27, x27, #1
+    cmp x9, #16
+    b.lt .Lbl_copy8
+    ldp x10, x11, [x22], #16
+    stp x10, x11, [x26], #16
+    sub x9, x9, #16
     b .Lbl_copy
+.Lbl_copy8:
+    cmp x9, #8
+    b.lt .Lbl_copy_tail
+    ldr x10, [x22], #8
+    str x10, [x26], #8
+    sub x9, x9, #8
+.Lbl_copy_tail:
+    cbz x9, .Lbl_copy_done
+    ldrb w10, [x22], #1
+    strb w10, [x26], #1
+    sub x9, x9, #1
+    b .Lbl_copy_tail
 .Lbl_copy_done:
-    mov w28, #0
-    strb w28, [x26, x27]
+    strb wzr, [x26]
     add x24, x24, #1
     str x24, [x19, #TC_L_COUNT]
     b .Lbl_list
@@ -1087,6 +1109,8 @@ core_reported_width:
     bl core_count_final
     bl core_eff_threshold
     mov x21, x0                        // eff
+    ldr x28, [x20, #TC_W_STATE_FILTER] // hoisted filter for the inlined
+                                        // tc_count_column (x28 is otherwise free)
     LEA x22, tc_users
     ldr x23, [x22, #TC_US_COUNT]
     ldr x24, [x22, #TC_US_ENTRIES]
@@ -1104,9 +1128,29 @@ core_reported_width:
     mov x0, x27
     bl tc_excl_contains
     cbnz x0, .Lrw_next
-    mov x0, x26
-    bl tc_count_column
-    cmp x0, x21
+    // inline tc_count_column(x26); the entry is already in x27
+    cmp x28, #TC_ST_LIVE
+    b.eq .Lrwcc_live
+    cmp x28, #TC_ST_OFFLINE
+    b.eq .Lrwcc_off
+    cmp x28, #TC_ST_UNKNOWN
+    b.eq .Lrwcc_unk
+    ldr x9, [x27, #TC_US_LIVE]
+    ldr x10, [x27, #TC_US_OFFLINE]
+    add x9, x9, x10
+    ldr x10, [x27, #TC_US_UNKNOWN]
+    add x9, x9, x10
+    b .Lrwcc_done
+.Lrwcc_live:
+    ldr x9, [x27, #TC_US_LIVE]
+    b .Lrwcc_done
+.Lrwcc_off:
+    ldr x9, [x27, #TC_US_OFFLINE]
+    b .Lrwcc_done
+.Lrwcc_unk:
+    ldr x9, [x27, #TC_US_UNKNOWN]
+.Lrwcc_done:
+    cmp x9, x21
     b.lt .Lrw_next
     add x25, x25, #1
 .Lrw_next:
@@ -1128,8 +1172,8 @@ core_count_final:
     sub sp, sp, #CF_FRAME_SZ
     bl core_reset_count
     bl core_seed_state                    // x0 = 0/1/2
-    LEA x9, core_cur_state
-    str x0, [x9]
+    LEA x28, core_cur_state               // &core_cur_state is invariant across
+    str x0, [x28]                         // the loop (x28 is otherwise free)
     LEA x19, tc_listing
     ldr x19, [x19, #TC_L_COUNT]        // count
     LEA x20, tc_listing
@@ -1188,8 +1232,7 @@ core_count_final:
     LEA x0, core_fpath
     ldr x1, [sp, #CF_LO]
     ldr x2, [sp, #CF_HI]
-    LEA x9, core_cur_state
-    ldr x3, [x9]
+    ldr x3, [x28]                   // entering state (x28 = &core_cur_state)
     ldr x4, [sp, #CF_ENTRY]
     ldr x4, [x4, #TC_L_YMD]
     bl tc_cache_day
@@ -1218,8 +1261,7 @@ core_count_final:
     str x11, [x26, #TC_T_PARSED]
     // ---- write the whole day to the rollup (no-op unless the
     // cache module stashed this file's snapshot) ----
-    LEA x9, core_cur_state
-    ldr x0, [x9]
+    ldr x0, [x28]                   // exiting state (x28 = &core_cur_state)
     bl tc_cache_put_day
     b .Lcf_free
 .Lcf_unreadable:
@@ -1249,8 +1291,7 @@ core_count_final:
     mov x0, x10
     bl free
 .Lcf_state_reset:
-    LEA x9, core_cur_state
-    str xzr, [x9]
+    str xzr, [x28]                  // reset the stream state
     b .Lcf_next
 .Lcf_free:
     bl tc_cache_discard_day             // no-newline days never write
@@ -1267,8 +1308,7 @@ core_count_final:
     ldr x11, [x26, #TC_T_REUSED]
     add x11, x11, #1
     str x11, [x26, #TC_T_REUSED]
-    LEA x9, core_cur_state
-    str x1, [x9]
+    str x1, [x28]                   // store the cached exit state
     b .Lcf_next
 .Lcf_cache_unreadable:
     // stat failed inside the cache hook (errno captured there);
@@ -1279,8 +1319,7 @@ core_count_final:
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
     bl core_record_unreadable
-    LEA x9, core_cur_state
-    str xzr, [x9]
+    str xzr, [x28]                  // reset the stream state
     b .Lcf_next
 .Lcf_done:
     add sp, sp, #CF_FRAME_SZ
@@ -1332,6 +1371,8 @@ core_finish_tally:
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 8]
     str xzr, [x19, #TC_T_EXCLUDED_STATES + 16]
     str xzr, [x19, #TC_T_MESSAGES]
+    LEA x23, tc_window                   // hoisted state filter for the inlined
+    ldr x23, [x23, #TC_W_STATE_FILTER]   // tc_count_column (x21-x23 are dead now)
     LEA x24, tc_users
     ldr x25, [x24, #TC_US_COUNT]
     ldr x26, [x24, #TC_US_ENTRIES]
@@ -1371,11 +1412,32 @@ core_finish_tally:
     str x12, [x19, #TC_T_STATES + 16]
     b .Lft_next
 .Lft_not_excl:
-    mov x0, x27
-    bl tc_count_column
-    ldr x9, [x19, #TC_T_MESSAGES]
-    add x9, x9, x0
-    str x9, [x19, #TC_T_MESSAGES]
+    // inline tc_count_column(x27); the entry is already in x28 and the
+    // state filter was hoisted into x23 before the loop
+    cmp x23, #TC_ST_LIVE
+    b.eq .Lftcc_live
+    cmp x23, #TC_ST_OFFLINE
+    b.eq .Lftcc_off
+    cmp x23, #TC_ST_UNKNOWN
+    b.eq .Lftcc_unk
+    ldr x9, [x28, #TC_US_LIVE]
+    ldr x10, [x28, #TC_US_OFFLINE]
+    add x9, x9, x10
+    ldr x10, [x28, #TC_US_UNKNOWN]
+    add x9, x9, x10
+    b .Lftcc_done
+.Lftcc_live:
+    ldr x9, [x28, #TC_US_LIVE]
+    b .Lftcc_done
+.Lftcc_off:
+    ldr x9, [x28, #TC_US_OFFLINE]
+    b .Lftcc_done
+.Lftcc_unk:
+    ldr x9, [x28, #TC_US_UNKNOWN]
+.Lftcc_done:
+    ldr x10, [x19, #TC_T_MESSAGES]
+    add x10, x10, x9
+    str x10, [x19, #TC_T_MESSAGES]
 .Lft_next:
     add x27, x27, #1
     b .Lft_loop
@@ -2355,18 +2417,23 @@ core_speaker_login:
     cbz x7, .Lsl_fail
     // login = right (already lowercase); copy into login_buf
     LEA x8, core_login
-    mov x2, #0
+    mov x9, x4                      // remaining (x4 = right len)
 .Lsl_copy:
-    cmp x2, x4
-    b.ge .Lsl_copy_done
-    ldrb w7, [x5, x2]
-    strb w7, [x8, x2]
-    add x2, x2, #1
+    cmp x9, #8
+    b.lt .Lsl_copy_tail
+    ldr x10, [x5], #8
+    str x10, [x8], #8
+    sub x9, x9, #8
     b .Lsl_copy
+.Lsl_copy_tail:
+    cbz x9, .Lsl_copy_done
+    ldrb w10, [x5], #1
+    strb w10, [x8], #1
+    sub x9, x9, #1
+    b .Lsl_copy_tail
 .Lsl_copy_done:
-    mov w7, #0
-    strb w7, [x8, x4]
-    mov x0, x8
+    strb wzr, [x8]
+    sub x0, x8, x4                  // x0 = core_login base
     EPILOGUE 0
     ret
 .Lsl_fail:
@@ -2422,6 +2489,11 @@ core_is_lower_login_char:
 // tc_find_user(x0=login, x1=len, x2=table_base) -> x0 = index, or -1.
 //   The base is passed in x2 (tc_users for the counting pass, a
 //   caller's table for the cache module).  Exported for tc_cache.S.
+//   Compare is word-at-a-time: 16 bytes via ldp, then 8 bytes via ldr, then
+//   a byte tail, then the entry[len] == NUL check.  The wide chunks only run
+//   while >= 8 bytes remain, so no read ever passes login[len] or the 26-byte
+//   login field (bytes past the compared length are NUL/garbage on the entry
+//   side and are only ever reached byte-by-byte, never via a wide load).
 // ============================================================================
     .p2align 2
     .global tc_find_user
@@ -2436,19 +2508,37 @@ tc_find_user:
     mov x6, #TC_US_ENTRY_SZ
     mul x6, x5, x6
     add x6, x3, x6                      // entry
-    mov x7, #0
-.Lfu_cmp:
-    cmp x7, x1
-    b.ge .Lfu_cmp_nul
-    ldrb w8, [x6, x7]
-    ldrb w9, [x0, x7]
-    cmp w8, w9
+    mov x7, x1                          // remaining
+    mov x8, x0                          // login scan
+    cmp x7, #16
+    b.lt .Lfu_w8
+    ldp x9, x10, [x6], #16
+    ldp x11, x12, [x8], #16
+    cmp x9, x11
     b.ne .Lfu_next
-    add x7, x7, #1
-    b .Lfu_cmp
-.Lfu_cmp_nul:
-    ldrb w8, [x6, x7]
-    cbnz w8, .Lfu_next
+    cmp x10, x12
+    b.ne .Lfu_next
+    sub x7, x7, #16
+.Lfu_w8:
+    cmp x7, #8
+    b.lt .Lfu_tail
+    ldr x9, [x6], #8
+    ldr x10, [x8], #8
+    cmp x9, x10
+    b.ne .Lfu_next
+    sub x7, x7, #8
+    b .Lfu_w8
+.Lfu_tail:
+    cbz x7, .Lfu_nul
+    ldrb w9, [x6], #1
+    ldrb w10, [x8], #1
+    cmp w9, w10
+    b.ne .Lfu_next
+    sub x7, x7, #1
+    b .Lfu_tail
+.Lfu_nul:
+    ldrb w9, [x6]                       // entry[len] must be the NUL
+    cbnz w9, .Lfu_next
     mov x0, x5
     ret
 .Lfu_next:
@@ -2500,18 +2590,30 @@ tc_add_user:
     ldr x4, [x21, #TC_US_ENTRIES]
     mov x5, #TC_US_ENTRY_SZ
     mul x5, x3, x5
-    add x4, x4, x5                      // entry
-    mov x6, #0
+    add x4, x4, x5                      // entry (stays at the base)
+    mov x6, x20                         // remaining
+    mov x7, x4                          // dest (advances)
 .Lau_copy:
-    cmp x6, x20
-    b.ge .Lau_copy_done
-    ldrb w7, [x19, x6]
-    strb w7, [x4, x6]
-    add x6, x6, #1
+    cmp x6, #16
+    b.lt .Lau_copy8
+    ldp x9, x10, [x19], #16
+    stp x9, x10, [x7], #16
+    sub x6, x6, #16
     b .Lau_copy
+.Lau_copy8:
+    cmp x6, #8
+    b.lt .Lau_copy_tail
+    ldr x9, [x19], #8
+    str x9, [x7], #8
+    sub x6, x6, #8
+.Lau_copy_tail:
+    cbz x6, .Lau_copy_done
+    ldrb w9, [x19], #1
+    strb w9, [x7], #1
+    sub x6, x6, #1
+    b .Lau_copy_tail
 .Lau_copy_done:
-    mov w7, #0
-    strb w7, [x4, x6]
+    strb wzr, [x7]
     str xzr, [x4, #TC_US_LIVE]
     str xzr, [x4, #TC_US_OFFLINE]
     str xzr, [x4, #TC_US_UNKNOWN]
@@ -2647,15 +2749,18 @@ core_sort_listing:
     mul x23, x22, x23
     add x23, x21, x23
     LEA x24, core_list_key
-    mov x9, #0
-.Lsl_save:
-    cmp x9, #TC_L_ENTRY_SZ
-    b.ge .Lsl_save_done
-    ldrb w10, [x23, x9]
-    strb w10, [x24, x9]
-    add x9, x9, #1
-    b .Lsl_save
-.Lsl_save_done:
+    // key = entry x22, copied into core_list_key (72 bytes: 4x16 + 8)
+    ldp x9, x10, [x23], #16
+    stp x9, x10, [x24], #16
+    ldp x9, x10, [x23], #16
+    stp x9, x10, [x24], #16
+    ldp x9, x10, [x23], #16
+    stp x9, x10, [x24], #16
+    ldp x9, x10, [x23], #16
+    stp x9, x10, [x24], #16
+    ldr x9, [x23], #8
+    str x9, [x24], #8
+    LEA x24, core_list_key              // reset: the copy above advanced x24
     mov x25, x22                        // j
 .Lsl_inner:
     cbz x25, .Lsl_place
@@ -2682,30 +2787,34 @@ core_sort_listing:
     mov x10, #TC_L_ENTRY_SZ
     mul x10, x26, x10
     add x10, x21, x10                   // src
-    mov x11, #0
-.Lsl_shift_loop:
-    cmp x11, #TC_L_ENTRY_SZ
-    b.ge .Lsl_shift_done
-    ldrb w12, [x10, x11]
-    strb w12, [x9, x11]
-    add x11, x11, #1
-    b .Lsl_shift_loop
-.Lsl_shift_done:
+    // shift a whole 72-byte entry: 4x16 + 8
+    ldp x11, x12, [x10], #16
+    stp x11, x12, [x9], #16
+    ldp x11, x12, [x10], #16
+    stp x11, x12, [x9], #16
+    ldp x11, x12, [x10], #16
+    stp x11, x12, [x9], #16
+    ldp x11, x12, [x10], #16
+    stp x11, x12, [x9], #16
+    ldr x11, [x10], #8
+    str x11, [x9], #8
     mov x25, x26
     b .Lsl_inner
 .Lsl_place:
     mov x9, #TC_L_ENTRY_SZ
     mul x9, x25, x9
     add x9, x21, x9
-    mov x10, #0
-.Lslc_copy:
-    cmp x10, #TC_L_ENTRY_SZ
-    b.ge .Lslc_copy_done
-    ldrb w11, [x24, x10]
-    strb w11, [x9, x10]
-    add x10, x10, #1
-    b .Lslc_copy
-.Lslc_copy_done:
+    // place the key entry: 4x16 + 8
+    ldp x10, x11, [x24], #16
+    stp x10, x11, [x9], #16
+    ldp x10, x11, [x24], #16
+    stp x10, x11, [x9], #16
+    ldp x10, x11, [x24], #16
+    stp x10, x11, [x9], #16
+    ldp x10, x11, [x24], #16
+    stp x10, x11, [x9], #16
+    ldr x10, [x24], #8
+    str x10, [x9], #8
     add x22, x22, #1
     b .Lsl_outer
 .Lsl_done:
@@ -2782,15 +2891,22 @@ core_copy_str:
 
 // ============================================================================
 // core_memzero_own(x0=ptr, x1=len)
+//   16-byte stp xzr pairs + a byte tail; 8288-byte tally -> 518 stores.
 // ============================================================================
     .p2align 2
 core_memzero_own:
     mov x2, #0
-.Lmz:
+.Lmz_w16:
+    cmp x1, #16
+    b.lt .Lmz_tail
+    stp xzr, xzr, [x0], #16
+    sub x1, x1, #16
+    b .Lmz_w16
+.Lmz_tail:
     cbz x1, .Lmz_done
     strb w2, [x0], #1
     sub x1, x1, #1
-    b .Lmz
+    b .Lmz_tail
 .Lmz_done:
     ret
 

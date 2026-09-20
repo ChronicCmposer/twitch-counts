@@ -208,22 +208,78 @@ json_jputc:
     ret
 
 // json_jputraw(s, len) — append len raw bytes
+//   One bounds check, then a bulk ldp/stp copy straight into json_buf.  When
+//   the chunk does not fit, the current buffer is flushed and the copy is
+//   retried (chunked for len > JBUF_SZ).  This replaces the old per-byte
+//   json_jputc calls (~11K of them for the schema blob alone).
     .p2align 2
 json_jputraw:
     PROLOGUE 2
     mov x19, x0                        // src
     mov x20, x1                        // len
-    mov x21, #0                        // i
-.Ljpr_loop:
-    cmp x21, x20
-    b.ge .Ljpr_done
-    ldrb w22, [x19, x21]
-    mov w0, w22
-    bl json_jputc
-    add x21, x21, #1
-    b .Ljpr_loop
-.Ljpr_done:
+.Ljpr_again:
+    LEA x21, json_cur
+    ldr x22, [x21]                     // cur
+    mov x9, #JBUF_SZ
+    sub x9, x9, x22                    // space left
+    cmp x20, x9
+    b.le .Ljpr_all                     // fits entirely
+    cbnz x9, .Ljpr_part
+    bl json_jflush                     // buffer exactly full: flush and retry
+    b .Ljpr_again
+.Ljpr_part:
+    LEA x10, json_buf
+    add x10, x10, x22
+    mov x0, x10
+    mov x1, x19
+    mov x2, x9                         // copy the space bytes
+    bl json_bulk_copy
+    add x19, x19, x9                   // src += space
+    mov x22, #JBUF_SZ
+    str x22, [x21]                     // buffer is now full
+    sub x20, x20, x9                   // len -= space
+    bl json_jflush
+    b .Ljpr_again
+.Ljpr_all:
+    LEA x10, json_buf
+    add x10, x10, x22
+    mov x0, x10
+    mov x1, x19
+    mov x2, x20
+    bl json_bulk_copy
+    add x22, x22, x20
+    str x22, [x21]                     // cur += len
     EPILOGUE 2
+    ret
+
+// json_bulk_copy(dst, src, len) — copy exactly len bytes; returns dst + len.
+//   ldp/stp 16-byte bulk, then 8-byte, then byte tail.  Reads exactly len
+//   bytes (no over-read).  Clobbers x0-x5 only.
+    .p2align 2
+json_bulk_copy:
+    mov x3, x0                        // dst cursor
+.Ljbc_16:
+    cmp x2, #16
+    b.lt .Ljbc_8
+    ldp x4, x5, [x1], #16
+    stp x4, x5, [x3], #16
+    sub x2, x2, #16
+    b .Ljbc_16
+.Ljbc_8:
+    cmp x2, #8
+    b.lt .Ljbc_tail
+    ldr x4, [x1], #8
+    str x4, [x3], #8
+    sub x2, x2, #8
+    b .Ljbc_8
+.Ljbc_tail:
+    cbz x2, .Ljbc_done
+    ldrb w4, [x1], #1
+    strb w4, [x3], #1
+    sub x2, x2, #1
+    b .Ljbc_tail
+.Ljbc_done:
+    mov x0, x3
     ret
 
 // json_jputs(s) — append a NUL-terminated string (length via tc_strlen)
@@ -367,13 +423,15 @@ json_jint:
     strb w2, [x20, #-1]!
     b .Lji_emit
 .Lji_digits:
-    mov x2, #10
+    ldr x2, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    mov x3, #10
 .Lji_loop:
-    udiv x3, x19, x2
-    msub x4, x3, x2, x19
-    add x4, x4, #'0'
-    strb w4, [x20, #-1]!
-    mov x19, x3
+    umulh x4, x19, x2
+    lsr x4, x4, #3
+    msub x5, x4, x3, x19
+    add x5, x5, #'0'
+    strb w5, [x20, #-1]!
+    mov x19, x4
     cbnz x19, .Lji_loop
 .Lji_emit:
     add x21, sp, #20
@@ -387,21 +445,6 @@ json_jint:
 .Lji_done:
     add sp, sp, #32
     EPILOGUE 2
-    ret
-
-// json_jbool(v) — "true"/"false"
-    .p2align 2
-json_jbool:
-    PROLOGUE 0
-    cbz x0, .Ljbo_false
-    LEA x0, s_j_true
-    bl json_jputs
-    b .Ljbo_done
-.Ljbo_false:
-    LEA x0, s_j_false
-    bl json_jputs
-.Ljbo_done:
-    EPILOGUE 0
     ret
 
 // json_now_iso(buf) — "YYYY-MM-DDTHH:MM:SS" local time (generated_at)

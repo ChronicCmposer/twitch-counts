@@ -1919,38 +1919,6 @@ cache_fail_sqlite:
     ret
 
 // ============================================================================
-// cache_fail_errno(x0=step) — compose "<step> failed -- OSError: <strerror>".
-// ============================================================================
-    .p2align 2
-cache_fail_errno:
-    PROLOGUE 2
-    mov x19, x0                     // step
-    bl __errno_location
-    ldr w0, [x0]
-    bl strerror
-    mov x20, x0                     // msg
-    // compose
-    LEA x0, cache_problem_buf
-    mov x21, x0
-    mov x1, x19
-    bl tc_cat_cstr
-    LEA x1, s_failed
-    bl tc_cat_cstr
-    LEA x1, s_type_oserr
-    bl tc_cat_cstr
-    LEA x1, s_colon_space
-    bl tc_cat_cstr
-    mov x1, x20
-    bl tc_cat_cstr
-    LEA x9, cache_problem
-    LEA x10, cache_problem_buf
-    str x10, [x9]
-    LEA x9, cache_db
-    str xzr, [x9]
-    EPILOGUE 2
-    ret
-
-// ============================================================================
 // cache_sqlite_type_name(x0=rc) -> x0 = Python-exception-name approximation.
 // ============================================================================
     .p2align 2
