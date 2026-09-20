@@ -584,11 +584,10 @@ cli_print_usage:
     LEA x1, s_newline
     mov x2, #1
     bl cli_fd_write
-    mov x9, x28                        // (x28 is the loop's part length)
-    mov x28, x24
-    stp x9, x9, [sp, #-16]!
-    bl cli_puts_spaces
-    ldp x28, x9, [sp], #16
+    mov x21, x28                       // keep the part length (callee-saved)
+    mov x28, x24                       // count = indent
+    bl cli_puts_spaces                 // clobbers x0-x17 only; x19-x28 preserved
+    mov x28, x21                       // restore the part length
     sub x23, x24, #1                   // line_len = indent - 1
     mov x25, #0
 .Lpu_append:
@@ -614,19 +613,22 @@ cli_print_usage:
     EPILOGUE 5
     ret
 
-// cli_puts_spaces: write x28 spaces to fd x19 (clobbers x0-x2, x28)
+// cli_puts_spaces(x19=fd, x28=count): write count spaces to fd.
+// Preserves x19-x28 (PROLOGUE 1 covers x19,x20; x28 is read-only input);
+// clobbers x0-x17 only (the internal cli_fd_write call).
 cli_puts_spaces:
-    PROLOGUE 0
+    PROLOGUE 1
+    mov x20, x28
 .Lpu_spaces_loop:
-    cbz x28, .Lpu_spaces_done
+    cbz x20, .Lpu_spaces_done
     mov x0, x19
     LEA x1, s_space
     mov x2, #1
     bl cli_fd_write
-    sub x28, x28, #1
+    sub x20, x20, #1
     b .Lpu_spaces_loop
 .Lpu_spaces_done:
-    EPILOGUE 0
+    EPILOGUE 1
     ret
 
 // ----------------------------------------------------------------------------
