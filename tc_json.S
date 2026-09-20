@@ -50,16 +50,12 @@
     .equ JBUF_SZ,         16384
     .equ JISO_SZ,         64
 
-// Record layouts this module reads (mirrors tc_render.S's local constants):
+// Record layouts this module reads (shared in tc_layout.inc: the reported
+// rows ROW_* / ROW_SZ, and the login stride LOGIN_SZ).  The plan offsets
+// below are tc_plan_cache_used + these offsets (private to the plan block).
     .equ PLAN_CACHE_USED,    0          // tc_plan_cache_used + these offsets
     .equ PLAN_CACHE_REUSED,  8          // tc_plan_cache_reused
     .equ PLAN_CACHE_PROBLEM, 24         // tc_plan_cache_problem
-    .equ ROW_SZ,             72         // displayed row: {login[26] pad, count, live, offline, unknown, key}
-    .equ ROW_COUNT,          32
-    .equ ROW_LIVE,           40
-    .equ ROW_OFFLINE,        48
-    .equ ROW_UNKNOWN,        56
-    .equ LOGIN_SZ,           26         // exclusion-name record stride
 
 // ----------------------------------------------------------------------------
 // .bss
@@ -440,7 +436,7 @@ json_jint:
     strb w2, [x20, #-1]!
     b .Lji_emit
 .Lji_digits:
-    ldr x2, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    MOV_DIV10_MAGIC x2              // divide-by-10 magic (umulh >> 3)
     mov x3, #10
 .Lji_loop:
     umulh x4, x19, x2

@@ -131,6 +131,7 @@
 #include "tc_platform.h"
     .arch armv8-a
 #include "tc_layout.inc"
+#include "tc_parse_facts.inc"
     .text
 
 // ----------------------------------------------------------------------------
@@ -188,7 +189,6 @@
     .equ SQLITE_OPEN_CREATE,    0x00000004
     .equ SQLITE_OPEN_FULLMUTEX, 0x00010000
     .equ OPEN_FLAGS,           (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX)
-    .equ LAST_SECOND,          86399
     .equ CACHE_KEEP_DAYS,      7
     // STAT_SZ / ST_SIZE / ST_MTIM_SEC / ST_MTIM_NSEC come from tc_platform.h
     // (per-platform struct stat offsets); see the LOAD_ST_MODE/LOAD_ST_DEV
@@ -299,12 +299,13 @@ s_dash:             .asciz "-"
 s_newline:          .asciz "\n"
 s_space:            .asciz " "
 
-// fingerprint input parts (stable tag; see header)
+// fingerprint input parts (stable tag; see header).  The marker/login
+// literals come from tc_parse_facts.inc: pfx_fp_live / pfx_fp_off /
+// pfx_fp_login are the "live="/"off="/"login=" prefixes emitted immediately
+// before the shared parser labels, so each part is one contiguous string
+// ("live=is live!" etc.) that the parsers reference byte-for-byte.
 s_fp_head:   .asciz "tc-cache-fp-v1"
 s_fp_schema: .asciz "schema=2"
-s_fp_live:   .asciz "live=is live!"
-s_fp_off:    .asciz "off=is now offline."
-s_fp_login:  .asciz "login=[A-Za-z0-9_]{1,25}"
 s_fp_local:  .asciz "localized=\\S+ [a-z0-9_]{1,25} nonascii"
 s_fp_fmt:    .asciz "fmt=[HH:MM:SS] who: msg"
 s_fp_states: .asciz "states=live,offline,unknown"
@@ -314,9 +315,9 @@ s_fp_class:  .asciz "class=process_lines+process_message+line_is_marker+speaker_
 s_fp_parts:
     .quad s_fp_head
     .quad s_fp_schema
-    .quad s_fp_live
-    .quad s_fp_off
-    .quad s_fp_login
+    .quad pfx_fp_live
+    .quad pfx_fp_off
+    .quad pfx_fp_login
     .quad s_fp_local
     .quad s_fp_fmt
     .quad s_fp_states
@@ -561,8 +562,7 @@ tc_cache_day:
     str x11, [x9]
     LEA x9, cache_stash_mtime
     ldr x11, [x10, #ST_MTIM_SEC]
-    movz x12, #0xCA00, lsl #0
-    movk x12, #0x3B9A, lsl #16      // 1000000000
+    MOV_NANOSEC x12
     mul x11, x11, x12
     ldr x12, [x10, #ST_MTIM_NSEC]
     add x11, x11, x12
@@ -1419,8 +1419,7 @@ cache_get_day:
     cmp x23, x10
     b.ne .Lcg_miss
     ldr x10, [x9, #ST_MTIM_SEC]
-    movz x11, #0xCA00, lsl #0
-    movk x11, #0x3B9A, lsl #16
+    MOV_NANOSEC x11
     mul x10, x10, x11
     ldr x11, [x9, #ST_MTIM_NSEC]
     add x10, x10, x11
@@ -1727,7 +1726,7 @@ cache_mkdir_cache_dir:
     mov w10, #0
     strb w10, [x20, x22]            // temporarily NUL at the slash
     mov x0, x20
-    mov x1, #0x1FF                  // 0777
+    mov x1, #DIR_MODE                // 0777 (umask still applies)
     bl mkdir
     ldrb w9, [x19, x22]             // restore the slash from the original path
     strb w9, [x20, x22]
@@ -1736,7 +1735,7 @@ cache_mkdir_cache_dir:
     b .Lmcd_loop
 .Lmcd_last:
     mov x0, x20
-    mov x1, #0x1FF
+    mov x1, #DIR_MODE
     bl mkdir                        // the final component (no trailing slash)
 .Lmcd_done:
     EPILOGUE 2

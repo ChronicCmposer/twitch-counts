@@ -80,6 +80,7 @@
 #include "tc_platform.h"
     .arch armv8-a
 #include "tc_layout.inc"
+#include "tc_parse_facts.inc"
 
 // ----------------------------------------------------------------------------
 // Externals
@@ -158,9 +159,9 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ LAST_SECOND,    86399
-    .equ FILE_CAP,       1073741824      // 1 GiB sanity cap (as tc_core.S)
-    .equ READ_CHUNK,     65536
+// LAST_SECOND / FILE_CAP / READ_CHUNK_WATCH live in tc_platform.h (shared;
+// READ_CHUNK_WATCH is the watch path's read granularity — the count path
+// uses READ_CHUNK_CORE).
 
     // struct stat offsets (ST_DEV/ST_INO/ST_MODE/ST_SIZE/ST_MTIM_SEC/
     // ST_MTIM_NSEC/STAT_SZ), dirent offsets (D_TYPE_OFF/D_NAME_OFF), EINTR,
@@ -258,14 +259,6 @@
     .equ RAMP_MAX,       16
     .equ SHADES_MAX,     64
     .equ SHADE_SZ,       32
-    .equ NANOSEC,        1000000000
-
-    // Shared load of the 1e9 nanoseconds-per-second constant (NANOSEC):
-    //   MOV_NANOSEC xN  ==  movz xN, #0xCA00 ; movk xN, #0x3B9A, lsl #16
-    .macro MOV_NANOSEC reg
-    movz \reg, #0xCA00, lsl #0
-    movk \reg, #0x3B9A, lsl #16         // 1000000000
-    .endm
 
     // ramp key ids
     .equ RAMP_UP,        0
@@ -285,9 +278,9 @@
     .equ P_CURVE,        14
     .equ P_HEX,          15
 
-    // tc_render.S's reported-row offsets (ROW_SZ = 72)
-    .equ ROW_LOGIN,      0
-    .equ ROW_COUNT,      32
+    // tc_render.S's reported-row offsets (ROW_SZ = 72) come from
+    // tc_layout.inc (ROW_LOGIN/ROW_COUNT); the watch path reads the
+    // login/count fields of the rows tc_render.S builds.
 
 // ----------------------------------------------------------------------------
 // .bss — watch-session state (private; not part of the shared contract)
@@ -2304,7 +2297,7 @@ watch_reader_refresh:
 .Lwrrf_rloop:
     cmp x26, #0
     b.ne .Lwrrf_grow_ok
-    mov x26, #READ_CHUNK
+    mov x26, #READ_CHUNK_WATCH
     mov x0, x26
     bl malloc
     cbz x0, .Lwrrf_alloc_err
@@ -2330,7 +2323,7 @@ watch_reader_refresh:
     mov x0, x23
     add x1, x24, x25
     sub x2, x26, x25                  // remaining capacity
-    mov x9, #READ_CHUNK
+    mov x9, #READ_CHUNK_WATCH
     cmp x2, x9
     b.lt .Lwrrf_read_ok
     mov x2, x9
@@ -2714,7 +2707,7 @@ watch_seek_window:
     mov x0, x19
     mov x1, x26
     mov x2, #0
-    LEA x3, lit_is_live
+    LEA x3, pfx_is_live_sp
     mov x4, #9                         // len(" is live!") == 9
     bl watch_rfind                     // x0 = index or -1
     cmp x0, #0
@@ -2766,7 +2759,7 @@ watch_seek_window:
     mov x0, x19
     mov x1, x26
     mov x2, #0
-    LEA x3, lit_offline
+    LEA x3, pfx_is_offline_sp
     mov x4, #16
     bl watch_rfind
     cmp x0, #0
@@ -2928,11 +2921,8 @@ watch_find_char:
     orr x6, x3, x3, lsl #8
     orr x6, x6, x6, lsl #16
     orr x6, x6, x6, lsl #32            // x6 = ch in every byte
-    mov x7, #0x0101
-    movk x7, #0x0101, lsl #16
-    movk x7, #0x0101, lsl #32
-    movk x7, #0x0101, lsl #48          // x7 = 0x0101010101010101
-    lsl x8, x7, #7                     // x8 = 0x8080808080808080
+    mov x7, #SWAR_MASK_01              // x7 = 0x0101010101010101
+    mov x8, #SWAR_MASK_80              // x8 = 0x8080808080808080
     mov x4, x2
 .Lwfc_wloop:
     sub x9, x1, x4
@@ -2982,11 +2972,8 @@ watch_rfind_char:
     orr x6, x3, x3, lsl #8
     orr x6, x6, x6, lsl #16
     orr x6, x6, x6, lsl #32            // x6 = ch in every byte
-    mov x7, #0x0101
-    movk x7, #0x0101, lsl #16
-    movk x7, #0x0101, lsl #32
-    movk x7, #0x0101, lsl #48          // x7 = 0x0101010101010101
-    lsl x8, x7, #7                     // x8 = 0x8080808080808080
+    mov x7, #SWAR_MASK_01              // x7 = 0x0101010101010101
+    mov x8, #SWAR_MASK_80              // x8 = 0x8080808080808080
     mvn x9, x8                         // x9 = 0x7f7f7f7f7f7f7f7f
     mov x4, x1                         // scan end (exclusive)
 .Lwrfc_wloop:
@@ -3138,7 +3125,7 @@ watch_line_is_marker:
     sub x11, x10, #9
     cmp x11, x9
     b.lt .Lwlim_off
-    LEA x12, lit_is_live
+    LEA x12, pfx_is_live_sp
     mov x13, #0
 .Lwlim_cl1:
     cmp x13, #9
@@ -3169,7 +3156,7 @@ watch_line_is_marker:
     sub x11, x10, #16
     cmp x11, x9
     b.lt .Lwlim_no
-    LEA x12, lit_offline
+    LEA x12, pfx_is_offline_sp
     mov x13, #0
 .Lwlim_cl2:
     cmp x13, #16
@@ -3198,10 +3185,11 @@ watch_line_is_marker:
     mov w0, #0
     EPILOGUE 1
     ret
-    RODATA
-lit_is_live:        .asciz " is live!"
-lit_offline:        .asciz " is now offline."
-    .text
+    // The watch-path marker needles (" is live!" / " is now offline.") are
+    // the shared space-prefixed forms in tc_parse_facts.inc (pfx_is_live_sp
+    // / pfx_is_offline_sp) — the same marker text the count path and the
+    // cache fingerprint reference, so a marker change is caught at assemble
+    // time.
 
 // ============================================================================
 // watch_fold_lines(rd, text, len) — fold complete lines (Python fold_lines).
@@ -5488,7 +5476,7 @@ watch_scan_markers:
 .Lwsm_rloop:
     cmp x23, #0
     b.ne .Lwsm_grow_ok
-    mov x23, #READ_CHUNK
+    mov x23, #READ_CHUNK_WATCH
     mov x0, x23
     bl malloc
     cbz x0, .Lwsm_close
@@ -5511,7 +5499,7 @@ watch_scan_markers:
 .Lwsm_read:
     mov x0, x20
     add x1, x21, x22
-    mov x2, #READ_CHUNK
+    mov x2, #READ_CHUNK_WATCH
     bl read
     mov w9, w0
     cmp w9, #0

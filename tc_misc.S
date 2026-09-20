@@ -2298,12 +2298,12 @@ misc_iso_week:
 misc_set_all_window:
     PROLOGUE 0
     LEA x0, tc_window
-    mov x1, #10101                      // 0001-01-01
+    mov x1, #YMD_MIN                    // 0001-01-01
     str x1, [x0, #TC_W_BEGIN_YMD]
     str xzr, [x0, #TC_W_BEGIN_SOD]
-    ldr x1, =99991231                   // 9999-12-31
+    ldr x1, =YMD_MAX                    // 9999-12-31
     str x1, [x0, #TC_W_END_YMD]
-    ldr x1, =86399
+    ldr x1, =LAST_SECOND
     str x1, [x0, #TC_W_END_SOD]
     str xzr, [x0, #TC_W_KIND]           // TC_WIN_BEGIN
     str xzr, [x0, #TC_W_BEGIN_ROLLS]

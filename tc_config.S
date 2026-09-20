@@ -898,8 +898,7 @@ tc_config_identity:
     b.ne .Lci_missing
     ldr x1, [x0, #ST_SIZE]
     ldr x2, [x0, #ST_MTIM_SEC]
-    movz x3, #0xCA00, lsl #0
-    movk x3, #0x3B9A, lsl #16       // 1000000000
+    MOV_NANOSEC x3
     mul x2, x2, x3
     ldr x3, [x0, #ST_MTIM_NSEC]
     add x2, x2, x3
@@ -2427,22 +2426,22 @@ cfg_login_matches:
     ldr x4, [x19, x22]
     ldr x5, [x20, x22]
     // lowercase the stored word (mask = 0x20 where 'A'..'Z')
-    orr x8, x4, #0x8080808080808080
+    orr x8, x4, #SWAR_MASK_80
     sub x9, x8, x6
-    and x9, x9, #0x8080808080808080
+    and x9, x9, #SWAR_MASK_80
     lsr x9, x9, #2
     sub x10, x8, x7
-    and x10, x10, #0x8080808080808080
+    and x10, x10, #SWAR_MASK_80
     lsr x10, x10, #2
     bic x9, x9, x10
     orr x4, x4, x9
     // lowercase the candidate word
-    orr x8, x5, #0x8080808080808080
+    orr x8, x5, #SWAR_MASK_80
     sub x9, x8, x6
-    and x9, x9, #0x8080808080808080
+    and x9, x9, #SWAR_MASK_80
     lsr x9, x9, #2
     sub x10, x8, x7
-    and x10, x10, #0x8080808080808080
+    and x10, x10, #SWAR_MASK_80
     lsr x10, x10, #2
     bic x9, x9, x10
     orr x5, x5, x9

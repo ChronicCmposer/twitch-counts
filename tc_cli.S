@@ -4162,7 +4162,7 @@ cli_format_u64:
     mov x2, #1
     b .Lfu_copy
 .Lfu_loop:
-    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
     mov x7, #10
     umulh x5, x3, x4
     lsr x5, x5, #3
@@ -4285,7 +4285,7 @@ cli_format_pad:
     mov x23, #1
     b .Lfp_pad
 .Lfp_loop:
-    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
     mov x7, #10
     umulh x5, x3, x4
     lsr x5, x5, #3

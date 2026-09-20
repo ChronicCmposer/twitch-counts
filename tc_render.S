@@ -100,13 +100,8 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ ROW_LOGIN,       0
-    .equ ROW_COUNT,       32
-    .equ ROW_LIVE,        40
-    .equ ROW_OFFLINE,     48
-    .equ ROW_UNKNOWN,     56
-    .equ ROW_KEY,         64
-    .equ ROW_SZ,          72
+// The reported-row offsets (ROW_LOGIN..ROW_SZ) and the login stride
+// (LOGIN_SZ) live in tc_layout.inc.
     .equ HDR_DESC_SZ,     32
     .equ HDR_MAX,         16
     .equ ARENA_SZ,        8192
@@ -554,8 +549,8 @@ render_pin_cell:
     .p2align 2
 render_str_cat:
     mov x2, x0
-    mov x4, #0x0101010101010101
-    mov x5, #0x8080808080808080
+    mov x4, #SWAR_MASK_01
+    mov x5, #SWAR_MASK_80
 .Lsc_loop:
     ldr x3, [x1], #8
     sub x6, x3, x4
@@ -603,7 +598,7 @@ render_u64_digits:
     mov x2, x0                      // t = v
     mov x3, #0                      // n = digit count
     cbz x0, .Lrud_one
-    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
 .Lrud_count:
     umulh x5, x2, x4
     lsr x5, x5, #3
@@ -638,7 +633,7 @@ render_fmt_u64_plain:
     bl render_u64_digits
     mov x3, x0                      // n = digit count
     cbz x1, .Lfup_zero
-    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
 .Lfup_write:
     add x2, x6, x3                  // cursor = dst + n
     mov x5, #10
@@ -671,7 +666,7 @@ render_fmt_u64_commas:
     bl render_u64_digits
     mov x3, x0                      // n = digit count
     cbz x1, .Lfuc_zero
-    ldr x4, =0xCCCCCCCCCCCCCCCD     // divide-by-10 magic (umulh >> 3)
+    MOV_DIV10_MAGIC x4              // divide-by-10 magic (umulh >> 3)
 .Lfuc_write:
     sub x2, x3, #1
     mov x5, #3
@@ -871,8 +866,7 @@ render_fmt_human_duration:
     strb w2, [x19], #1
     b .Lfhd_done
 .Lfhd_units:
-    movz x2, #0x1, lsl #16            // 86400
-    movk x2, #0x5180, lsl #0
+    ldr x2, =SECS_PER_DAY           // 86400
     cmp x20, x2
     b.lt .Lfhd_hours
     udiv x3, x20, x2

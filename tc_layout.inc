@@ -485,6 +485,21 @@
     .equ TC_L_NAME,         8          // 64
     .equ TC_L_ENTRY_SZ,     72
 
+// ----------------------------------------------------------------------------
+// tc_render's reported rows — the display rows tc_render.S builds and
+// tc_json.S / tc_watch.S read.  Entry: {login[26] pad, count u64, live u64,
+// offline u64, unknown u64, key u64} = 72 bytes.  (The login field is
+// LOGIN_SZ bytes, the same login stride the exclusion and user tables use.)
+// ----------------------------------------------------------------------------
+    .equ ROW_LOGIN,        0
+    .equ ROW_COUNT,        32
+    .equ ROW_LIVE,         40
+    .equ ROW_OFFLINE,      48
+    .equ ROW_UNKNOWN,      56
+    .equ ROW_KEY,          64
+    .equ ROW_SZ,           72
+    .equ LOGIN_SZ,         26         // login / exclusion-name stride
+
 // ============================================================================
 // Exported symbol contracts (see each module's header for the full text)
 // ============================================================================
@@ -495,6 +510,17 @@
 //   tc_eputs(x0=s)                        print s to stderr (unbuffered)
 //   tc_putu64(x0=v)                       print u64 decimal to stdout
 //   tc_fail(x0=msg)                       "error: <msg>\n" stderr, exit 1
+//   tc_fmt_u64(x0=dst, x1=v)              -> x0 = dst+digits (no NUL)
+//   tc_fmt_pad(x0=dst, x1=v, x2=width)    -> x0 = dst+width (zero-padded, no NUL)
+//   tc_fmt_ymd_sod(x0=dst, x1=ymd, x2=sod, x3=sep) -> x0 = dst+19,
+//       "YYYY-MM-DD<sep>HH:MM:SS" (no NUL)
+//   tc_ymd_split(x0=ymd)                  -> x0=y, x1=m, x2=d
+//   tc_sod_split(x0=sod)                  -> x0=hour, x1=minute, x2=second
+//   tc_is_ws(x0=byte)                     -> x0 = 1 for ASCII whitespace
+//   tc_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = dst+len
+//   tc_read_all(x0=path, x1=cap)          -> x0=status (0 ok, 1 too large,
+//       2 error), x1 = malloc'd buffer (caller frees; 0 on early error),
+//       x2 = bytes read
 //
 // tc_cli.S
 //   tc_cli_parse(x0=argc, x1=argv)        -> 0; fills tc_opts + tc_window.

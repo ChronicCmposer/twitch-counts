@@ -321,6 +321,12 @@
 // ---- identical on both platforms --------------------------------------------
 #define EINTR           4
 #define ENOENT          2
+#define EPERM           1
+#define EACCES          13
+#define EISDIR          21
+#define ENOTDIR         20
+#define EEXIST          17
+#define EPIPE           32
 #define O_RDONLY        0
 #define SEEK_SET        0
 #define S_IFMT          0xF000
@@ -352,6 +358,54 @@
 // m*100 + d (YYYYMMDD as an integer).
 #define YMD_YEAR_SCALE  10000
 #define YMD_MONTH_SCALE 100
+// The window uses a fixed, all-covering range (0001-01-01 .. 9999-12-31)
+// when the counting path has no listing to derive a real begin from; the
+// values below are the packed ymd forms of those extremes.
+#define YMD_MIN         10101       // 0001-01-01
+#define YMD_MAX         99991231    // 9999-12-31
+// Seconds in the last full second of a day; the highest valid second-of-day.
+#define LAST_SECOND     86399
+// The 1 GiB sanity cap on a single log file: a file that reads past it is
+// reported "too large" instead of being slurped into memory.
+#define FILE_CAP        1073741824
+// read(2) granularity for the whole-file readers.  The count path
+// (tc_core.S / tc_read_all) reads each file once, so a modest chunk only
+// affects malloc/realloc churn; the watch path streams live appends and
+// wants fewer, larger reads.  Both produce identical results.
+#define READ_CHUNK_CORE 8192
+#define READ_CHUNK_WATCH 65536
+// mkdir(2) mode for the cache directory walk (0777, as the Python's
+// os.makedirs default -- the umask still applies).
+#define DIR_MODE        0x1FF
+// Nanoseconds per second: 1e9.  The two-instruction load is the shared
+// MOV_NANOSEC macro below (movz/movk of the low 32 bits; NANOSEC fits in
+// 32 bits, so the high 32 are zero by construction).
+#define NANOSEC         1000000000
+
+// ---- shared numeric constants loaded by instruction, not by literal pool -----
+//  These are constants the modules load into registers (some in hot loops),
+//  defined once here so every module assembles the same value.  They are
+//  cpp macros -- like SECS_PER_DAY above -- so a stale module-local `.equ`
+//  of the same name fails to assemble instead of silently shadowing.
+#define DIV10_MAGIC         0xCCCCCCCCCCCCCCCD   // divide-by-10 magic (umulh >> 3)
+#define SWAR_MASK_01        0x0101010101010101   // SWAR has-zero-byte low-bit mask
+#define SWAR_MASK_80        0x8080808080808080   // SWAR detection mask (01 mask << 7)
+
+// MOV_DIV10_MAGIC reg — load DIV10_MAGIC without a literal pool entry
+// (the value is not a valid mov immediate, so it is built with movz/movk).
+    .macro MOV_DIV10_MAGIC reg
+    movz \reg, #0xCCCD
+    movk \reg, #0xCCCC, lsl #16
+    movk \reg, #0xCCCC, lsl #32
+    movk \reg, #0xCCCC, lsl #48
+    .endm
+
+// MOV_NANOSEC reg — load NANOSEC (1000000000) without a literal pool entry:
+//   movz xN, #0xCA00 ; movk xN, #0x3B9A, lsl #16
+    .macro MOV_NANOSEC reg
+    movz \reg, #0xCA00, lsl #0
+    movk \reg, #0x3B9A, lsl #16         // 1000000000
+    .endm
 
 // Field loads whose WIDTH differs between the platforms.  `n` is the
 // register number: LOAD_ST_MODE 1, x0  ->  w1 = st_mode (zero-extended).

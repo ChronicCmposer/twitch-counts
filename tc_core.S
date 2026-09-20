@@ -100,6 +100,7 @@
 #include "tc_platform.h"
     .arch armv8-a
 #include "tc_layout.inc"
+#include "tc_parse_facts.inc"
     .text
 
 // ----------------------------------------------------------------------------
@@ -137,11 +138,11 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ LAST_SECOND,     86399
-    .equ FILE_CAP,        1073741824      // 1 GiB sanity cap (documented)
+// LAST_SECOND / FILE_CAP / READ_CHUNK_CORE live in tc_platform.h (shared;
+// READ_CHUNK_CORE is the count path's read granularity, READ_CHUNK_WATCH is
+// the watch path's).
     .equ MAX_DNAMES,      256
     .equ DNAME_SZ,        256
-    .equ READ_CHUNK,      8192
     .equ LISTING_INIT,    64
     .equ USERS_INIT,      64
     .equ CF_ENTRY,        0               // core_count_final frame slots
@@ -194,8 +195,9 @@ s_begin_paren:      .asciz "begin ("
 s_is_after_end:     .asciz ") is after end ("
 s_too_large:        .asciz "file too large"
 s_oom:              .asciz "out of memory"
-lit_is_live:        .asciz "is live!"
-lit_is_offline:     .asciz "is now offline."
+// The marker suffixes ("is live!" / "is now offline.") are shared in
+// tc_parse_facts.inc (pfx_is_live / pfx_is_offline) — the same labels the
+// cache fingerprint embeds, so a marker change is caught at assemble time.
 
     .text
 
@@ -1452,21 +1454,21 @@ tc_oserror_text:
 // (the errno values below are the same on Darwin and Linux)
     .p2align 2
 core_errno_exc_name:
-    cmp x0, #1                          // EPERM
+    cmp x0, #EPERM
     b.eq .Leen_perm
-    cmp x0, #13                         // EACCES
+    cmp x0, #EACCES
     b.eq .Leen_perm
-    cmp x0, #2                          // ENOENT
+    cmp x0, #ENOENT
     b.eq .Leen_notfound
-    cmp x0, #21                         // EISDIR
+    cmp x0, #EISDIR
     b.eq .Leen_isdir
-    cmp x0, #20                         // ENOTDIR
+    cmp x0, #ENOTDIR
     b.eq .Leen_notdir
-    cmp x0, #17                         // EEXIST
+    cmp x0, #EEXIST
     b.eq .Leen_exists
-    cmp x0, #4                          // EINTR
+    cmp x0, #EINTR
     b.eq .Leen_intr
-    cmp x0, #32                         // EPIPE
+    cmp x0, #EPIPE
     b.eq .Leen_pipe
     LEA x0, s_exc_oserror
     ret
@@ -1669,11 +1671,11 @@ core_read_file:
     cmp x0, #0
     b.lt .Lrf_open_fail
     mov x20, x0                         // fd
-    mov x0, #READ_CHUNK
+    mov x0, #READ_CHUNK_CORE
     bl malloc
     cbz x0, .Lrf_alloc_fail
     mov x21, x0                         // buf
-    mov x22, #READ_CHUNK                // cap
+    mov x22, #READ_CHUNK_CORE                // cap
     mov x23, #0                         // total (callee-saved: survives calls)
 .Lrf_loop:
     cmp x23, x22
@@ -1850,13 +1852,13 @@ core_line_is_marker:
     cbz x0, .Llim_no
     mov x0, x19
     mov x1, x20
-    LEA x2, lit_is_live
+    LEA x2, pfx_is_live
     mov x3, #8
     bl core_marker_match
     cbnz x0, .Llim_live
     mov x0, x19
     mov x1, x20
-    LEA x2, lit_is_offline
+    LEA x2, pfx_is_offline
     mov x3, #15
     bl core_marker_match
     cbnz x0, .Llim_off

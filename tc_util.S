@@ -34,6 +34,16 @@
 //    tc_ymd_sod_to_epoch(x0=ymd, x1=sod) -> x0 = epoch seconds
 //    tc_epoch_to_ymd_sod(x0=epoch) -> x0 = ymd, x1 = sod
 //      (these ten clobber only their outputs; see the block at the end)
+//  Shared formatters / helpers for the later phases (each documents its own
+//  clobber contract in its header comment):
+//    tc_fmt_u64(x0=dst, x1=v)            -> x0 = dst+digits (no NUL)
+//    tc_fmt_pad(x0=dst, x1=v, x2=width)  -> x0 = dst+width (zero-padded, no NUL)
+//    tc_fmt_ymd_sod(x0=dst, x1=ymd, x2=sod, x3=sep) -> x0 = dst+19
+//    tc_ymd_split(x0=ymd)                -> x0=y, x1=m, x2=d
+//    tc_sod_split(x0=sod)                -> x0=hour, x1=minute, x2=second
+//    tc_is_ws(x0=byte)                   -> x0 = 1 for ASCII whitespace
+//    tc_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = dst+len
+//    tc_read_all(x0=path, x1=cap)        -> x0=status, x1=buf, x2=len
 //
 //  AAPCS64 notes (the rules every later phase must follow)
 //  -------------------------------------------------------
@@ -52,7 +62,8 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-    .equ DIV10_MAGIC, 0xCCCCCCCCCCCCCCCD   // divide-by-10 magic (umulh >> 3)
+// DIV10_MAGIC, SWAR_MASK_01/SWAR_MASK_80, NANOSEC and the MOV_* load macros
+// live in tc_platform.h (shared, fail-loud against module-local .equ copies).
 
 // ----------------------------------------------------------------------------
 // tc_strlen — length of a NUL-terminated string.
@@ -78,7 +89,7 @@ tc_strlen:
     and x3, x1, #7
     cbnz x3, .Lslw_align
 .Lslw_word:
-    ldr x2, =0x0101010101010101     // the 0x01..01 mask
+    mov x2, #SWAR_MASK_01            // the 0x01..01 mask
 .Lslw_loop:
     ldr x3, [x1]                    // next word
     sub x4, x3, x2                  // w - 0x01..01
@@ -805,7 +816,7 @@ tc_cat_cstr:
     stp x6, x7, [sp, #-16]!
     mov x2, x0                      // dst (advances)
     mov x3, x1                      // src (advances)
-    ldr x7, =0x0101010101010101     // the 0x01..01 mask
+    mov x7, #SWAR_MASK_01            // the 0x01..01 mask
     and x5, x3, #7                  // source already 8-aligned?
     cbz x5, .Lcc_word
 .Lcc_align:
@@ -923,6 +934,395 @@ tc_fmt4:
     ldp x6, x30, [sp], #16
     ldp x4, x5, [sp], #16
     ldp x2, x3, [sp], #16
+    ret
+
+// ============================================================================
+// Shared decimal / date formatters and the small helpers the later phases
+// used to carry private copies of.  Wave 2 re-points the callers; the
+// routines here are the single source of truth.
+//
+// Clobber contracts are stated per routine and are what callers compile
+// against: "clobbers only x0..xN" means every other caller-saved register
+// survives the call (stricter than AAPCS64, matching the copies that came
+// before), and x19-x28 are always preserved.
+// ============================================================================
+
+// util_u64_digits(x0=v) -> x0 = number of decimal digits (v == 0 -> 1)
+//   Reciprocal divide-by-10 count; the shared digit-count of tc_fmt_u64 and
+//   tc_fmt_pad.  Internal helper: clobbers x0-x3.
+    .p2align 2
+util_u64_digits:
+    mov x1, x0
+    mov x0, #0
+    cbz x1, .Lud_one
+    ldr x2, =DIV10_MAGIC            // divide-by-10 magic (umulh >> 3)
+.Lud_loop:
+    umulh x3, x1, x2
+    lsr x3, x3, #3
+    add x0, x0, #1
+    mov x1, x3
+    cbnz x1, .Lud_loop
+    ret
+.Lud_one:
+    mov x0, #1
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_fmt_u64(x0=dst, x1=val) -> x0 = dst after the digits (no NUL written)
+//   The shared u64->decimal formatter: counts the digits first, then writes
+//   them MSB-first directly into dst (no stack temp, no copy loop).  The
+//   digit count is known up front, so the cursor is exact and a caller that
+//   needs the NUL writes it itself.
+//   Clobbers x0, x1 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_fmt_u64
+    FUNC_TYPE(tc_fmt_u64)
+tc_fmt_u64:
+    stp x2, x3, [sp, #-16]!
+    stp x4, x5, [sp, #-16]!
+    stp x6, x7, [sp, #-16]!
+    mov x2, x1                      // t = val
+    mov x3, #0                      // n = digit count
+    cbz x1, .Lfu_zero
+    ldr x4, =DIV10_MAGIC            // divide-by-10 magic (umulh >> 3)
+.Lfu_count:
+    umulh x5, x2, x4
+    lsr x5, x5, #3
+    add x3, x3, #1
+    mov x2, x5
+    cbnz x2, .Lfu_count
+    add x6, x0, x3                  // end = dst + n
+    mov x5, #10
+.Lfu_wloop:
+    umulh x7, x1, x4                // q = v / 10
+    lsr x7, x7, #3
+    msub x1, x7, x5, x1             // r = v % 10
+    add x1, x1, #'0'
+    sub x6, x6, #1
+    strb w1, [x6]
+    mov x1, x7
+    cbnz x1, .Lfu_wloop
+    add x0, x6, x3                  // end = dst + n (x6 walked down to dst)
+    b .Lfu_ret
+.Lfu_zero:
+    mov w2, #'0'
+    strb w2, [x0], #1               // one digit: "0"
+.Lfu_ret:
+    ldp x6, x7, [sp], #16
+    ldp x4, x5, [sp], #16
+    ldp x2, x3, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_fmt_pad(x0=dst, x1=val, x2=width) -> x0 = dst after the digits
+//   Zero-padded variant of tc_fmt_u64: pads on the LEFT to `width` digits,
+//   or just the digits when val needs more than width (width - digits goes
+//   negative and no zero is written).  No NUL written.
+//   Clobbers x0, x1, x2 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_fmt_pad
+    FUNC_TYPE(tc_fmt_pad)
+tc_fmt_pad:
+    stp x19, x20, [sp, #-16]!
+    stp x21, x30, [sp, #-16]!
+    stp x3, x4, [sp, #-16]!
+    mov x19, x0                     // dst
+    mov x20, x1                     // val
+    mov x21, x2                     // width
+    mov x0, x20
+    bl util_u64_digits              // x0 = digit count
+    sub x21, x21, x0                // pad count (may be negative -> none)
+.Lpad_zl:
+    cmp x21, #0
+    b.le .Lpad_dig                 // negative pad count -> digits win, no zeros
+    mov w0, #'0'
+    strb w0, [x19], #1
+    sub x21, x21, #1
+    b .Lpad_zl
+.Lpad_dig:
+    mov x0, x19
+    mov x1, x20
+    bl tc_fmt_u64                   // x0 = end cursor
+    ldp x3, x4, [sp], #16
+    ldp x21, x30, [sp], #16
+    ldp x19, x20, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_ymd_split(x0=ymd) -> x0 = year, x1 = month, x2 = day
+//   Unpacks the packed YYYYMMDD contract form (ymd = y*10000 + m*100 + d).
+//   Clobbers x0, x1, x2 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_ymd_split
+    FUNC_TYPE(tc_ymd_split)
+tc_ymd_split:
+    stp x3, x4, [sp, #-16]!
+    mov x3, #YMD_YEAR_SCALE
+    udiv x4, x0, x3                 // y
+    msub x0, x4, x3, x0             // m*100 + d
+    mov x3, #YMD_MONTH_SCALE
+    udiv x1, x0, x3                 // m
+    msub x2, x1, x3, x0             // d
+    mov x0, x4
+    ldp x3, x4, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_sod_split(x0=sod) -> x0 = hour, x1 = minute, x2 = second
+//   Unpacks seconds-of-day (0..86399) into its clock components.
+//   Clobbers x0, x1, x2 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_sod_split
+    FUNC_TYPE(tc_sod_split)
+tc_sod_split:
+    stp x3, x4, [sp, #-16]!
+    mov x3, #SECS_PER_HOUR
+    udiv x4, x0, x3                 // hour
+    msub x0, x4, x3, x0             // remainder
+    mov x3, #60
+    udiv x1, x0, x3                 // minute
+    msub x2, x1, x3, x0             // second
+    mov x0, x4
+    ldp x3, x4, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_fmt_ymd_sod(x0=dst, x1=ymd, x2=sod, x3=sep) -> x0 = dst+19
+//   "YYYY-MM-DD<sep>HH:MM:SS" (19 digits + separators; no NUL).  `sep` is a
+//   single byte in w3.  Consolidates the json/render datetime formatters,
+//   which both called tc_fmt2/tc_fmt4 identically.  Clobbers x0-x18 (the
+//   tc_fmt2/tc_fmt4 scratch); preserves x19-x28.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_fmt_ymd_sod
+    FUNC_TYPE(tc_fmt_ymd_sod)
+tc_fmt_ymd_sod:
+    PROLOGUE 4
+    mov x19, x0                     // dst
+    mov x20, x1                     // ymd
+    mov x21, x2                     // sod
+    mov w22, w3                     // sep
+    // time components from sod, computed once (they survive the tc_fmt2
+    // calls in x23-x26 as callee-saved)
+    mov x2, #SECS_PER_HOUR
+    udiv x23, x21, x2               // hour
+    msub x24, x23, x2, x21          // rem
+    mov x2, #60
+    udiv x25, x24, x2               // minute
+    msub x26, x25, x2, x24          // second
+    // year
+    mov x2, #YMD_YEAR_SCALE
+    udiv x6, x20, x2
+    mov x0, x19
+    mov x1, x6
+    bl tc_fmt4
+    mov w7, #'-'
+    strb w7, [x0], #1
+    // month: (ymd / YMD_MONTH_SCALE) % 100
+    mov x2, #YMD_MONTH_SCALE
+    udiv x6, x20, x2
+    mov x8, #100
+    udiv x9, x6, x8
+    msub x9, x9, x8, x6
+    mov w1, w9
+    bl tc_fmt2
+    mov w7, #'-'
+    strb w7, [x0], #1
+    // day: ymd % 100
+    mov x2, #100
+    udiv x6, x20, x2
+    msub x6, x6, x2, x20
+    mov w1, w6
+    bl tc_fmt2
+    strb w22, [x0], #1
+    // hour
+    mov w1, w23
+    bl tc_fmt2
+    mov w7, #':'
+    strb w7, [x0], #1
+    // minute
+    mov w1, w25
+    bl tc_fmt2
+    mov w7, #':'
+    strb w7, [x0], #1
+    // second
+    mov w1, w26
+    bl tc_fmt2
+    EPILOGUE 4
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_is_ws(x0=byte) -> x0 = 1 for ASCII whitespace (space, \t \n \v \f \r),
+//   else 0.  The ASCII str.strip() whitespace set.  Clobbers x0 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_is_ws
+    FUNC_TYPE(tc_is_ws)
+tc_is_ws:
+    cmp w0, #' '
+    b.eq .Lws_yes
+    cmp w0, #9
+    b.lt .Lws_no
+    cmp w0, #13
+    b.le .Lws_yes
+.Lws_no:
+    mov w0, #0
+    ret
+.Lws_yes:
+    mov w0, #1
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = dst+len
+//   Shared 16/8/byte-tail copy: ldp/stp 16-byte bulk copy, then an 8-byte
+//   word, then bytes.  Reads exactly `len` bytes (never past), writes no
+//   NUL.  Clobbers x0, x1, x2 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_copy_bytes
+    FUNC_TYPE(tc_copy_bytes)
+tc_copy_bytes:
+    stp x3, x4, [sp, #-16]!
+    stp x5, x6, [sp, #-16]!
+    mov x3, x2                      // remaining
+    mov x4, x0                      // dst cursor
+.Lcb_16:
+    cmp x3, #16
+    b.lt .Lcb_8
+    ldp x5, x6, [x1], #16
+    stp x5, x6, [x4], #16
+    sub x3, x3, #16
+    b .Lcb_16
+.Lcb_8:
+    cmp x3, #8
+    b.lt .Lcb_tail
+    ldr x5, [x1], #8
+    str x5, [x4], #8
+    sub x3, x3, #8
+.Lcb_tail:
+    cbz x3, .Lcb_done
+    ldrb w5, [x1], #1
+    strb w5, [x4], #1
+    sub x3, x3, #1
+    b .Lcb_tail
+.Lcb_done:
+    mov x0, x4
+    ldp x5, x6, [sp], #16
+    ldp x3, x4, [sp], #16
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_read_all(x0=path, x1=cap) -> x0 = status (0 ok, 1 too large, 2 error),
+//   x1 = malloc'd buffer (caller frees; 0 on early error), x2 = bytes read.
+//   Shared open/malloc/grow/read file reader: opens the path O_RDONLY, reads
+//   into a buffer that doubles up to `cap` (READ_CHUNK_CORE at a time), and
+//   retries reads interrupted by EINTR.  A file that grows past `cap` is
+//   reported "too large" (status 1) with the bytes read so far; an open,
+//   allocation or read error is status 2 with a NULL buffer.  Unlike the
+//   count path's old reader, this helper does not record errno anywhere.
+//   Clobbers x0-x17 (libc calls); preserves x19-x28.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_read_all
+    FUNC_TYPE(tc_read_all)
+tc_read_all:
+    PROLOGUE 3
+    mov x19, x0                     // path
+    mov x20, x1                     // cap
+    mov x0, x19
+    mov x1, #O_RDONLY
+    bl open
+    cmp x0, #0
+    b.lt .Lra_open_fail
+    mov x21, x0                     // fd
+    mov x0, #READ_CHUNK_CORE
+    bl malloc
+    cbz x0, .Lra_alloc_fail
+    mov x22, x0                     // buf
+    mov x23, #READ_CHUNK_CORE       // allocated capacity
+    mov x24, #0                     // total bytes read
+.Lra_loop:
+    cmp x24, x23
+    b.lt .Lra_read
+    // grow: double, but never past cap (a probe byte past the cap lets a
+    // file of exactly cap bytes read fully; one byte more trips "too large")
+    lsl x23, x23, #1
+    cmp x23, x20
+    b.lt .Lra_grow_ok
+    mov x23, x20
+    add x23, x23, #1
+.Lra_grow_ok:
+    cmp x23, x24
+    b.le .Lra_large
+    mov x0, x22
+    mov x1, x23
+    bl realloc
+    cbz x0, .Lra_alloc_fail2
+    mov x22, x0
+.Lra_read:
+    mov x0, x21
+    add x1, x22, x24
+    sub x2, x23, x24
+    bl read
+    cmp x0, #0
+    b.lt .Lra_retry
+    b.eq .Lra_done
+    add x24, x24, x0
+    cmp x24, x20
+    b.gt .Lra_large
+    b .Lra_loop
+.Lra_retry:
+    // read() returned -1; retry only on EINTR (fd/buf/cap/total live in
+    // x19-x24, callee-saved, so they survive the errno lookup call)
+    bl __errno_location
+    ldr w0, [x0]
+    cmp w0, #EINTR
+    b.eq .Lra_read
+    b .Lra_read_err
+.Lra_done:
+    mov x0, x21
+    bl close
+    mov x0, #0
+    mov x1, x22
+    mov x2, x24
+    EPILOGUE 3
+    ret
+.Lra_large:
+    mov x0, x21
+    bl close
+    mov x0, #1
+    mov x1, x22
+    mov x2, x24
+    EPILOGUE 3
+    ret
+.Lra_read_err:
+    mov x0, x21
+    bl close
+    mov x0, x22
+    bl free
+    mov x0, #2
+    mov x1, #0
+    mov x2, #0
+    EPILOGUE 3
+    ret
+.Lra_open_fail:
+    mov x0, #2
+    mov x1, #0
+    mov x2, #0
+    EPILOGUE 3
+    ret
+.Lra_alloc_fail:
+    mov x0, x21
+    bl close
+.Lra_alloc_fail2:
+    mov x0, #2
+    mov x1, #0
+    mov x2, #0
+    EPILOGUE 3
     ret
 
 // ============================================================================
