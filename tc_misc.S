@@ -104,15 +104,14 @@
     .globl tc_strlen
     .globl tc_puts
     .globl tc_eputs
-    .globl tc_fail
+    .globl tc_report_fail
     .globl tc_streq
     .globl tc_days_from_civil
     .globl tc_civil_from_days
     .globl tc_count_run
     .globl tc_fmt_pad
     .globl tc_ymd_split
-    .globl core_ascii_casecmp
-    .globl tc_cfg_excl_build
+    .globl tc_ascii_casecmp
 
 // ----------------------------------------------------------------------------
 // Module constants
@@ -415,8 +414,7 @@ misc_emit_weeks:
     ldr x23, [x23, #TC_L_YMD]
     mov x0, x23
     bl misc_iso_week                    // x0=iso_year, x1=iso_week
-    LEA x24, misc_buf
-    mov x2, x24
+    LEA x2, misc_buf
     bl misc_fmt_week                    // x0 = dst end (unused)
     LEA x0, misc_buf
     bl misc_names_add
@@ -604,8 +602,7 @@ misc_complete_includes:
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_NO_EXCLUDE
     b.eq .Lci_normal
-    LEA x20, misc_buf
-    mov x21, x20                        // cursor
+    LEA x21, misc_buf
     mov x22, #0                         // wrote_any
     tst x1, #TC_F_EXCL_GIVEN
     b.eq .Lci_nx_group
@@ -852,7 +849,7 @@ misc_require_channel:
     b .Lrc_out
 .Lrc_root_ok:
     // find the channel case-insensitively (Python: name.lower() ==
-    // channel.lower()).  core_ascii_casecmp lowercases its first operand and
+    // channel.lower()).  tc_ascii_casecmp lowercases its first operand and
     // expects the second already lowercased, so pre-lowercase the channel
     // into misc_ch_lower once (tc_core.S's channel-dir matcher does the same).
     LEA_OFF x0, tc_opts, TC_O_CHANNEL
@@ -868,7 +865,7 @@ misc_require_channel:
     ldr x23, [x21, x22, lsl #3]
     mov x0, x23
     LEA x1, misc_ch_lower
-    bl core_ascii_casecmp
+    bl tc_ascii_casecmp
     cbz x0, .Lrc_found
     add x22, x22, #1
     b .Lrc_find
@@ -1211,9 +1208,7 @@ misc_unknown_group_failed:
     mov x0, x20
     mov x1, x19
     bl misc_cat
-    mov x20, x0
     LEA x1, s_defined_groups
-    mov x0, x20
     bl misc_cat
     mov x19, x0                         // cursor
     // collect + sort the group names
@@ -1380,8 +1375,7 @@ misc_failed:
     // the escaped copy must NOT overwrite its source, so stage the raw text
     // in misc_buf first, then escape into misc_buf2.
     mov x19, x0                         // raw message
-    LEA x20, misc_buf
-    mov x21, x20                        // cursor
+    LEA x21, misc_buf
     mov x22, #0                         // staged byte count
 .Lmf_copy:
     ldrb w23, [x19], #1
@@ -1397,10 +1391,9 @@ misc_failed:
     // Python repr quote selection: single quotes preferred; a message that
     // contains a single quote but no double quote is wrapped in double quotes.
     // A double quote anywhere forces single-quote mode (order-independent).
-    LEA x23, misc_buf
+    LEA x19, misc_buf
     mov x24, #0                         // 1 = double-quote mode
     mov x25, #0                         // 1 = a double quote was seen
-    mov x19, x23
 .Lmf_scan:
     ldrb w22, [x19], #1
     cbz w22, .Lmf_scan_done
@@ -1431,8 +1424,7 @@ misc_failed:
     mov x0, x21
     bl misc_cat
     mov x21, x0
-    LEA x23, misc_buf
-    mov x19, x23                        // read pointer
+    LEA x19, misc_buf
 .Lmf_loop:
     ldrb w22, [x19], #1
     cbz w22, .Lmf_done
@@ -1530,7 +1522,7 @@ misc_alloc:
     cmp x3, x2
     b.ls .Lal_ok
     LEA x0, s_arena_exhausted
-    bl tc_fail
+    bl tc_report_fail
 .Lal_ok:
     LEA x2, misc_cur
     str x3, [x2]
@@ -2085,7 +2077,6 @@ misc_list_dirs:
 
 // misc_cat(x0=dst, x1=src) -> x0 = cursor past the copied bytes (no NUL).
 misc_cat:
-    PROLOGUE 0
     mov x2, x0                          // dst
     mov x3, x1                          // src
 .Lcat_loop:
@@ -2095,7 +2086,6 @@ misc_cat:
     b .Lcat_loop
 .Lcat_done:
     mov x0, x2
-    EPILOGUE 0
     ret
 
 // misc_cat_comma_if(x0=end, x1=wrote_any) -> x0 = end (writes ", " when set).
@@ -2123,15 +2113,11 @@ misc_fmt_ymd:
     bl tc_fmt_pad                       // x0 = cursor
     mov w1, #'-'
     strb w1, [x0], #1
-    mov x20, x0
-    mov x0, x20
     mov x1, x21
     mov x2, #2
     bl tc_fmt_pad
     mov w1, #'-'
     strb w1, [x0], #1
-    mov x20, x0
-    mov x0, x20
     mov x1, x22
     mov x2, #2
     bl tc_fmt_pad
@@ -2152,8 +2138,6 @@ misc_fmt_week:
     strb w1, [x0], #1
     mov w1, #'W'
     strb w1, [x0], #1
-    mov x21, x0
-    mov x0, x21
     mov x1, x20
     mov x2, #2
     bl tc_fmt_pad
@@ -2199,7 +2183,6 @@ misc_days_to_ymd:
 
 // misc_floor_mod7(x0=v) -> x0 = ((v + 3) mod 7) + 1  (floor mod; Mon=1).
 misc_floor_mod7:
-    PROLOGUE 0
     add x0, x0, #3
     mov x1, #7
     sdiv x2, x0, x1
@@ -2209,7 +2192,6 @@ misc_floor_mod7:
     add x2, x2, #7
 .Lfm7_done:
     add x0, x2, #1
-    EPILOGUE 0
     ret
 
 // misc_iso_week(x0=ymd) -> (x0=iso_year, x1=iso_week).
@@ -2257,7 +2239,6 @@ misc_iso_week:
 // misc_set_all_window() — an all-covering fixed window so core_complete_window
 //   never fails on an empty listing (dates/weeks/periods only read tc_listing).
 misc_set_all_window:
-    PROLOGUE 0
     LEA x0, tc_window
     mov x1, #YMD_MIN                    // 0001-01-01
     str x1, [x0, #TC_W_BEGIN_YMD]
@@ -2268,7 +2249,6 @@ misc_set_all_window:
     str x1, [x0, #TC_W_END_SOD]
     str xzr, [x0, #TC_W_KIND]           // TC_WIN_BEGIN
     str xzr, [x0, #TC_W_BEGIN_ROLLS]
-    EPILOGUE 0
     ret
 
 // misc_set_users_window() — end = now UTC, begin = end - 7 days.

@@ -20,10 +20,10 @@
 //    [contract hooks]
 //    tc_env_get(x0=name)                  -> (x0=found 0/1, x1=value_ptr)
 //    tc_config_get(x0=key, x1=section_id) -> (x0=found, x1=value_ptr, x2=src)
-//    tc_aliases_apply()                   -> 0   (may tc_fail)
+//    tc_aliases_apply()                   -> 0   (may tc_report_fail)
 //    tc_excl_contains(x0=ptr, x1=len)     -> x0 = 0/1
 //    [additive hooks]
-//    tc_build_exclusions()                -> 0   (may tc_fail; fills
+//    tc_build_exclusions()                -> 0   (may tc_report_fail; fills
 //                                                  tc_excl_set/tc_excl_sources)
 //    tc_config_identity() -> (x0=path or 0, x1=size, x2=mtime_ns)
 //    tc_config_changed()  -> x0 = 0/1  (file changed since it was loaded)
@@ -97,10 +97,12 @@
     .globl tc_default_config_path
     .globl tc_platform_default_logs_dir
     .globl tc_cat_cstr
+    .globl tc_copy_str_cap
     .globl tc_streq
     .globl tc_fmt_u64
     .globl tc_is_ws
     .globl tc_copy_bytes
+    .globl tc_report_fail             // defined in tc_render.S (JSON-aware fail)
 
 // ----------------------------------------------------------------------------
 // Module constants
@@ -145,7 +147,6 @@ cfg_val_b:       .skip VAL_BUF_SZ
 cfg_val_tog:     .skip 8
 cfg_errbuf:      .skip CFG_ERRBUF_SZ
 cfg_statbuf:     .skip STAT_SZ
-cfg_fd:          .skip 8
 cfg_buf:         .skip 8          // malloc'd file buffer
 cfg_bufsz:       .skip 8
 cfg_excl_groups:     .skip EX_GROUP_MAX * 24   // {name_ptr, name_len, arr_ptr}
@@ -232,12 +233,10 @@ tc_config_get:
     bl toml_table_in
     cbz x0, .Lcg_root
     mov x23, x0                     // section table
-    mov x0, x23
     mov x1, x19
     bl toml_raw_in
     cbz x0, .Lcg_root
     mov x24, x0
-    mov x0, x24
     bl cfg_toml_value_to_string
     mov x1, x0
     mov x0, #1
@@ -249,7 +248,6 @@ tc_config_get:
     bl toml_raw_in
     cbz x0, .Lcg_missing
     mov x24, x0
-    mov x0, x24
     bl cfg_toml_value_to_string
     mov x1, x0
     mov x0, #1
@@ -290,7 +288,7 @@ tc_aliases_apply:
     LEA x1, cfg_where
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Laa_have_channel:
     // no config -> nothing to rewrite
     LEA x0, cfg_state
@@ -328,7 +326,6 @@ tc_aliases_apply:
     bl toml_raw_in
     cbz x0, .Laa_key_next
     mov x25, x0
-    mov x0, x25
     bl cfg_toml_value_to_string         // x0 = stringified alias value
     mov x26, x0
     LEA_OFF x0, tc_opts, TC_O_CHANNEL
@@ -433,7 +430,7 @@ tc_excl_contains:
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// tc_build_exclusions() -> 0  (may tc_fail)
+// tc_build_exclusions() -> 0  (may tc_report_fail)
 //   Fills tc_excl_set + tc_excl_sources + tc_excl_src_count exactly as the
 //   Python build_exclusions folds config_exclusions/exclusion_layers: layers
 //   ADD (first source wins per login), --include subtracts, --no-exclude
@@ -476,7 +473,6 @@ tc_build_exclusions:
     mov x1, x22
     bl cfg_cat_comma_if
     mov x21, x0
-    mov x0, x21
     LEA x1, s_flag_exclude
     bl tc_cat_cstr
     mov x21, x0
@@ -488,7 +484,6 @@ tc_build_exclusions:
     mov x1, x22
     bl cfg_cat_comma_if
     mov x21, x0
-    mov x0, x21
     LEA x1, s_flag_exclude_group
     bl tc_cat_cstr
     mov x21, x0
@@ -500,7 +495,6 @@ tc_build_exclusions:
     mov x1, x22
     bl cfg_cat_comma_if
     mov x21, x0
-    mov x0, x21
     LEA x1, s_flag_exclude_bcast
     bl tc_cat_cstr
     mov x21, x0
@@ -512,14 +506,13 @@ tc_build_exclusions:
     mov x1, x22
     bl cfg_cat_comma_if
     mov x21, x0
-    mov x0, x21
     LEA x1, s_flag_include
     bl tc_cat_cstr
     mov x22, #1
 .Lbe_nx_done:
     cbz x22, .Lbe_ok
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lbe_ok:
     mov x0, #0
     b .Lbe_done
@@ -566,21 +559,18 @@ cfg_excl_validate_groups:
     LEA x1, s_unknown_group_pre
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     mov x1, #32
     mul x1, x22, x1
     add x1, x21, x1
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     LEA x1, s_defined_groups
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     LEA x1, cfg_scratch2
     bl cfg_sort_groups_join
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lbe_grp_next:
     add x22, x22, #1
     b .Lbe_grp_check
@@ -623,7 +613,6 @@ cfg_excl_layer_always:
     bl cfg_always_group_arr
     cbz x0, .Lbe_always_next
     mov x25, x0
-    mov x0, x25
     bl cfg_split_toml_array
     cbz x0, .Lbe_always_next        // empty group -> layer skipped
     // compose "config always:<name>" into tc_excl_src_buf
@@ -678,11 +667,9 @@ cfg_excl_layer_group:
     cmn x0, #1
     b.eq .Lbe_grp_next2             // (validated above; defensive)
     mov x25, x0
-    mov x0, x25
     bl cfg_group_arr_at
     cbz x0, .Lbe_grp_next2
     mov x26, x0
-    mov x0, x26
     bl cfg_split_toml_array
     cbz x0, .Lbe_grp_next2
     mov x26, x0
@@ -694,7 +681,6 @@ cfg_excl_layer_group:
     LEA x1, s_src_excl_group
     bl tc_cat_cstr
     mov x21, x0
-    mov x0, x21
     mov x1, #32
     mul x1, x24, x1
     add x1, x23, x1
@@ -866,7 +852,6 @@ cfg_excl_subtract_include:
     LEA x1, s_minus_include
     bl tc_cat_cstr
     mov x21, x0
-    mov x0, x21
     mov x1, x25
     bl tc_fmt_u64
     LEA x1, s_rparen
@@ -1020,7 +1005,7 @@ tc_config_reload:
 // ----------------------------------------------------------------------------
 // cfg_ensure_config_loaded() — idempotent lazy load.  Called by every exported
 // hook so config-load errors surface before any env/config value is consumed
-// (Python build_inputs ordering).  On error: tc_fail (noreturn).
+// (Python build_inputs ordering).  On error: tc_report_fail (noreturn).
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_ensure_config_loaded:
@@ -1122,7 +1107,7 @@ cfg_resolve_path:
 
 // ----------------------------------------------------------------------------
 // cfg_do_load() — stat/open/read/toml_parse + the load-time table checks.
-// Sets cfg_state = CFG_ST_LOADED or CFG_ST_NOLOAD; tc_fail on errors.
+// Sets cfg_state = CFG_ST_LOADED or CFG_ST_NOLOAD; tc_report_fail on errors.
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_do_load:
@@ -1231,7 +1216,7 @@ cfg_do_load:
     LEA x1, s_aliases_bad_suf
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Ldl_watch:
     // ---- [watch] must be a table ----------------------------------------
     mov x0, x21
@@ -1278,7 +1263,7 @@ cfg_do_load:
     LEA x1, cfg_path
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Ldl_notfile_ok:
     LEA x0, cfg_state
     mov x1, #CFG_ST_NOLOAD
@@ -1286,13 +1271,18 @@ cfg_do_load:
     b .Ldl_done
 
 .Ldl_open_fail:
+    bl __errno_location
+    ldr w0, [x0]
     bl cfg_errno_message
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Ldl_read_fail:
+    bl __errno_location
+    ldr w22, [x0]                   // errno (callee-saved; survives close)
     mov x0, x21
     bl close
+    mov x0, x22
     bl cfg_errno_message
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Ldl_parse_err:
     LEA x0, cfg_scratch
     LEA x1, s_could_not_read
@@ -1304,10 +1294,10 @@ cfg_do_load:
     LEA x1, cfg_errbuf
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Ldl_oom:
     LEA x0, s_oom
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 
 .Ldl_done:
     EPILOGUE 4
@@ -1349,7 +1339,7 @@ cfg_section_must_be_table_check:
     LEA x1, s_sect_suf
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lsm_ok:
     EPILOGUE 2
     ret
@@ -1396,16 +1386,15 @@ cfg_aliases_scalar_ok:
     ret
 
 // ----------------------------------------------------------------------------
-// cfg_errno_message() — build "could not read config <path>: [Errno N] <msg>
-// : '<path>'" into cfg_scratch (Python OSError parity).  Does NOT exit.
+// cfg_errno_message(x0=errno) — build "could not read config <path>: [Errno N]
+// <msg>: '<path>'" into cfg_scratch (Python OSError parity); returns
+// x0 = cfg_scratch base.  Does NOT exit.  The caller captures errno BEFORE any
+// intervening libc call (a failing close() would clobber it).
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_errno_message:
     PROLOGUE 2
-    // capture errno first
-    bl __errno_location
-    ldr w20, [x0]                   // errno (int; w-load zero-extends into x20)
-    mov x0, x20
+    mov x20, x0                     // errno (int; w-load zero-extends into x20)
     bl strerror
     mov x21, x0                     // strerror text
     // "[Errno N] msg: '<path>'"
@@ -1414,31 +1403,19 @@ cfg_errno_message:
     LEA x1, s_errno_lb
     bl tc_cat_cstr
     mov x22, x0
-    mov x0, x22
     mov x1, x20
     bl tc_fmt_u64
-    mov x22, x0
-    mov x0, x22
     LEA x1, s_errno_rb
     bl tc_cat_cstr
     mov x22, x0
-    mov x0, x22
     mov x1, x21
     bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
     LEA x1, s_colon_space
     bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
     LEA x1, s_squote
     bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
     LEA x1, cfg_path
     bl tc_cat_cstr
-    mov x22, x0
-    mov x0, x22
     LEA x1, s_squote
     bl tc_cat_cstr
     // "could not read config <path>: " + the above
@@ -1451,6 +1428,7 @@ cfg_errno_message:
     bl tc_cat_cstr
     LEA x1, cfg_scratch2
     bl tc_cat_cstr
+    LEA x0, cfg_scratch             // return the message base
     EPILOGUE 2
     ret
 
@@ -1475,7 +1453,6 @@ cfg_toml_value_to_string:
     mov x19, x0
     bl cfg_value_buf                // x0 = dst
     mov x20, x0
-    mov x0, x20
     mov x1, x19
     bl cfg_toml_unquote_into
     mov x0, x20
@@ -1548,8 +1525,8 @@ cfg_toml_table_total:
 
 // ----------------------------------------------------------------------------
 // cfg_build_groups() — Python config_exclusions: fills cfg_excl_groups /
-// cfg_excl_always / cfg_excl_flat from the root "exclude" key.  tc_fail on the
-// four documented shape errors.
+// cfg_excl_always / cfg_excl_flat from the root "exclude" key.  tc_report_fail
+// on the four documented shape errors.
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_build_groups:
@@ -1626,11 +1603,9 @@ cfg_build_groups:
     LEA x1, s_excl_member_pre
     bl tc_cat_cstr
     mov x26, x0
-    mov x0, x26
     mov x1, x25
     bl tc_cat_cstr
     mov x26, x0
-    mov x0, x26
     LEA x1, s_excl_member_mid
     bl tc_cat_cstr
     mov x26, x0
@@ -1640,7 +1615,7 @@ cfg_build_groups:
     LEA x1, s_excl_member_suf
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lbg_key_next:
     add x24, x24, #1
     b .Lbg_key_loop
@@ -1661,7 +1636,6 @@ cfg_build_groups:
     b .Lbg_done
 .Lbg_always_arr:
     mov x22, x0                     // the always array
-    mov x0, x22
     bl toml_array_nelem
     mov x23, x0
     mov x24, #0
@@ -1674,7 +1648,6 @@ cfg_build_groups:
     cbz x0, .Lbg_always_next
     bl cfg_toml_value_to_string
     mov x25, x0                     // name
-    mov x0, x25
     bl cfg_group_index_of
     cmn x0, #1
     b.eq .Lbg_always_unknown
@@ -1682,7 +1655,6 @@ cfg_build_groups:
     mov x0, x25
     bl cfg_always_name_store
     mov x25, x0                     // stable ptr
-    mov x0, x25
     bl tc_strlen
     mov x26, x0                     // len
     LEA x1, cfg_excl_always_n
@@ -1720,7 +1692,7 @@ cfg_build_groups:
     LEA x1, cfg_scratch2
     bl cfg_sort_groups_join
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lbg_always_next:
     add x24, x24, #1
     b .Lbg_always_loop
@@ -1733,7 +1705,7 @@ cfg_build_groups:
     LEA x1, s_always_bad_suf
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lbg_bad_shape:
     LEA x0, cfg_scratch
     LEA x1, s_exclude_shape
@@ -1743,7 +1715,7 @@ cfg_build_groups:
     LEA x1, s_exclude_shape_suf
     bl tc_cat_cstr
     LEA x0, cfg_scratch
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lbg_done:
     EPILOGUE 4
     ret
@@ -1962,7 +1934,7 @@ cfg_strip_copy_lower:
     cmp x22, x21
     b.ge .Lscl_empty
     ldrb w0, [x20, x22]
-    bl cfg_is_ws
+    bl tc_is_ws
     cbz x0, .Lscl_lead_done
     add x22, x22, #1
     b .Lscl_lead
@@ -1973,7 +1945,7 @@ cfg_strip_copy_lower:
     cbz x2, .Lscl_empty
     sub x2, x2, #1
     ldrb w0, [x20, x2]
-    bl cfg_is_ws
+    bl tc_is_ws
     cbnz x0, .Lscl_trail
     add x2, x2, #1
     // out length = end - lead
@@ -2013,31 +1985,8 @@ cfg_strip_copy_lower:
 cfg_is_split_sep:
     cmp w0, #','
     b.eq .Liss_yes
-    b cfg_is_ws
+    b tc_is_ws                     // shared whitespace test (tc_util.S)
 .Liss_yes:
-    mov x0, #1
-    ret
-
-// ----------------------------------------------------------------------------
-// cfg_is_ws(x0=byte) -> x0 = 1 for space/tab/CR/LF/FF/VT
-// ----------------------------------------------------------------------------
-    .p2align 2
-cfg_is_ws:
-    cmp w0, #0x20
-    b.eq .Liw_yes
-    cmp w0, #0x09
-    b.eq .Liw_yes
-    cmp w0, #0x0a
-    b.eq .Liw_yes
-    cmp w0, #0x0d
-    b.eq .Liw_yes
-    cmp w0, #0x0b
-    b.eq .Liw_yes
-    cmp w0, #0x0c
-    b.eq .Liw_yes
-    mov x0, #0
-    ret
-.Liw_yes:
     mov x0, #1
     ret
 
@@ -2379,7 +2328,7 @@ cfg_add_excl_login:
     b .Lael_done
 .Lael_full:
     LEA x0, s_too_many
-    bl tc_fail
+    bl tc_report_fail               // --json: {"error": ...} shape
 .Lael_done:
     EPILOGUE 3
     ret
@@ -2603,8 +2552,7 @@ cfg_cat_comma_if:
 // cfg_cat_n(x0=dst, x1=src, x2=n) -> x0 = end (NUL-terminated)
 // ----------------------------------------------------------------------------
     .p2align 2
-cfg_cat_n:
-    PROLOGUE 0
+cfg_cat_n:                          // leaf: no frame needed (x0-x4 only)
     mov x3, x0
 .Lcatn_loop:
     cbz x2, .Lcatn_done
@@ -2616,7 +2564,6 @@ cfg_cat_n:
     mov w4, #0
     strb w4, [x3]
     mov x0, x3
-    EPILOGUE 0
     ret
 
 // ----------------------------------------------------------------------------

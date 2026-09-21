@@ -142,7 +142,10 @@
     .equ VT_HAS_ARG,  20
     .equ VT_STORE,    24
     .equ VT_FLAGS,    32
-    .equ VT_REC_SZ,   40
+    .equ VT_CAP,      40            // string field capacity (bytes incl NUL);
+                                    //   P_NONE store options use it, never a
+                                    //   hard-coded cap (C6)
+    .equ VT_REC_SZ,   48
 
     .equ LONGOPT_REC_SZ, 32            // getopt_long entry {name, has_arg, pad, flag, val, pad}
 
@@ -167,12 +170,16 @@
     .equ HELP_LINE_SZ, 64
     .equ HELP_WRAP_W,  54             // argparse: 80 columns - 2 - help position 24
 
+    // Epoch of 0001-01-01T00:00:00 UTC: tc_ymd_sod_to_epoch(10101).  The
+    // --since underflow guard (C11) fails when a computed begin maps below
+    // this (Python's datetime.min -> OverflowError).  (YEAR1_EPOCH lives in
+    // tc_platform.h.)
+
 // ----------------------------------------------------------------------------
 // External symbols
 // ----------------------------------------------------------------------------
     .globl getopt_long
     .globl optarg
-    .globl optind
     .globl opterr
     .globl strtod
     .globl clock_gettime
@@ -181,7 +188,9 @@
     .globl fopen
     .globl fclose
     .globl tc_cat_cstr
+    .globl tc_copy_str_cap
     .globl tc_streq
+    .globl tc_report_fail
     .globl tc_days_from_civil
     .globl tc_civil_from_days
     .globl tc_is_leap
@@ -463,7 +472,10 @@ tc_prog_name:
 // ----------------------------------------------------------------------------
     .p2align 2
 cli_join_args_into:
-    PROLOGUE 5
+    // leaf (no bl): save only the pairs actually used; the PROLOGUE's
+    // x29/x30 frame record would be dead weight here.
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
     mov x19, x0
     mov x20, x1
     mov x21, x2
@@ -490,7 +502,8 @@ cli_join_args_into:
 .Lj_done:
     mov w5, #0
     strb w5, [x21]
-    EPILOGUE 5
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
     ret
 
 // ----------------------------------------------------------------------------
@@ -1242,19 +1255,15 @@ cli_build_not_allowed:
     LEA x1, s_arg_prefix
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x20
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     LEA x1, s_not_allowed
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x21                     // Y
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov w1, #0
     strb w1, [x0]
     EPILOGUE 5
@@ -1297,30 +1306,6 @@ cli_append_list:
     strb w1, [x0, x23]               // cli_given[set] = 1 (x23 = set id from x4)
 .Lal_done:
     EPILOGUE 5
-    ret
-
-// ----------------------------------------------------------------------------
-// tc_copy_str_cap(x0=dst, x1=src, x2=cap) — copy up to cap-1 bytes + NUL
-// ----------------------------------------------------------------------------
-    .p2align 2
-    .global tc_copy_str_cap
-tc_copy_str_cap:
-    cbz x2, .Lcsc_done
-    sub x2, x2, #1
-.Lcsc:
-    ldrb w3, [x1], #1
-    cbz w3, .Lcsc_nul
-    strb w3, [x0], #1
-    cbz x2, .Lcsc_full
-    sub x2, x2, #1
-    b .Lcsc
-.Lcsc_nul:
-    strb w3, [x0]
-    ret
-.Lcsc_full:
-    mov w3, #0
-    strb w3, [x0]
-.Lcsc_done:
     ret
 
 // ============================================================================
@@ -1405,10 +1390,10 @@ cli_handle_typed:
     bl cli_emit_typed_err
 .Lht_string:
     ldr x25, [x21, #VT_STORE]
+    ldr x2, [x21, #VT_CAP]
     LEA x0, tc_opts
     add x0, x0, x25
     mov x1, x20
-    mov x2, #512
     bl tc_copy_str_cap
 .Lht_done:
     EPILOGUE 5
@@ -1541,15 +1526,12 @@ cli_build_arg_msg:
     LEA x1, s_arg_prefix
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     mov x1, x20
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     LEA x1, s_colon_space
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     mov x1, x21
     mov x2, x22
     mov x3, x23
@@ -1572,23 +1554,18 @@ cli_cat_quoted:
     mov x0, x19
     bl tc_cat_cstr                  // pre
     mov x19, x0
-    mov x0, x19
     LEA x1, s_q
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x20
     bl tc_cat_cstr                  // display
     mov x19, x0
-    mov x0, x19
     LEA x1, s_q
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x21
     bl tc_cat_cstr                  // suf
     mov x19, x0
-    mov x0, x19
     EPILOGUE 2
     ret
 
@@ -1659,7 +1636,6 @@ cli_emit_msg_body:
     mov x0, x19
     bl tc_fmt_u64
     mov x19, x0
-    mov x0, x19
     LEA x1, s_week_in_iso
     bl tc_cat_cstr
     mov x19, x0
@@ -1668,7 +1644,6 @@ cli_emit_msg_body:
     mov x0, x19
     bl tc_fmt_u64
     mov x19, x0
-    mov x0, x19
     LEA x1, s_week_suffix
     bl tc_cat_cstr
     mov x19, x0
@@ -1804,7 +1779,6 @@ cli_pp_long:
     mov x0, x20
     bl cli_pp_slot
     mov x21, x0                     // slot
-    mov x0, x21
     mov x1, x19
     mov x2, #ARGSTR_SZ
     bl tc_copy_str_cap
@@ -2020,11 +1994,9 @@ cli_build_ambiguous:
     LEA x1, s_ambiguous_prefix
     bl tc_cat_cstr
     mov x21, x0
-    mov x0, x21
     mov x1, x20
     bl tc_cat_cstr
     mov x21, x0
-    mov x0, x21
     LEA x1, s_ambiguous_mid
     bl tc_cat_cstr
     mov x21, x0
@@ -2089,15 +2061,12 @@ cli_build_ignored_explicit:
     mov x0, x22
     bl tc_cat_cstr
     mov x22, x0
-    mov x0, x22
     LEA x1, s_ignored_explicit
     bl tc_cat_cstr
     mov x22, x0
-    mov x0, x22
     mov x1, x21
     bl tc_cat_cstr
     mov x22, x0
-    mov x0, x22
     LEA x1, s_q
     EPILOGUE 5
     ret
@@ -2115,7 +2084,6 @@ cli_arg_missing_value:
     LEA x0, cli_scratch
     mov x2, x1
     mov x1, x0
-    mov x0, x1
     mov x1, x2
     LEA x2, s_expected_one
     bl cli_build_simple_arg_msg
@@ -2137,19 +2105,15 @@ cli_build_simple_arg_msg:
     LEA x1, s_arg_prefix
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x20
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     LEA x1, s_colon_space
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x21                     // suffix
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov w1, #0
     strb w1, [x0]
     EPILOGUE 5
@@ -2231,7 +2195,6 @@ cli_pp_short:
     mov x0, x20
     bl cli_pp_slot
     mov x27, x0
-    mov x0, x27
     mov x1, x21
     add x2, x22, #1
     bl tc_copy_bytes                    // tok[0..p] (p+1 chars)
@@ -2274,7 +2237,6 @@ cli_pp_short:
     mov x0, x20
     bl cli_pp_slot
     mov x26, x0                     // slot base
-    mov x0, x26
     mov x1, x21
     add x2, x22, #1
     bl tc_copy_bytes                    // tok[0..p] -> slot
@@ -2310,7 +2272,6 @@ cli_pp_short:
     mov x0, x20
     bl cli_pp_slot
     mov x27, x0                     // slot base
-    mov x0, x27
     mov x1, x21
     add x2, x22, #1
     bl tc_copy_bytes                    // tok[0..p] -> slot
@@ -2363,7 +2324,7 @@ cli_pp_build_long_val:
     // not a user error: the old code emitted "--=" and let cli_handle_opt
     // dereference NULL, so fail fast with a descriptive message instead.
     LEA x0, s_pp_no_long
-    b tc_fail
+    b tc_report_fail
 .Lpbv_build:
     strb wzr, [x21]
     mov w2, #'-'
@@ -2408,7 +2369,8 @@ cli_short_lookup:
 // ============================================================================
     .p2align 2
 cli_is_value_token:
-    PROLOGUE 5
+    // leaf (no bl): save only the pair actually used; no x29/x30 frame.
+    stp x19, x20, [sp, #-16]!
     mov x19, x0
     ldrb w0, [x19]
     cbz w0, .Liv_yes
@@ -2436,7 +2398,7 @@ cli_is_value_token:
 .Liv_yes:
     mov x0, #1
 .Liv_ret:
-    EPILOGUE 5
+    ldp x19, x20, [sp], #16
     ret
 
 cli_resolve_settings:
@@ -2857,7 +2819,6 @@ cli_resolve_err:
 .Lre_norm_done:
     LEA x0, cli_scratch
     mov x24, x0
-    mov x0, x24
     mov x1, x19
     bl tc_cat_cstr
     mov x24, x0
@@ -2881,7 +2842,6 @@ cli_resolve_err:
     LEA x1, s_from_prefix
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     mov x1, x25
     mov x2, x26
     bl tc_copy_bytes
@@ -2899,7 +2859,7 @@ cli_resolve_err:
     mov w1, #0
     strb w1, [x0]
     LEA x0, cli_scratch
-    bl tc_fail
+    bl tc_report_fail
 
 // ============================================================================
 // cli_resolve_window — fill tc_window.
@@ -2915,12 +2875,12 @@ cli_resolve_window:
     mov x1, #1
     bl tc_parse_datetime
     cbz x2, .Lrw_end_ok
+    mov x4, x2                      // status (before x2 is reused below)
     // end conversion error
     ldr x1, [x19, #TC_O_SRC + TC_SET_END*8]
     LEA x0, s_flag_end
     mov x2, #P_DATETIME_EOD
     add x3, x19, #TC_O_END_RAW       // the raw end string (display)
-    mov x4, x2                      // status
     bl cli_resolve_err
 .Lrw_end_ok:
     LEA x19, tc_window
@@ -2992,7 +2952,7 @@ cli_resolve_window:
     b .Lrw_convert
 .Lrw_env_both:
     LEA x0, s_mutex_env_begin
-    bl tc_fail
+    bl tc_report_fail
 .Lrw_cfg:
     LEA x0, s_key_begin
     mov x1, #TC_SEC_NONE
@@ -3022,7 +2982,7 @@ cli_resolve_window:
     b .Lrw_convert
 .Lrw_cfg_both:
     LEA x0, s_mutex_cfg_begin
-    bl tc_fail
+    bl tc_report_fail
 .Lrw_earliest:
     LEA x19, tc_window
     mov x0, #TC_WIN_EARLIEST
@@ -3110,6 +3070,31 @@ cli_resolve_window:
     mov x1, x24
     bl tc_ymd_sod_to_epoch
     sub x25, x0, x25                // begin epoch
+    // --since pre-year-1 underflow: Python's datetime cannot represent a
+    // year < 1 (OverflowError: date value out of range).  The old code
+    // passed the negative epoch to tc_epoch_to_ymd_sod and rendered
+    // garbage; fail loudly here instead.  The boundary is the epoch of
+    // 0001-01-01 (tc_ymd_sod_to_epoch(10101) = -62135596800); a negative
+    // epoch that still maps to year >= 1 (e.g. 1969-03-23 for --since
+    // 21000d) is valid and must render like Python.
+    ldr x26, =YEAR1_EPOCH           // -62135596800
+    cmp x25, x26
+    b.ge .Lrw_since_in_range
+    LEA x0, cli_scratch
+    mov x26, x0
+    LEA x1, s_flag_since
+    bl tc_cat_cstr
+    mov x26, x0
+    LEA x1, s_colon_space
+    bl tc_cat_cstr
+    mov x26, x0
+    LEA x1, s_date_out_of_range
+    bl tc_cat_cstr
+    mov w1, #0
+    strb w1, [x0]
+    LEA x0, cli_scratch
+    bl tc_report_fail
+.Lrw_since_in_range:
     mov x0, x25
     bl tc_epoch_to_ymd_sod
     LEA x19, tc_window
@@ -3136,7 +3121,6 @@ cli_resolve_window:
     mov x1, x21
     bl tc_cat_cstr
     mov x24, x0
-    mov x0, x24
     LEA x1, s_before_end
     bl tc_cat_cstr
     mov x0, #TC_O_WIN_SRC
@@ -3145,49 +3129,8 @@ cli_resolve_window:
     str x0, [x1, #TC_W_START_SRC]
     b .Lrw_check
 .Lrw_check:
-    LEA x19, tc_window
-    ldr x20, [x19, #TC_W_BEGIN_YMD]
-    ldr x21, [x19, #TC_W_BEGIN_SOD]
-    ldr x22, [x19, #TC_W_END_YMD]
-    ldr x23, [x19, #TC_W_END_SOD]
-    mov x0, x20
-    mov x1, x21
-    bl tc_ymd_sod_to_epoch
-    mov x24, x0
-    mov x0, x22
-    mov x1, x23
-    bl tc_ymd_sod_to_epoch
-    mov x25, x0
-    cmp x24, x25
-    b.le .Lrw_common
-    // "begin (A) is after end (B)"
     LEA x0, cli_scratch
-    mov x26, x0
-    mov x0, x26
-    LEA x1, s_begin_paren
-    bl tc_cat_cstr
-    mov x26, x0
-    mov x0, x26
-    mov x1, x20
-    mov x2, x21
-    mov w3, #' '
-    bl tc_fmt_ymd_sod
-    mov x26, x0
-    mov x0, x26
-    LEA x1, s_is_after_end
-    bl tc_cat_cstr
-    mov x26, x0
-    mov x0, x26
-    mov x1, x22
-    mov x2, x23
-    mov w3, #' '
-    bl tc_fmt_ymd_sod
-    mov w1, #')'
-    strb w1, [x0], #1
-    mov w1, #0
-    strb w1, [x0]
-    LEA x0, cli_scratch
-    bl tc_fail
+    bl tc_win_begin_after_end_check  // fails with "begin (A) is after end (B)"
 .Lrw_common:
     LEA x19, tc_opts
     LEA x20, tc_window
@@ -3279,7 +3222,6 @@ cli_choose_columns:
     LEA x1, s_by_state_label
     bl tc_cat_cstr
     mov x23, x0
-    mov x0, x23
     LEA x1, s_comma_space
     bl tc_cat_cstr
     mov x23, x0
@@ -3436,7 +3378,6 @@ cli_resolve_highlights:
     bl toml_table_in
     cbz x0, .Lrh_search_root
     mov x22, x0                         // [watch] table
-    mov x0, x22
     LEA x1, s_key_highlight
     bl toml_array_in
     cbnz x0, .Lrh_have_array
@@ -3461,7 +3402,6 @@ cli_resolve_highlights:
     bl cli_hl_err                        // noreturn
 .Lrh_have_array:
     mov x23, x0                         // the highlight array
-    mov x0, x23
     bl toml_array_nelem
     cbz x0, .Lrh_store_done             // [] -> 0 rules (source still recorded)
     cmp x0, #TC_HL_MAX
@@ -3491,7 +3431,9 @@ cli_resolve_highlights:
 .Lrh_store_done:
     str x20, [x19, #TC_O_SRC + TC_SET_HIGHLIGHT*8]
     str x26, [x19, #TC_O_HL_COUNT]
-    b .Lrh_ret
+    mov x0, x21                         // free the toml root (x21), like
+    bl toml_free                        // .Lrh_default_free — the happy
+    b .Lrh_ret                          // path leaked it (C16)
 .Lrh_default_free:
     mov x0, x21
     bl toml_free
@@ -3576,7 +3518,6 @@ cli_hl_parse_rule:
     b .Lrh_pat_copy
 .Lrh_match_array:
     mov x22, x0                         // the match array
-    mov x0, x22
     bl toml_array_nelem
     mov x27, x0                         // pattern count
     cbz x27, .Lrh_need_pattern          // [] -> Python "needs at least one"
@@ -3658,7 +3599,6 @@ cli_hl_parse_rule:
     bl toml_array_in
     cbz x0, .Lrh_color_bad
     mov x22, x0                         // colour array
-    mov x0, x22
     bl toml_array_nelem
     cmp x0, #3
     b.ne .Lrh_color_bad
@@ -3822,19 +3762,15 @@ cli_hl_parse_rule:
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0                         // cursor (error path: x26 is expendable)
-    mov x0, x26
     mov x1, x24
     bl cli_hl_rule
     mov x26, x0
-    mov x0, x26
     LEA x1, s_q
     bl tc_cat_cstr
     mov x26, x0
-    mov x0, x26
     mov x1, x25                         // the offending pattern text
     bl tc_cat_cstr
     mov x26, x0
-    mov x0, x26
     LEA x1, s_hl_bad_regex_mid
     bl tc_cat_cstr
     mov x26, x0
@@ -3847,11 +3783,9 @@ cli_hl_parse_rule:
     LEA x1, cli_scratch2
     bl tc_cat_cstr
     mov x26, x0
-    mov x0, x26
     LEA x1, s_hl_bad_regex_post
     bl tc_cat_cstr
     mov x26, x0
-    mov x0, x26
     bl cli_hl_finish                     // noreturn
 .Lrh_color_bad:
     // colour is a table or a malformed array: fixed message (deviation text)
@@ -3863,34 +3797,28 @@ cli_hl_parse_rule:
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0
-    mov x0, x26
     mov x1, x24
     bl cli_hl_rule
     mov x26, x0
-    mov x0, x26
     mov x1, #P_HEX
     mov x2, x21                         // display = raw colour text
     mov x3, #1
     bl cli_emit_msg_body
     mov x26, x0
-    mov x0, x26
     bl cli_hl_finish                     // noreturn
 .Lrh_color_fail_unq:
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0
-    mov x0, x26
     mov x1, x24
     bl cli_hl_rule
     mov x26, x0
-    mov x0, x26
     mov x1, #P_HEX
     LEA x2, cli_hl_dst
     ldr x2, [x2]                        // display = unquoted colour
     mov x3, #1
     bl cli_emit_msg_body
     mov x26, x0
-    mov x0, x26
     bl cli_hl_finish                     // noreturn
 .Lrh_curve_fail_plain:
 .Lrh_curve_fail_unq:
@@ -3898,50 +3826,41 @@ cli_hl_parse_rule:
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0
-    mov x0, x26
     mov x1, x24
     bl cli_hl_rule
     mov x26, x0
-    mov x0, x26
     mov x1, #P_CURVE
     LEA x2, cli_scratch2
     mov x3, #1
     bl cli_emit_msg_body
     mov x26, x0
-    mov x0, x26
     bl cli_hl_finish                     // noreturn
 .Lrh_k_fail_plain:
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0
-    mov x0, x26
     mov x1, x24
     bl cli_hl_rule
     mov x26, x0
-    mov x0, x26
     mov x1, #P_POS_FLOAT
     mov x2, x21                         // display = raw k text
     mov x3, x23                         // status 1 or 2
     bl cli_emit_msg_body
     mov x26, x0
-    mov x0, x26
     bl cli_hl_finish                     // noreturn
 .Lrh_k_fail_unq:
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0
-    mov x0, x26
     mov x1, x24
     bl cli_hl_rule
     mov x26, x0
-    mov x0, x26
     mov x1, #P_POS_FLOAT
     LEA x2, cli_hl_dst
     ldr x2, [x2]                        // display = unquoted k text
     mov x3, x23                         // status 1 or 2
     bl cli_emit_msg_body
     mov x26, x0
-    mov x0, x26
     bl cli_hl_finish                     // noreturn
 
 // ============================================================================
@@ -3953,11 +3872,9 @@ cli_hl_begin:
     mov x19, x0                         // source id
     LEA x0, cli_scratch
     mov x20, x0
-    mov x0, x20
     LEA x1, s_flag_highlight
     bl tc_cat_cstr
     mov x20, x0
-    mov x0, x20
     LEA x1, s_from_prefix
     bl tc_cat_cstr
     mov x20, x0
@@ -3985,11 +3902,9 @@ cli_hl_rule:
     LEA x1, s_hl_rule_pre
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     mov x1, x20
     bl tc_fmt_u64                    // appends digits, returns the END cursor
     mov x19, x0
-    mov x0, x19
     LEA x1, s_hl_rule_mid
     bl tc_cat_cstr
     EPILOGUE 2
@@ -4000,7 +3915,7 @@ cli_hl_finish:
     mov w1, #0
     strb w1, [x0]
     LEA x0, cli_scratch
-    b tc_fail                           // noreturn tail call
+    b tc_report_fail                     // noreturn tail call
 
     .p2align 2
 cli_hl_err:
@@ -4010,11 +3925,9 @@ cli_hl_err:
     mov x0, x19
     bl cli_hl_begin
     mov x19, x0
-    mov x0, x19
     mov x1, x20
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     bl cli_hl_finish                     // noreturn
 
     .p2align 2
@@ -4026,15 +3939,12 @@ cli_hl_err_rule:
     mov x0, x19
     bl cli_hl_begin
     mov x19, x0
-    mov x0, x19
     mov x1, x20
     bl cli_hl_rule
     mov x19, x0
-    mov x0, x19
     mov x1, x21
     bl tc_cat_cstr
     mov x19, x0
-    mov x0, x19
     bl cli_hl_finish                     // noreturn
 
 // ============================================================================
@@ -4125,7 +4035,6 @@ cli_iso_week_monday:
 cli_iso_week_count:
     PROLOGUE 5
     mov x19, x0
-    mov x0, x19
     mov x1, #1
     mov x2, #1
     bl tc_days_from_civil
@@ -4170,6 +4079,7 @@ tc_parse_datetime:
     mov x22, x1                     // year
     mov x23, x2                     // week
     mov x24, x3                     // weekday (0 = plain week)
+    cbz x23, .Lpd_week_bad          // week 0 is invalid (Python rejects it)
     mov x0, x22
     bl cli_iso_week_count
     cmp x23, x0
@@ -4242,6 +4152,7 @@ tc_parse_datetime:
     mov x22, x1
     mov x23, x2
     mov x24, x3
+    cbz x23, .Lpd_week_bad          // week 0 is invalid (Python rejects it)
     mov x0, x22
     bl cli_iso_week_count
     cmp x23, x0
@@ -4341,7 +4252,6 @@ cli_norm_T:
 cli_match_week:
     PROLOGUE 5
     mov x19, x0
-    mov x0, x19
     mov x1, #4
     bl cli_read_digits
     cbz x1, .Lmw_no
@@ -4413,7 +4323,6 @@ cli_match_week:
 cli_match_compact_week:
     PROLOGUE 5
     mov x19, x0
-    mov x0, x19
     mov x1, #4
     bl cli_read_digits
     cbz x1, .Lmcw_no
@@ -4529,6 +4438,7 @@ cli_parse_fixed_datetime:
     bl cli_read_digits
     cbz x1, .Lpfd_fail
     mov x21, x0                     // year
+    cbz x21, .Lpfd_fail             // year 0 is out of range (Python rejects)
     ldrb w0, [x19, #4]
     cmp w0, #'-'
     b.eq .Lpfd_sep
@@ -4753,7 +4663,10 @@ cli_lowercase:
 // cli_parse_int_core(x0=s) -> (x0=value, x1=ok)
     .p2align 2
 cli_parse_int_core:
-    PROLOGUE 3
+    // leaf (no bl): save only the pairs actually used; no x29/x30 frame.
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
     mov x19, x0
     mov x20, x19
 .Lpic_lead:
@@ -4846,7 +4759,9 @@ cli_parse_int_core:
     mov x1, #0
     b .Lpic_ret
 .Lpic_ret:
-    EPILOGUE 3
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
     ret
 
 // cli_parse_positive_int(x0=s) -> (x0=value, x1=status)
@@ -5786,20 +5701,22 @@ tc_source_str:
 .Lss_dyn_win:
     mov x0, #TC_O_WIN_SRC
     bl cli_opts_off
-    mov x1, x0
+    mov x19, x0                     // park the pointer
     bl tc_strlen
-    mov x1, x0
+    mov x19, x0                     // park the length (cli_opts_off clobbers x1)
     mov x0, #TC_O_WIN_SRC
     bl cli_opts_off
+    mov x1, x19
     b .Lss_ret
 .Lss_dyn_chan:
     mov x0, #TC_O_CHAN_SRC
     bl cli_opts_off
-    mov x1, x0
+    mov x19, x0                     // park the pointer
     bl tc_strlen
-    mov x1, x0
+    mov x19, x0                     // park the length (cli_opts_off clobbers x1)
     mov x0, #TC_O_CHAN_SRC
     bl cli_opts_off
+    mov x1, x19
     b .Lss_ret
 .Lss_none:
     mov x0, #0
@@ -5812,7 +5729,6 @@ tc_source_str:
 // .rodata
 // ============================================================================
     .data
-chbuf:
     .skip 1
     RODATA
     .p2align 3
@@ -5834,8 +5750,6 @@ s_pp_no_long:   .asciz "internal error: no long form for a value-taking short op
 s_from_prefix:  .asciz " (from "
 s_from_suffix:  .asciz "): "
 s_unknown_opt:  .asciz "?"
-s_begin_paren:  .asciz "begin ("
-s_is_after_end: .asciz ") is after end ("
 s_before_end:   .asciz " before end"
 s_users_prefix: .asciz "--users "
 s_by_state_label: .asciz "--by-state"
@@ -5859,8 +5773,9 @@ s_mutex_cfg_begin: .asciz "config begin and config since are mutually exclusive"
 s_dt_unrec_prefix: .asciz "unrecognized datetime "
 s_dt_unrec_suffix: .asciz " (try 'YYYY-MM-DD', 'YYYY-MM-DD HH:MM:SS', '2026-W31' for a whole week, or '2026-W31-3' for its Wednesday)"
 s_week_no_prefix: .asciz "no week "
-s_week_in_iso:  .asciz " in ISO year "
-s_week_suffix:  .asciz " (weeks run 1-52, or 1-53 in long years)"
+    s_week_in_iso:  .asciz " in ISO year "
+    s_week_suffix:  .asciz " (weeks run 1-52, or 1-53 in long years)"
+    s_date_out_of_range: .asciz "date value out of range"
 
 // message body table: one 24-byte record per parser id {pre, suf, alt}
     .p2align 3
@@ -5916,7 +5831,6 @@ cli_msg_table:
     .quad 0   // P_CHOICES_COMPLETE
 
 s_empty:        .asciz ""
-s_m_pre:        .asciz "'"
 s_m_int_suf:    .asciz " is not an integer"
 s_m_sec_suf:    .asciz " is not a number of seconds"
 s_m_num_suf:    .asciz " is not a number"
@@ -6020,188 +5934,223 @@ s_canon_help:       .asciz "-h/--help"
 // ============================================================================
     .p2align 3
 cli_val_table:
-    .skip 40
+    .skip 48                        // VAL_NONE
     .quad s_canon_channel
     .quad TC_SET_CHANNEL
     .word P_NONE, 1
     .quad TC_O_CHANNEL
     .quad 0
+    .quad TC_O_CHANNEL_SZ - 1                // VT_CAP
     .quad s_canon_begin
     .quad TC_SET_BEGIN
     .word P_NONE, 1
     .quad TC_O_BEGIN_RAW
     .quad TC_F_BEGIN_GIVEN
+    .quad TC_O_BEGIN_RAW_SZ - 1              // VT_CAP
     .quad s_canon_since
     .quad TC_SET_SINCE
     .word P_NONE, 1
     .quad TC_O_SINCE_RAW
     .quad TC_F_SINCE_GIVEN
+    .quad TC_O_SINCE_RAW_SZ - 1              // VT_CAP
     .quad s_canon_users
     .quad TC_SET_USERS
     .word P_POS_INT, 1
     .quad TC_O_USERS
     .quad TC_F_USERS_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_users_policy
     .quad TC_SET_USERS_POLICY
     .word P_USERS_POLICY, 1
     .quad TC_O_USERS_POLICY
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_users_max
     .quad TC_SET_USERS_MAX
     .word P_DURATION, 1
     .quad TC_O_USERS_MAX
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_end
     .quad TC_SET_END
     .word P_NONE, 1
     .quad TC_O_END_RAW
     .quad TC_F_END_GIVEN
+    .quad TC_O_END_RAW_SZ - 1                // VT_CAP
     .quad s_canon_min_count
     .quad TC_SET_MIN_COUNT
     .word P_POS_INT, 1
     .quad TC_O_MIN_COUNT
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_by_state
     .quad TC_SET_SHOW
     .word P_NONE, 0
     .quad 0
     .quad TC_F_BY_STATE
+    .quad 0                                  // VT_CAP
     .quad s_canon_show
     .quad TC_SET_SHOW
     .word P_METRICS, 1
     .quad TC_O_COLUMNS
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_sort
     .quad TC_SET_SORT
     .word P_SORT, 1
     .quad TC_O_SORT
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_share_floor
     .quad TC_SET_SHARE_FLOOR
     .word P_NONNEG_INT, 1
     .quad TC_O_SHARE_FLOOR
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_top
     .quad TC_SET_TOP
     .word P_NONNEG_INT, 1
     .quad TC_O_TOP
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_header
     .quad TC_SET_HEADER
     .word P_HEADER, 1
     .quad TC_O_HEADER_MODE
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_logs_dir
     .quad TC_SET_LOGS_DIR
     .word P_NONE, 1
     .quad TC_O_LOGS_DIR
     .quad 0
+    .quad TC_O_LOGS_DIR_SZ - 1               // VT_CAP
     .quad s_canon_json
     .quad TC_SET_COLOR
     .word P_NONE, 0
     .quad 0
     .quad TC_F_JSON
+    .quad 0                                  // VT_CAP
     .quad s_canon_watch
     .quad TC_SET_INTERVAL
     .word P_NONNEG_FLOAT, 2
     .quad TC_O_INTERVAL
     .quad TC_F_WATCH_PRESENT
+    .quad 0                                  // VT_CAP
     .quad s_canon_watch_hold
     .quad TC_SET_HOLD
     .word P_NONNEG_FLOAT, 1
     .quad TC_O_HOLD
     .quad TC_F_WATCH_HOLD_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_color
     .quad TC_SET_COLOR
     .word P_CHOICES_COLOR, 1
     .quad TC_O_COLOR_MODE
     .quad TC_F_COLOR_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_live
     .quad TC_SET_STATE
     .word P_NONE, 0
     .quad 0
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_offline
     .quad TC_SET_STATE
     .word P_NONE, 0
     .quad 0
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_unknown
     .quad TC_SET_STATE
     .word P_NONE, 0
     .quad 0
     .quad 0
+    .quad 0                                  // VT_CAP
     .quad s_canon_exclude
     .quad TC_SET_EXCLUDE
     .word P_NONE, 1
     .quad 0
     .quad TC_F_EXCL_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_exclude_group
     .quad TC_SET_EXCLUDE_GROUP
     .word P_NONE, 1
     .quad 0
     .quad TC_F_EXCL_GROUP_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_exclude_bcast
     .quad TC_SET_EXCLUDE_BCAST
     .word P_NONE, 0
     .quad 0
     .quad TC_F_EXCLUDE_BCAST
+    .quad 0                                  // VT_CAP
     .quad s_canon_include
     .quad TC_SET_INCLUDE
     .word P_NONE, 1
     .quad 0
     .quad TC_F_INCL_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_no_exclude
     .quad TC_SET_EXCLUDE
     .word P_NONE, 0
     .quad 0
     .quad TC_F_NO_EXCLUDE
+    .quad 0                                  // VT_CAP
     .quad s_canon_config
     .quad TC_SET_CONFIG
     .word P_NONE, 1
     .quad TC_O_CONFIG_PATH
     .quad TC_F_CONFIG_GIVEN
+    .quad TC_O_CONFIG_PATH_SZ - 1            // VT_CAP
     .quad s_canon_no_config
     .quad TC_SET_CONFIG
     .word P_NONE, 0
     .quad 0
     .quad TC_F_NO_CONFIG
+    .quad 0                                  // VT_CAP
     .quad s_canon_streamer
     .quad TC_SET_STREAMER_MODE
     .word P_NONE, 0
     .quad 0
     .quad TC_F_STREAMER
+    .quad 0                                  // VT_CAP
     .quad s_canon_no_cache
     .quad TC_SET_COLOR
     .word P_NONE, 0
     .quad 0
     .quad TC_F_NO_CACHE
+    .quad 0                                  // VT_CAP
     .quad s_canon_rebuild_cache
     .quad TC_SET_COLOR
     .word P_NONE, 0
     .quad 0
     .quad TC_F_REBUILD_CACHE
+    .quad 0                                  // VT_CAP
     .quad s_canon_manual
     .quad TC_SET_COLOR
     .word P_NONE, 0
     .quad 0
     .quad TC_F_MANUAL
+    .quad 0                                  // VT_CAP
     .quad s_canon_emit_fish
     .quad TC_SET_COLOR
     .word P_NONE, 0
     .quad 0
     .quad TC_F_EMIT_FISH
+    .quad 0                                  // VT_CAP
     .quad s_canon_complete
     .quad TC_SET_COLOR
     .word P_CHOICES_COMPLETE, 1
     .quad TC_O_COMPLETE_KIND
     .quad TC_F_COMPLETE_GIVEN
+    .quad 0                                  // VT_CAP
     .quad s_canon_help
     .quad TC_SET_COLOR
     .word P_NONE, 0
     .quad 0
     .quad 0
-
+    .quad 0                                  // VT_CAP
 // ============================================================================
 // Short option map: {char, val} pairs, 0-terminated
 // ============================================================================
@@ -7453,7 +7402,6 @@ help_body:
     .ascii "                        re-include users the merged exclusions would drop;\n"
     .ascii "                        repeatable\n"
     .ascii "  --no-exclude          ignore every exclusion for this run\n"
-help_body_config_end:
     .byte 0
 help_body_b:
     .ascii "  --no-config           ignore the config file entirely\n"

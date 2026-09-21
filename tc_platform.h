@@ -335,6 +335,9 @@
 #define DT_DIR          4
 #define DT_REG          8
 #define SIGINT          2
+// Exit status for a SIGINT-interrupted run: 128 + SIGINT (matches Python's
+// KeyboardInterrupt -> report_failure(..., code=130, announce=False)).
+#define EXIT_INTERRUPT  130
 #define CLOCK_REALTIME  0
 #define STDOUT          1           // the descriptors, not the stdio streams
 #define STDERR          2
@@ -363,6 +366,10 @@
 // values below are the packed ymd forms of those extremes.
 #define YMD_MIN         10101       // 0001-01-01
 #define YMD_MAX         99991231    // 9999-12-31
+// Epoch of 0001-01-01T00:00:00 UTC: tc_ymd_sod_to_epoch(10101).  The
+// --since underflow guard (C11) fails when a computed begin maps below
+// this (Python's datetime.min -> OverflowError).
+#define YEAR1_EPOCH     -62135596800LL
 // Seconds in the last full second of a day; the highest valid second-of-day.
 #define LAST_SECOND     86399
 // The 1 GiB sanity cap on a single log file: a file that reads past it is
@@ -374,6 +381,8 @@
 // wants fewer, larger reads.  Both produce identical results.
 #define READ_CHUNK_CORE 8192
 #define READ_CHUNK_WATCH 65536
+// file-too-large errno (EFBIG; same value on musl and Darwin).
+#define EFBIG           27
 // mkdir(2) mode for the cache directory walk (0777, as the Python's
 // os.makedirs default -- the umask still applies).
 #define DIR_MODE        0x1FF
@@ -387,6 +396,12 @@
 //  defined once here so every module assembles the same value.  They are
 //  cpp macros -- like SECS_PER_DAY above -- so a stale module-local `.equ`
 //  of the same name fails to assemble instead of silently shadowing.
+//  NOTE: the "not by literal pool" header refers to the ORIGINAL MOV_*
+//  macro stance; some modules now materialize these with a literal-pool
+//  `ldr =<CONST>` (one instruction instead of the 2-4 movz/movk pairs) —
+//  tc_render.S loads DIV10_MAGIC that way, and tc_util.S's formatters use
+//  `ldr =DIV10_MAGIC` for the same constant.  Both forms are in-tree; the
+//  macro stays for the sites that prefer instruction-only loads.
 #define DIV10_MAGIC         0xCCCCCCCCCCCCCCCD   // divide-by-10 magic (umulh >> 3)
 #define SWAR_MASK_01        0x0101010101010101   // SWAR has-zero-byte low-bit mask
 #define SWAR_MASK_80        0x8080808080808080   // SWAR detection mask (01 mask << 7)
@@ -405,6 +420,18 @@
     .macro MOV_NANOSEC reg
     movz \reg, #0xCA00, lsl #0
     movk \reg, #0x3B9A, lsl #16         // 1000000000
+    .endm
+
+// ENTRY_PTR dst, base, idx, sz — dst = base + idx*sz (a record pointer).
+//   The established tc_entry_ptr shape: sz must already hold the stride (the
+//   caller does `mov <sz>, #SIZE` first), and sz is clobbered.  Same two
+//   instructions the tc_entry_ptr FUNCTION emits; the inline sites use this
+//   macro where a stride constant is already in a register, so the intent
+//   ("index into the entries array") is named instead of spelled out.  The
+//   `bl tc_entry_ptr` call sites are left alone.
+    .macro ENTRY_PTR dst, base, idx, sz
+    mul \sz, \idx, \sz
+    add \dst, \base, \sz
     .endm
 
 // Field loads whose WIDTH differs between the platforms.  `n` is the

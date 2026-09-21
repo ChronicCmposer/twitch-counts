@@ -10,26 +10,39 @@
 #   and module-local subroutines (`util_`, `cli_`, `cfg_`, `core_`, ...);
 #   `.L` branch targets are not function starts. Data labels (e.g.
 #   `tc_str_count:`) simply open a directive-only "function" that the
-#   analyzer ignores. Checks:
+#   analyzer ignores. Local helpers are FULL AAPCS64 functions with the
+#   SAME obligations as exported `tc_*` functions and are analyzed the same
+#   way (a helper that clobbers x19 or x30 is a RED finding, never
+#   attributed to the enclosing tc_* function). Checks:
 #     (a) any write to x19-x28 that is not covered by a PROLOGUE n /
 #         EPILOGUE n pair (or a balanced explicit stp/ldp pair) in the same
 #         function, including writes that fall OUTSIDE the save/restore
 #         window (a write before its save or after its restore would clobber
 #         the caller's register across a `bl`);
-#     (b) unbalanced stp/ldp of callee-saved registers (saved but never
-#         restored, restored but never saved, or unequal counts);
+#     (b) unbalanced stp/ldp of callee-saved registers -- only the dangerous
+#         directions: a restore with no save, a save with no restore, or
+#         strictly MORE saves than restores. Restores outnumbering saves
+#         (s < l, the one-PROLOGUE-many-return-paths shape) is benign;
 #     (c) writes to x29 without a matching `stp x29,x30` frame record
 #         (and stp x29,x30 without a matching ldp x29,x30);
+#     (d) x30, the link register: any function that calls (`bl`) MUST save
+#         x30 before the call -- PROLOGUE n always does (`stp x29,x30`), or
+#         an explicit stp that names x30 (e.g. `stp x19,x30,[sp,#-16]!`) --
+#         and restore it before its own `ret`.  A `ret` after a `bl` without
+#         a restore returns to the bl's RETURN ADDRESS and loops back into
+#         the function (the #1 silent-wrongness bug in this codebase).  A
+#         `bl` is NEVER a tail call; only `b sym` is.
 #     bonus: any use of x18 (the platform register; hard rule 4 in AGENTS.md).
 #
 # PRECISION -- READ THIS (guard, not proof)
 #   This is a pragmatic heuristic, NOT a register-liveness proof. Human review
 #   still applies (AGENTS.md is the authority). Known limitations:
-#     * It analyzes the RAW source by default, so registers introduced or
-#       hidden inside CPP macros are invisible to it. `--preprocess` re-runs
-#       the same analysis on the macro-expanded text (cc -E -P -x
-#       assembler-with-cpp); line numbers then refer to the PREPROCESSED
-#       stream, not the raw file. Review macro bodies by hand either way.
+#     * The checker runs BOTH the raw source AND the macro-preprocessed text
+#       (cc -E -P -x assembler-with-cpp) BY DEFAULT, so a register hidden
+#       inside a CPP macro is still caught by the preprocessed pass. Findings
+#       on the preprocessed stream are labeled "(preprocessed)" and their
+#       line numbers refer to the EXPANDED stream, not the raw file. Review
+#       macro bodies by hand either way.
 #     * Write-detection classifies mnemonics by family: loads write the GPR
 #       operand(s) before the first '['; stores write nothing; swp/ld<op>
 #       atomics write the second operand (Rt); casp writes the first two
@@ -45,6 +58,11 @@
 #       must be preserved") for ordinary entry/exit saves. It is still not a
 #       full liveness analysis: e.g. it does not prove that a value actually
 #       REMAINS live across a specific `bl`.
+#     * x30 is checked at the function level: a function that calls (`bl`)
+#       but never saves x30 is RED; a `bl` AFTER the x30 restore that is
+#       followed by a `ret` is RED (the wrong-link bug). A `bl` to a noreturn
+#       helper (no `ret` reachable after the bl) is exempt from the ordering
+#       rule.
 #     * Terminal (noreturn) functions -- a function whose body contains no
 #       `ret` (error paths ending in `bl exit`, entry points like fibonacci's
 #       `_start`) never returns to a caller, so the callee-saved checks do
@@ -64,9 +82,9 @@
 #
 # USAGE
 #   ./check-clobbers.sh [--preprocess] [-I <dir>] <file.S|dir> [...]
-#     --preprocess   preprocess with the C compiler first (cc -E -P -x
-#                    assembler-with-cpp); line numbers then refer to the
-#                    preprocessed stream
+#     (no flag)     analyze the RAW source AND the preprocessed text (default)
+#     --preprocess  accepted for compatibility (prints a one-line note); raw +
+#                   preprocessed are always checked, so the flag is a no-op
 #     -I <dir>       add an include dir for preprocessing (repeatable); -I.
 #                    (repo root) is always added first so modules can #include
 #                    tc_platform.h
@@ -76,16 +94,16 @@
 # EXAMPLES
 #   ./check-clobbers.sh tc_util.S tc_core.S
 #   ./check-clobbers.sh -I . tc_*.S
-#   ./check-clobbers.sh --preprocess -I . tc_core.S
+#   ./check-clobbers.sh -I . .                 # whole repo (directory mode)
 #
 set -euo pipefail
 
-PREPROCESS=0
+PREPROCESS=0  # accepted for backward compatibility; the preprocessed pass is always run
 INCLUDES=()
 FILES=()
 
 usage() {
-  sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,112p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -102,9 +120,15 @@ while [ $# -gt 0 ]; do
 done
 [ ${#FILES[@]} -gt 0 ] || usage
 
+# --- --preprocess note (the flag is a behaviorally-no-op) ---
+if [ "$PREPROCESS" -eq 1 ]; then
+  echo "note: --preprocess is accepted for compatibility; raw + preprocessed are always checked"
+fi
+
 # --- materialize the analyzer once ---
 ANALYZER="$(mktemp "${TMPDIR:-/tmp}/tc-clobber-analyzer.XXXXXX.py")"
-trap 'rm -f "$ANALYZER"' EXIT HUP INT TERM
+TMPD="$(mktemp -d "${TMPDIR:-/tmp}/tc-clobber.XXXXXX")"
+trap 'rm -rf "$TMPD" "$ANALYZER"' EXIT HUP INT TERM
 
 cat > "$ANALYZER" <<'PY'
 #!/usr/bin/env python3
@@ -131,6 +155,7 @@ CASP_RE = re.compile(r"^casp(al|a|l)?\b")
 
 XREG_RE = re.compile(r"\b(x(?:19|20|21|22|23|24|25|26|27|28))\b")
 X29_RE = re.compile(r"\bx29\b")
+X30_RE = re.compile(r"\bx30\b")
 X18_RE = re.compile(r"\bx18\b")
 
 PROLOGUE_RE = re.compile(r"^\s*PROLOGUE\s+([0-9]+)\b")
@@ -206,7 +231,8 @@ def new_function(name, lineno):
         "stp": {}, "ldp": {}, "stp_x29": 0, "ldp_x29": 0,
         "writes29": [], "x18": [],
         "prologue": None, "prologue_line": None,
-        "epilogue": None, "bl": 0, "ret": 0,
+        "epilogue": None,
+        "bl_lines": [], "x30_save": [], "x30_restore": [], "ret_lines": [],
     }
 
 
@@ -230,7 +256,7 @@ def check_function(fn, display, findings):
     # runtime never resumes meaningfully after main returns (it only reads
     # the x0 return value), so the test-driver mains may use x19-x28 freely
     # (e.g. check_tc_cli.S) without saving them.
-    if fn["ret"] == 0 or name == "main":
+    if (not fn["ret_lines"]) or name == "main":
         for lineno in fn["x18"]:
             findings.append((lineno, "ERROR",
                              f"{name}: uses x18 (platform register; never use x18)"))
@@ -323,6 +349,39 @@ def check_function(fn, display, findings):
         findings.append((fn["start"], "ERROR",
                          f"{name}: restores x29/x30 without a matching `stp x29,x30` save"))
 
+    # --- x30 (the link register) ---
+    # A `bl` clobbers x30, so any function that calls MUST have saved x30
+    # before the call (PROLOGUE n always does `stp x29,x30`; an explicit
+    # `stp ... x30 ...` also counts) and restored it before its own `ret`.
+    # A `ret` after a `bl` without a restore returns to the bl's RETURN
+    # ADDRESS and loops back into the function -- the #1 silent-wrongness
+    # bug. A `bl` to a noreturn helper (no `ret` reachable after the bl) is
+    # exempt from the ordering rule, and a pure leaf (no `bl` at all) never
+    # clobbers x30, so it is not flagged. Noreturn functions were already
+    # exempted above (no `ret` can consume a wrong value).
+    bl_lines = fn["bl_lines"]
+    if bl_lines:
+        if not fn["x30_save"]:
+            findings.append((bl_lines[0], "ERROR",
+                             f"{name}: calls (bl) but never saves x30; bl clobbers x30 "
+                             f"and a later ret would return to the bl's caller, not "
+                             f"this function's caller"))
+        elif fn["x30_restore"]:
+            last_restore = max(fn["x30_restore"])
+            for bl_line in bl_lines:
+                if bl_line > last_restore and any(r > bl_line for r in fn["ret_lines"]):
+                    findings.append((bl_line, "ERROR",
+                                     f"{name}: bl at line {bl_line} after x30 was restored "
+                                     f"at line {last_restore} -- ret would use the wrong link"))
+        else:
+            # x30 saved but never restored: a ret after a bl would use the bl's link.
+            for bl_line in bl_lines:
+                if any(r > bl_line for r in fn["ret_lines"]):
+                    findings.append((bl_line, "ERROR",
+                                     f"{name}: bl at line {bl_line} after x30 was saved at "
+                                     f"line {fn['x30_save'][0]} but never restored -- ret "
+                                     f"would use the wrong link"))
+
     # --- x18 (hard rule 4) ---
     for lineno in fn["x18"]:
         findings.append((lineno, "ERROR",
@@ -347,7 +406,7 @@ def analyze(analyze_path, display):
         nonlocal fn, func_count, bl_count
         if fn is not None:
             func_count += 1
-            bl_count += fn["bl"]
+            bl_count += len(fn["bl_lines"])
             check_function(fn, display, findings)
         fn = None
 
@@ -367,10 +426,12 @@ def analyze(analyze_path, display):
         if m:
             fn["prologue"] = int(m.group(1))
             fn["prologue_line"] = lineno
+            fn["x30_save"].append(lineno)   # PROLOGUE always does stp x29,x30
             continue
         m = EPILOGUE_RE.match(text)
         if m:
             fn["epilogue"] = int(m.group(1))
+            fn["x30_restore"].append(lineno)  # EPILOGUE always does ldp x29,x30
             continue
         if DIRECTIVE_RE.match(text) or LABEL_RE.match(text):
             continue
@@ -379,9 +440,9 @@ def analyze(analyze_path, display):
             continue  # unknown shape; ignore (guard, not proof)
         mnem, operands = m.group(1), m.group(2) or ""
         if mnem == "bl":
-            fn["bl"] += 1
+            fn["bl_lines"].append(lineno)
         if mnem == "ret" or mnem in ("retaa", "retab"):
-            fn["ret"] += 1
+            fn["ret_lines"].append(lineno)
         if X18_RE.search(text):
             fn["x18"].append(lineno)
 
@@ -391,12 +452,20 @@ def analyze(analyze_path, display):
                 fn["stp"].setdefault(int(r[1:]), []).append(lineno)
             if X29_RE.search(pre):
                 fn["stp_x29"] += 1
+            if X30_RE.search(pre):
+                fn["x30_save"].append(lineno)  # e.g. stp x19,x30 / stp x30,xzr
         elif mnem.startswith("ldp"):
             pre = operands.split("[")[0]
             for r in XREG_RE.findall(pre):
                 fn["ldp"].setdefault(int(r[1:]), []).append(lineno)
             if X29_RE.search(pre):
                 fn["ldp_x29"] += 1
+            if X30_RE.search(pre):
+                fn["x30_restore"].append(lineno)
+        elif mnem == "str" and X30_RE.search(operands.split("[")[0]):
+            fn["x30_save"].append(lineno)  # single-register str x30, [sp, #-16]!
+        elif mnem == "ldr" and X30_RE.search(operands.split("[")[0]):
+            fn["x30_restore"].append(lineno)  # ldr x30, [sp], #16
 
         for rn in written_regs(mnem, operands):
             if rn in CALLEE_SAVED:
@@ -430,32 +499,36 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv))
 PY
 
-# --- run the analyzer on each file ---
+# --- run the analyzer on each file: RAW + PREPROCESSED by default ---
 RC=0
+
+analyze_one() {
+  local f="$1"
+  # raw pass
+  if ! python3 "$ANALYZER" "$f" "$f"; then RC=1; fi
+  # preprocessed pass (always on: registers hidden inside CPP macros are the
+  # documented blind spot; the raw scan alone would miss them). -I. is added
+  # by default so modules can #include tc_platform.h from the repo root;
+  # user -I dirs follow it.
+  local tmp="$TMPD/$(basename "$f").pp.S"
+  local err="$TMPD/$(basename "$f").pp.err"
+  if ! cc -E -P -x assembler-with-cpp -I. "${INCLUDES[@]}" -o "$tmp" "$f" 2>"$err"; then
+    echo "$f: ERROR: preprocessing failed (non-ISA); cannot verify the macro-expanded form" >&2
+    cat "$err" >&2
+    RC=1
+  else
+    echo "$f: note: analyzing PREPROCESSED text; line numbers refer to the preprocessed stream"
+    if ! python3 "$ANALYZER" "$tmp" "$f (preprocessed)"; then RC=1; fi
+  fi
+}
+
 for f in "${FILES[@]}"; do
   if [ -d "$f" ]; then
     while IFS= read -r -d '' mod; do
-      if ! python3 "$ANALYZER" "$mod" "$mod"; then RC=1; fi
+      analyze_one "$mod"
     done < <(find "$f" -type f \( -name 'tc_*.S' -o -name 'check_tc_*.S' -o -name 'fibonacci.S' \) -print0 | sort -z)
   elif [ -f "$f" ]; then
-    if [ "$PREPROCESS" -eq 1 ]; then
-      tmp="$(mktemp "${TMPDIR:-/tmp}/tc-clobber-pp.XXXXXX.S")"
-      trap 'rm -f "$ANALYZER" "$tmp"' EXIT HUP INT TERM
-      # -I. is added by default so modules can #include tc_platform.h from
-      # the repo root; user -I dirs follow it.
-      if ! cc -E -P -x assembler-with-cpp -I. "${INCLUDES[@]}" -o "$tmp" "$f" 2>"${TMPDIR:-/tmp}/tc-clobber-pp.err"; then
-        echo "$f: ERROR: preprocessing failed (non-ISA); cannot verify" >&2
-        cat "${TMPDIR:-/tmp}/tc-clobber-pp.err" >&2
-        RC=1
-        rm -f "$tmp"
-        continue
-      fi
-      echo "$f: note: analyzing PREPROCESSED text; line numbers refer to the preprocessed stream"
-      if ! python3 "$ANALYZER" "$tmp" "$f"; then RC=1; fi
-      rm -f "$tmp"
-    else
-      if ! python3 "$ANALYZER" "$f" "$f"; then RC=1; fi
-    fi
+    analyze_one "$f"
   else
     echo "$f: ERROR: not a file or directory" >&2
     RC=2

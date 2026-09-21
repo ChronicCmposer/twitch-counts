@@ -357,4 +357,63 @@ expect_contains "show-first-unknown" "unknown column 'share' (choose from: count
 expect_begin "begin-padded" 20260917 -c x -b " 2026-09-17 " -d /nonexistent
 expect_contains "users-label-digits" "src=--users 12" -c x --users 12 -d /nonexistent
 
+# ---------------------------------------------------------------------------
+# Wave-3 regression block (C5/C6/C9/C10/C11/C16/C19/C20) — each repro first
+# failed against the pre-fix driver, then passes here.
+# ---------------------------------------------------------------------------
+echo "-- Wave-3 regressions --"
+
+# C5: tc_source_str on DYN ids must return x1 == strlen(x0).  The driver
+# self-checks every DYN id and exits 1 with "dyn_bad ..." on a mismatch, so
+# an exit-0 run on a --since window is the assertion.
+expect_no_crash "c5-dyn-src-len" -c x -S 30d -d /nonexistent
+
+# C6: string options must never write past their field.  A 100-char channel
+# truncates to 63 chars and must NOT bleed into logs_dir; the driver's
+# "channel=" line must be pure c's (no "/tmp/" tail) and logs_dir stays sane.
+run_case "c6-long-channel" --channel "$(printf 'c%.0s' {1..100})" -d /tmp/opencode/logs
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | sed -n '1p' | grep -q '^channel=ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc$'; then
+    ok "c6-long-channel"
+else
+    bad "c6-long-channel: channel field overflowed (got: $(printf '%s\n' "$OUT" | sed -n '1p'))"
+fi
+# A 600-char --end truncates to 63 chars; the error must not show the config
+# path appended (the pre-fix driver clobbered TC_O_CONFIG_PATH with the tail).
+run_case "c6-long-end" -c x --end "$(printf '1%.0s' {1..600})" -d /tmp/opencode/logs
+if [ "$RC" -eq 1 ] && printf '%s' "$ERR" | grep -q "unrecognized datetime '111111111111111111111111111111111111111111111111111111111111111'"; then
+    ok "c6-long-end"
+else
+    bad "c6-long-end: --end overflowed past its field (RC=$RC)"
+fi
+
+# C9: ISO week 0 must be rejected (Python: "no week 0 in ISO year ...").
+expect_contains "c9-week-zero" "no week 0 in ISO year 2026" -c x -b 2026-W00 -d /nonexistent
+
+# C10: under --json, resolve-time errors must emit the {"error": ...} shape.
+run_case "c10-json-error-shape" --json -c x -b 2026-W60 -d /nonexistent
+if [ "$RC" -eq 1 ] && printf '%s' "$ERR" | grep -q '^{"error": "--begin: no week 60 in ISO year 2026'; then
+    ok "c10-json-error-shape"
+else
+    bad "c10-json-error-shape: --json error was not the JSON shape (got: $ERR)"
+fi
+
+# C11: --since that maps before year 1 fails loudly (Python: OverflowError)
+# instead of rendering garbage.
+expect_exit "c11-since-year0" 1 -c x -S 1000000d -d /nonexistent
+expect_contains "c11-since-year0-msg" "date value out of range" -c x -S 1000000d -d /nonexistent
+# A negative epoch that still maps to year >= 1 (1969-03-23) is valid, like
+# Python: the driver resolves the window (exit 0).
+expect_no_crash "c11-since-1969" -c x -S 21000d -d /nonexistent
+
+# C16 is a toml leak (no observable output change); exercised by the
+# highlight config path in test-tc-config.sh / the leak is verified by
+# valgrind-free inspection -- noted here for traceability.
+
+# C19: --end out-of-range week must print "no week 54 ..." (the pre-fix code
+# lost the parse status and printed "unrecognized datetime").
+expect_contains "c19-end-week" "no week 54 in ISO year 2026" -c x -e 2026-W54 -d /nonexistent
+
+# C20: year 0000 must be rejected like Python.
+expect_contains "c20-year-zero" "unrecognized datetime '0000-01-01'" -c x -b 0000-01-01 -d /nonexistent
+
 tc_summary "$DIFF_FAIL"

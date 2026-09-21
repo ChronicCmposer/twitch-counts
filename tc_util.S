@@ -25,6 +25,10 @@
 //      (fixed-arity wrappers for the variadic libc calls; see below and
 //      tc_platform.h — modules never call snprintf/ioctl directly)
 //    tc_cat_cstr(x0=cursor, x1=s)  -> x0 = position of the copied NUL
+//    tc_copy_str_cap(x0=dst, x1=src, x2=cap) -> x0 = dst, copies up to
+//      cap-1 bytes + NUL (bounded string copy; no return cursor)
+//    tc_cat_cstr_cap(x0=cursor, x1=s, x2=cap) -> x0 = cursor at the NUL,
+//      bounded append (writes at most cap-1 bytes + NUL)
 //    tc_streq(x0=a, x1=b)          -> x0 = 1/0
 //    tc_fmt2(x0=dst, x1=v) / tc_fmt4  -> x0 = dst+2 / dst+4 (zero-padded digits)
 //    tc_days_from_civil(x0=y, x1=m, x2=d) -> x0 = days since 1970-01-01
@@ -681,9 +685,7 @@ tc_env_int:
     add x20, x20, x0
     mov x1, #0x7fffffff
     cmp x20, x1
-    b.le .Lei_digit_ok
-    mov x20, x1                     // saturate: large is large
-.Lei_digit_ok:
+    csel x20, x20, x1, le           // saturate: keep the value, else cap
     mov x21, #1
     mov x22, #0
     add x19, x19, #1
@@ -708,20 +710,10 @@ tc_env_int:
     ret
 
 // util_ei_is_space(w0=byte) -> w0 = 1 for ASCII whitespace (space, \t\n\v\f\r)
+//   Tail-call alias of the exported tc_is_ws (identical predicate).
     .p2align 2
 util_ei_is_space:
-    cmp w0, #' '
-    b.eq .Leis_yes
-    cmp w0, #9
-    b.lt .Leis_no
-    cmp w0, #13
-    b.le .Leis_yes
-.Leis_no:
-    mov w0, #0
-    ret
-.Leis_yes:
-    mov w0, #1
-    ret
+    b tc_is_ws
 
 // ----------------------------------------------------------------------------
 // tc_term_columns() / tc_term_lines() -> x0: shutil.get_terminal_size(
@@ -862,6 +854,69 @@ tc_cat_cstr:
     ret
 
 // ----------------------------------------------------------------------------
+// tc_copy_str_cap(x0=dst, x1=src, x2=cap) — bounded string copy: writes at
+//   most cap-1 bytes plus a NUL (cap = capacity of dst).  Returns x0 = dst
+//   unchanged (the CLI / config resolvers copy into their fixed option
+//   fields, then read them back by pointer).  Clobbers x2-x3 only.
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_copy_str_cap
+    FUNC_TYPE(tc_copy_str_cap)
+tc_copy_str_cap:
+    cbz x2, .Lcsc_done
+    sub x2, x2, #1
+.Lcsc:
+    ldrb w3, [x1], #1
+    cbz w3, .Lcsc_nul
+    strb w3, [x0], #1
+    cbz x2, .Lcsc_full
+    sub x2, x2, #1
+    b .Lcsc
+.Lcsc_nul:
+    strb w3, [x0]
+    ret
+.Lcsc_full:
+    mov w3, #0
+    strb w3, [x0]
+.Lcsc_done:
+    ret
+
+// ----------------------------------------------------------------------------
+// tc_cat_cstr_cap(x0=cursor, x1=s, x2=cap) — bounded append; writes at most
+//   cap-1 bytes plus a NUL (cap = bytes available from the cursor).
+//   Returns the cursor at the NUL.  Call-free leaf: no frame, scratch regs
+//   only (x0-x17 clobbered).
+// ----------------------------------------------------------------------------
+    .p2align 2
+    .global tc_cat_cstr_cap
+    FUNC_TYPE(tc_cat_cstr_cap)
+tc_cat_cstr_cap:
+    mov x9, x0
+    mov x10, x2                     // cap
+    mov x2, #0                      // i
+.Lccc_loop:
+    sub x3, x10, #1
+    cmp x2, x3
+    b.ge .Lccc_full
+    ldrb w3, [x1, x2]
+    strb w3, [x9, x2]
+    cbz w3, .Lccc_done
+    add x2, x2, #1
+    b .Lccc_loop
+.Lccc_full:
+    mov w3, #0
+    strb w3, [x9, x2]
+    add x9, x9, x2
+    b .Lccc_out
+.Lccc_done:
+    // the NUL was copied at [x9 + x2]; return the cursor AT it so the
+    // caller's next append overwrites it (cat_cstr semantics)
+    add x9, x9, x2
+.Lccc_out:
+    mov x0, x9
+    ret
+
+// ----------------------------------------------------------------------------
 // tc_streq(x0=a, x1=b) -> x0 = 1 when the strings are equal, else 0
 // ----------------------------------------------------------------------------
     .p2align 2
@@ -926,7 +981,6 @@ tc_fmt4:
     msub x4, x3, x6, x1             // low = v % 100 (tens + ones)
     mov x6, x3                      // high (x2-x5 survive the tc_fmt2 calls)
     mov x5, x0                      // dst
-    mov x0, x5
     mov x1, x6
     bl tc_fmt2                      // high digits; x0 = dst+2
     mov x5, x0
@@ -1095,8 +1149,9 @@ tc_sod_split:
 // tc_fmt_ymd_sod(x0=dst, x1=ymd, x2=sod, x3=sep) -> x0 = dst+19
 //   "YYYY-MM-DD<sep>HH:MM:SS" (19 digits + separators; no NUL).  `sep` is a
 //   single byte in w3.  Consolidates the json/render datetime formatters,
-//   which both called tc_fmt2/tc_fmt4 identically.  Clobbers x0-x18 (the
-//   tc_fmt2/tc_fmt4 scratch); preserves x19-x28.
+//   which both called tc_fmt2/tc_fmt4 identically.  Clobbers x0-x2, x6-x9
+//   (the date/time arithmetic and tc_fmt2/tc_fmt4 scratch); preserves
+//   x3-x5, x19-x28.
 // ----------------------------------------------------------------------------
     .p2align 2
     .global tc_fmt_ymd_sod
@@ -1262,7 +1317,7 @@ tc_read_all:
     mov x0, x22
     mov x1, x23
     bl realloc
-    cbz x0, .Lra_alloc_fail2
+    cbz x0, .Lra_realloc_fail
     mov x22, x0
 .Lra_read:
     mov x0, x21
@@ -1319,6 +1374,10 @@ tc_read_all:
 .Lra_alloc_fail:
     mov x0, x21
     bl close
+    b .Lra_alloc_fail2
+.Lra_realloc_fail:
+    mov x0, x22                     // the grown buffer is still live
+    bl free                         // (realloc failure left it allocated)
 .Lra_alloc_fail2:
     mov x0, #2
     mov x1, #0
@@ -1509,7 +1568,9 @@ tc_is_leap:
     mov x1, #400
     sdiv x2, x0, x1
     msub x2, x2, x1, x0
-    cbnz x2, .Lil_no
+    cmp x2, #0
+    cset x0, eq                     // 1 iff 400 divides y
+    b .Lil_ret
 .Lil_yes:
     mov x0, #1
     b .Lil_ret
@@ -1552,14 +1613,8 @@ tc_ymd_sod_to_epoch:
     PROLOGUE 0
     stp x1, x2, [sp, #-16]!
     stp x3, x4, [sp, #-16]!
-    mov x4, x1                      // sod
-    mov x3, #YMD_YEAR_SCALE
-    udiv x1, x0, x3                 // year
-    msub x2, x1, x3, x0             // month*100 + day
-    mov x0, x1
-    mov x3, #YMD_MONTH_SCALE
-    udiv x1, x2, x3                 // month
-    msub x2, x1, x3, x2             // day
+    mov x4, x1                      // sod (survives tc_ymd_split)
+    bl tc_ymd_split                 // x0=y, x1=m, x2=d
     bl tc_days_from_civil           // x0 = days since the epoch
     ldr x3, =SECS_PER_DAY
     mul x0, x0, x3
@@ -1580,8 +1635,13 @@ tc_epoch_to_ymd_sod:
     stp x2, x3, [sp, #-16]!
     stp x4, x5, [sp, #-16]!
     ldr x2, =SECS_PER_DAY
-    udiv x3, x0, x2                 // days
-    msub x4, x3, x2, x0             // sod
+    sdiv x3, x0, x2                 // q = trunc(epoch / 86400)
+    msub x4, x3, x2, x0             // r = epoch - q*86400 (sign of epoch)
+    cmp x4, #0
+    b.ge .Letp_pos                  // r >= 0: q is already the floor
+    sub x3, x3, #1                  // floor division for negative epochs:
+    add x4, x4, x2                  //   q -= 1, r += 86400 (r stays < 86400)
+.Letp_pos:
     mov x0, x3
     bl tc_civil_from_days           // x0=y, x1=m, x2=d
     mov x3, #YMD_YEAR_SCALE
@@ -1642,6 +1702,8 @@ tc_state_str:
     .global tc_metric_str
     FUNC_TYPE(tc_metric_str)
 tc_metric_str:
+    cmp x0, #0
+    b.lt .Ltms_none
     cmp x0, #TC_M_LIVE_SHARE
     b.gt .Ltms_none
     LEA x1, tc_metric_names
@@ -1649,6 +1711,62 @@ tc_metric_str:
     ret
 .Ltms_none:
     mov x0, #0
+    ret
+
+// ============================================================================
+// tc_win_begin_after_end_check(x0=scratch) — fail with the Python-identical
+//   "begin (A) is after end (B)" when the resolved window's begin (kind
+//   EARLIEST) is later than its end.  Reads tc_window, formats the message
+//   into the caller's scratch buffer (>= 64 bytes) and tc_report_fail's.
+//   The one shared copy of the check the CLI and the counting core both
+//   make after resolving the window.  Clobbers x0-x17 only (x19-x28
+//   preserved).
+// ============================================================================
+    .p2align 2
+    .global tc_win_begin_after_end_check
+    FUNC_TYPE(tc_win_begin_after_end_check)
+tc_win_begin_after_end_check:
+    PROLOGUE 3
+    mov x19, x0                        // scratch (survives the calls below)
+    LEA x20, tc_window
+    ldr x0, [x20, #TC_W_BEGIN_YMD]
+    ldr x1, [x20, #TC_W_BEGIN_SOD]
+    bl tc_ymd_sod_to_epoch
+    mov x21, x0                        // begin epoch
+    ldr x0, [x20, #TC_W_END_YMD]
+    ldr x1, [x20, #TC_W_END_SOD]
+    bl tc_ymd_sod_to_epoch
+    cmp x21, x0
+    b.le .Lwbae_done
+    // "begin (A) is after end (B)"
+    mov x22, x19                       // cursor
+    LEA x1, s_begin_paren
+    mov x0, x22
+    bl tc_cat_cstr
+    mov x22, x0
+    ldr x1, [x20, #TC_W_BEGIN_YMD]
+    ldr x2, [x20, #TC_W_BEGIN_SOD]
+    mov x0, x22
+    mov w3, #' '
+    bl tc_fmt_ymd_sod
+    mov x22, x0
+    LEA x1, s_is_after_end
+    mov x0, x22
+    bl tc_cat_cstr
+    mov x22, x0
+    ldr x1, [x20, #TC_W_END_YMD]
+    ldr x2, [x20, #TC_W_END_SOD]
+    mov x0, x22
+    mov w3, #' '
+    bl tc_fmt_ymd_sod
+    mov w1, #')'
+    strb w1, [x0], #1
+    mov w1, #0
+    strb w1, [x0]
+    mov x0, x19
+    bl tc_report_fail
+.Lwbae_done:
+    EPILOGUE 3
     ret
 
     RODATA
@@ -1685,6 +1803,10 @@ tc_str_offline:   .asciz "offline"
 tc_str_unknown:   .asciz "unknown"
 tc_str_offshare:  .asciz "offline-share"
 tc_str_liveshare: .asciz "live-share"
+// "begin (A) is after end (B)" — the shared window-order failure message
+// (tc_win_begin_after_end_check; byte-identical to the Python reference).
+s_begin_paren:    .asciz "begin ("
+s_is_after_end:   .asciz ") is after end ("
 
 util_month_days:  .byte 31,28,31,30,31,30,31,31,30,31,30,31
     .text

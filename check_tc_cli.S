@@ -20,6 +20,7 @@
     .globl tc_printf_ip
     .globl tc_printf_p
     .globl tc_printf_7i
+    .globl exit
 
     .p2align 2
 main:
@@ -191,6 +192,34 @@ main:
     LEA x0, fmt_color
     bl tc_printf_i
 
+    // ---- C5: tc_source_str on DYN ids must return x1 == strlen(x0) ----
+    // The pre-fix .Lss_dyn_win/.Lss_dyn_chan recomputed the buffer pointer
+    // with a second `bl cli_opts_off`, which clobbered x1 (the parked length)
+    // with tc_opts' base address.  Every DYN id is checked: on a parse where
+    // the buffer is empty the contract still requires x1 == 0, so the check
+    // holds for every driver run and must never be skipped.
+    LEA x23, dyn_ids
+.Lc5_loop:
+    ldr x24, [x23], #8
+    cbz x24, .Lc5_done
+    mov x0, x24
+    bl tc_source_str                // x0=ptr, x1=len
+    mov x19, x0                     // ptr
+    mov x20, x1                     // returned len
+    mov x0, x19
+    bl tc_strlen_local              // x1 = computed len
+    cmp x20, x1
+    b.eq .Lc5_loop
+    mov x21, x1                     // computed len
+    LEA x0, fmt_dyn_bad
+    mov x1, x24                     // id
+    mov x2, x20                     // returned len
+    mov x3, x21                     // computed len
+    bl tc_printf_7i
+    mov w0, #1
+    bl exit
+.Lc5_done:
+
     mov w0, #0
     EPILOGUE 0
     ret
@@ -242,5 +271,15 @@ fmt_config:     .asciz "config=%s\n"
 fmt_color:      .asciz "color=%lld\n"
 fmt_src:        .asciz "src=%.*s\n"
 fmt_src_none:   .asciz "src=\n"
+fmt_dyn_bad:    .asciz "dyn_bad id=%lld returned_len=%lld computed_len=%lld\n"
+
+    .p2align 3
+dyn_ids:
+    .quad TC_SRC_DYN_SINCE
+    .quad TC_SRC_DYN_USERS
+    .quad TC_SRC_DYN_ALIAS
+    .quad 0
+
+    .text
 
     .end

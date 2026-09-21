@@ -33,8 +33,10 @@ Hand-written **ARMv8-A / ARMv8.6-A AArch64 assembly** project. Two deliverables,
   - `tc_json.S` — the JSON report
   - `tc_misc.S` — `--manual` / `--fish` / `--complete`
   - `tc_watch.S` — watch mode
-- `*.inc` (`tc_manual.inc`, `tc_fish.inc`, `tc_json_schema.inc`, plus
-  `tc_parse_facts.inc`) — committed generated blobs (regenerate only with `make gen-inc`).
+- `*.inc` (`tc_manual.inc`, `tc_fish.inc`, `tc_json_schema.inc`) — committed
+  generated blobs (regenerate only with `make gen-inc`).  `tc_parse_facts.inc`
+  is NOT generated: it is a hand-maintained shared include (marker strings
+  the core and cache modules both embed) with no generator.
 - `build/<os>/` — per-platform objects, drivers, third-party build products (never share objects between Linux/macOS).
 - `third_party/` — vendored C (toml, sqlite3), bootstrapped musl, fetched pcre2 tarball.
 - `check_tc_*.S` + `test-tc-*.sh` — per-module test drivers and harnesses.
@@ -93,14 +95,24 @@ Where the repo deviates from the playbook, the deviation is called out in a
 
 ### Hard rules
 
+> **Rule 0 — x30 is preserved across every `bl`.** A `bl` clobbers x30 (the
+> link register). Any function that calls MUST save x30 before the call —
+> `PROLOGUE n` always does (`stp x29,x30`), or an explicit `stp x30,...`
+> (e.g. `stp x19,x30,[sp,#-16]!`) — and restore it before its own `ret`.
+> Only `b sym` is a tail call; `bl` is never one. A `ret` after a `bl`
+> without restoring x30 returns to the bl's RETURN ADDRESS and loops back
+> into the function — the #1 silent-wrongness source (the wrong-link /
+> infinite-loop bug). `check-clobbers.sh` now enforces this, and local
+> (`module_*:`) functions are covered too.
+
 1. **ISA**: one `.arch` directive per module, declared to the project's
    target (currently `armv8-a`); no `.arch_extension` that silently enables
    features the module does not declare (in particular never `sve`, `sve2`,
    `i8mm`, `bf16` unless the build target truly requires them), no `.cpu`.
    The in-source `.arch` overrides any `-march`, so it is the gate.
 2. **Callee-saved registers**: preserve **x19–x28 and x29** across every
-   `bl` (AAPCS64). A function may use them but must restore them before
-   `ret`.
+   `bl` (AAPCS64; x30 is Rule 0). A function may use them but must restore
+   them before `ret`.
 3. **Stack alignment**: `sp` is 16-byte aligned at every call site.
 4. **Never use x18** (platform register).
 5. **Never join statements with `;`** — it is a comment character in this
@@ -132,14 +144,30 @@ tc_name:
 
 The file ends with `.end`.
 
+### Local helpers are FULL AAPCS64 functions
+
+A module-prefix local subroutine (`util_*:`, `cli_*:`, `cfg_*:`, ...) is a
+FULL AAPCS64 function with the SAME obligations as an exported `tc_*`
+function — it is never "just a jump target". It must:
+
+- preserve **x19–x28 AND x30** across its own `bl`s: save x30 before every
+  call (`PROLOGUE n` does `stp x29,x30`; an explicit `stp x30,...` also
+  counts) and restore it before its own `ret`;
+- keep `sp` 16-byte aligned at its own call sites;
+- restore all its callee-saved saves before returning.
+
+`check-clobbers.sh` analyzes local helpers as their own functions — a helper
+that clobbers x19 or x30 is a RED finding on the helper, never attributed to
+the enclosing `tc_*` function.
+
 ### Naming rules
 
 - Exported symbols: **`tc_`** prefix (e.g. `tc_strlen`, `tc_puts`,
   `tc_fail`, `tc_fmt_u64`, `tc_read_all`) — this is the repo's convention,
   declared in `tc_layout.inc`.
 - Module-local symbols: **module prefix** — `main_`, `util_`, `cli_`,
-  `config_`, `core_`, `cache_`, `render_`, `json_`, `misc_`, `watch_`
-  (matching the module's purpose).
+  `cfg_`, `core_`, `cache_`, `render_`, `json_`, `misc_`, `watch_`
+  (matching the module's purpose; note the config module uses `cfg_`).
 - Branch targets and local labels: **`.L`** prefix (e.g. `.Lret`, `.Lloop`).
 - Never use `tc_` for a non-exported label and never branch to a bare
   non-`.L` label.
@@ -183,8 +211,9 @@ criteria are met.
   commit-sized step. If a function exceeds 80 instructions, split it.
 - **Gate 3 — Prove the function.** (a) a driver harness (`check_tc_*.S`)
   runs it; (b) a differential test (`test-tc-*.sh`) compares it against the
-  Python reference; (c) the disassembly is reviewed; (d) **both checker
-  scripts are green**. A function is "unverified" until Gate 3 passes.
+  Python reference; (c) the disassembly is reviewed; (d) `check-isa.sh` is
+  GREEN on the module; (e) `check-clobbers.sh` is GREEN on the raw AND the
+  preprocessed form. A function is "unverified" until Gate 3 passes.
 - **Gate 4 — Module complete.** Every function in the module is proven; the
   module passes both checkers green.
 - **Gate 5 — Integration.** The module is wired into the `twitch-counts`
@@ -203,74 +232,94 @@ manually (not yet wired into the Makefile).
 ```sh
 ./check-isa.sh tc_*.S              # files or a directory
 ./check-isa.sh -I . tc_core.S      # add include dirs (needed for tc_platform.h)
+./check-isa.sh --strict-blacklist-update -I . tc_*.S   # blacklist self-check
 ```
 
-What it does: (1) rejects any `.arch` above its configured ceiling and any
-`.arch_extension` (and any `.cpu`); (2) assembles the module and
-disassembles the object; (3) scans the disassembly for instructions or
+What it does: (1) rejects any `.arch` above its configured ceiling (default
+`armv8-a`, matching this repo's declared baseline; `--arch` overrides) and
+any `.arch_extension` (and any `.cpu`); (2) assembles the module (`-I.` is
+added by default so modules can `#include tc_platform.h` / `tc_layout.inc`)
+and disassembles the object; (3) scans the disassembly for instructions or
 registers that require a higher ISA (pointer-auth, `bti`, `ssbb`/`pssbb`,
 SVE/SVE2 `z`/`p` registers, bf16/i8mm/dotprod, memtag).
 
 **Green** = directive scan clean, object assembles, disassembly scan clean.
 **Red** (non-zero exit, `file:line` printed) = a `.arch`/`.arch_extension`
-violation or a >ceiling instruction present in the object. An instruction
-the assembler *rejects* at the ceiling (e.g. `bfdot`) prints a **warning**,
-not red: it cannot silently enter the binary — the build gate already stops
-it. A warning is not green; a module that produces one does not build.
+violation, a >ceiling instruction present in the object, OR an instruction
+the assembler *rejects* under the ceiling (e.g. `bfdot`). Rejections are
+fail-loud (RED, exit non-zero): the module does not build and "a warning is
+not green" — an exit-code-gated CI loop keyed on `$?` must not pass.
 
-**Repo note (current status — read before trusting a result):** the checker
-was imported from the `core/controller/asm/` playbook project and still
-enforces the playbook's exact `armv8.2-a` ceiling. This repo's modules
-declare `.arch armv8-a` (built with `-march=armv8.6-a` via the Makefile), so
-`./check-isa.sh tc_*.S` currently reports **RED on every module at the
-directive scan** (`must be exactly 'armv8.2-a'`), while the disassembly scan
-is clean. The checker's ceiling and the repo's ISA policy must be reconciled
-before a check can go green — either widen the checker to this repo's
-declared target or raise the modules' `.arch`; do **not** silently pick one
-without deciding the project's ISA policy. Treat a RED today as "the
-directive gate disagrees with the playbook ceiling", not as proof that the
-module contains a >armv8.6-a instruction.
+Optional self-check: `--strict-blacklist-update` probes every mnemonic in
+the curated blacklist under a high arch (default `armv9-a`) and fails if one
+does not assemble — a dead blacklist entry is a typo. Conservative: skipped
+when the host assembler does not know the high arch, and the probe-fragile
+mnemonics (st2g/stz2g/cosp) are skipped, not failed.
+
+**Repo note (current status):** the checker was imported from the
+`core/controller/asm/` playbook project and has been adapted to this repo —
+it now enforces this repo's declared `.arch armv8-a` baseline (the playbook
+project enforced armv8.2-a), matches `tc_*.S` / `check_tc_*.S` /
+`fibonacci.S` in directory mode, and adds `-I.` by default. `tc_util.S`,
+`tc_core.S`, `fibonacci.S`, and the other modules pass GREEN.
 
 #### `check-clobbers.sh` — clobber discipline (AAPCS64 callee-saved)
 
 ```sh
-./check-clobbers.sh tc_*.S
-./check-clobbers.sh --preprocess tc_core.S     # macro-expanded text
+./check-clobbers.sh tc_*.S          # raw + preprocessed, always
+./check-clobbers.sh -I . tc_core.S  # add include dirs (needed for tc_platform.h)
 ```
 
-What it does: for every function it checks (a) every write to x19–x28 is
-covered by `PROLOGUE n`/`EPILOGUE n` or a balanced `stp`/`ldp` pair, and
-each write lies inside its save/restore window; (b) `stp`/`ldp` of
-callee-saved registers are balanced; (c) writes to x29 have a matching
-`stp x29,x30` frame record; bonus: any use of x18 is flagged.
+What it does: for EVERY function — exported `tc_*:` and local helper
+`module_*:` alike (any non-`.L` label starts a function) — it checks
+(a) every write to x19–x28 is covered by `PROLOGUE n`/`EPILOGUE n` or a
+balanced `stp`/`ldp` pair, and each write lies inside its save/restore
+window; (b) `stp`/`ldp` of callee-saved registers are balanced — only the
+dangerous directions are flagged (a save with no restore, a restore with no
+save, or strictly more saves than restores; restores outnumbering saves is
+benign — one PROLOGUE with several return paths); (c) writes to x29 have a
+matching `stp x29,x30` frame record; (d) **x30**: any function that calls
+(`bl`) must save x30 before the call — `PROLOGUE n` always does
+(`stp x29,x30`), or an explicit `stp x30,...` / `str x30, [sp, #-16]!` —
+and restore it before its own `ret` (a `bl` after the restore followed by a
+`ret` is the wrong-link bug); bonus: any use of x18 is flagged.
+
+It analyzes the RAW source AND the macro-preprocessed text by default, so a
+register hidden inside a CPP macro is still caught (preprocessed findings
+are labeled `(preprocessed)`; their line numbers refer to the expanded
+stream). Data/rodata labels form empty functions (no findings). A function
+that never `ret`s (a noreturn fail-loud helper) is not required to restore
+its saves, and a pure leaf (no `bl`) never clobbers x30.
 
 **Green** = no findings. **Red** (non-zero exit, `file:line` printed) = one
-or more findings.
+or more findings. Review macro bodies by hand either way. See the comment
+header in the script for a full precision statement.
 
-**Known blind spot:** the clobber checker reads the raw `.S`; registers
-hidden inside CPP macros are invisible to it. Use `--preprocess` to re-run on
-the macro-expanded text (line numbers then refer to the preprocessed stream),
-and always review macro bodies by hand. See the comment header in the script
-for a full precision statement.
+**Repo note (current status):** the checker was imported from the
+`core/controller/asm/` playbook project and has been adapted to this repo —
+it now detects functions by any non-`.L` label (so both exported `tc_*`
+symbols and module-local helpers are analyzed), matches `tc_*.S` /
+`check_tc_*.S` / `fibonacci.S` in directory mode, adds `-I.` by default, and
+adds x30 (Rule 0) checking. The current modules pass GREEN with real
+coverage (a non-zero function count).
 
-**Repo note (current status — read before trusting a result):** the checker
-was imported from the `core/controller/asm/` playbook project and hunts
-exported **`cc_`** function labels (its `FUNC_START_RE` matches
-`^\s*cc_[A-Za-z0-9_]+\s*:`). This repo exports `tc_` symbols, so
-`./check-clobbers.sh tc_*.S` currently reports `functions=0 … GREEN` on every
-module — a **trivially green result that provides no coverage**. Do not
-mistake that GREEN for proof of clobber discipline. Until the checker learns
-the `tc_` prefix (and the module files it scans by name), human review of
-every `PROLOGUE`/`EPILOGUE` window is the real gate.
+### Debugging-time discipline
+
+Run the two checkers BEFORE reaching for gdb. The clobber/x30 checker is
+deterministic and catches the wrong-link bug (a `ret` after a `bl` with no
+x30 restore) and local-helper clobbers; `check-isa.sh` catches silent
+>armv8-a instructions. A "garbage x0 / runaway writes" symptom is most often
+a clobbered x30 or a caller-saved register across a call — check
+`./check-clobbers.sh .` and `./check-isa.sh -I . tc_*.S` first, then gdb
+only after both are green and a real logic bug remains.
 
 ### What "green" means
 
 - `check-isa.sh`: every module printed `GREEN` and the script exited 0.
-- `check-clobbers.sh`: every module printed `GREEN` and the script exited 0
-  **and** reported a non-zero function count (see the repo note above — a
-  `functions=0` GREEN is vacuous).
+- `check-clobbers.sh`: every module printed `GREEN` (raw AND preprocessed)
+  and the script exited 0 with a non-zero function count.
 - A module is "green" only when **both** scripts exit 0 on it. Anything else
-  — a red finding, or an ISA warning — means the module must be fixed.
+  — a red finding, or an ISA rejection — means the module must be fixed.
 
 ### Module layout (created in Gate 1, one per module)
 
@@ -291,14 +340,14 @@ every `PROLOGUE`/`EPILOGUE` window is the real gate.
 - [ ] `code-philosophy` loaded and applied (Gate 0.0)
 - [ ] exactly one `.arch` per module, declared to the project's target; no
   `.arch_extension`, no `.cpu`
-- [ ] x19–x28 and x29 preserved across every `bl`; restored before `ret`
+- [ ] x19–x28, x29, and x30 preserved across every `bl`; restored before `ret`
 - [ ] `sp` 16-byte aligned at every call site
 - [ ] no x18, no `;`, no `.equ`
 - [ ] constants are CPP macros; `PROLOGUE n`/`EPILOGUE n` matched
 - [ ] naming: `tc_` / module prefix / `.L` labels
 - [ ] ≤ 80 instructions per function
-- [ ] `check-isa.sh` and `check-clobbers.sh` green **with real coverage**
-  (see the checkers' repo notes)
+- [ ] `check-isa.sh` green; `check-clobbers.sh` green on raw AND
+  preprocessed **with real coverage** (non-zero function count)
 - [ ] driver + differential + disasm proof exists (Gate 3)
 
 ---

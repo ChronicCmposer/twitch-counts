@@ -86,7 +86,6 @@
 // Externals
 // ----------------------------------------------------------------------------
     .globl isatty
-    .globl tc_ioctl_p
     .globl __errno_location
     .globl write
     .globl read
@@ -132,8 +131,6 @@
     .globl tc_add_user
     .globl tc_cache_day
     .globl tc_cache_put_day
-    .globl tc_cache_discard_day
-    .globl tc_cache_status
     .globl tc_cache_used
     .globl tc_plan_presentation
     .globl tc_render_text
@@ -143,29 +140,24 @@
     .globl tc_frame_set_pin
     .globl tc_frame_set_tint
     // core exports consumed by the watch path (Wave 2; Agent D provides the
-    // .global in tc_core.S — core_is_timestamp_header / core_line_is_marker /
-    // core_marker_match / core_eff_threshold / core_reset_count already exist
-    // as tc_core.S locals; core_parse_log_filename_n and core_speaker_login_to
-    // are new agreed exports)
-    .globl core_is_timestamp_header
-    .globl core_line_is_marker
-    .globl core_parse_log_filename_n
-    .globl core_speaker_login_to
-    .globl core_eff_threshold
-    .globl core_reset_count
+    // .global in tc_core.S — tc_is_timestamp_header / tc_line_is_marker /
+    // tc_eff_threshold are the shared tc_* exports; core_marker_match and
+    // core_reset_count are tc_core.S locals; tc_parse_log_filename_n and
+    // tc_speaker_login_to are new agreed exports)
+    .globl tc_is_timestamp_header
+    .globl tc_line_is_marker
+    .globl tc_parse_log_filename_n
+    .globl tc_speaker_login_to
+    .globl tc_eff_threshold
     .globl tc_fmt_u64
     .globl tc_copy_bytes
-    .globl tc_civil_from_days
+    .globl tc_copy_str_cap
     .globl pcre2_compile_8
-    .globl pcre2_code_free_8
     .globl pcre2_match_8
     .globl pcre2_match_data_create_from_pattern_8
-    .globl pcre2_match_data_free_8
     .globl pcre2_get_error_message_8
-    .globl tc_days_from_civil
     .globl tc_ymd_sod_to_epoch
     .globl tc_epoch_to_ymd_sod
-    .globl tc_days_in_month
     .globl tc_fmt2
 
 // ----------------------------------------------------------------------------
@@ -267,7 +259,6 @@
     .equ READER_INIT,    8
     .equ DAYS_INIT,      8
     .equ WINLIST_INIT,   16
-    .equ SEARCH_MAX,     16              // probe-result memo for --users sizing
     .equ RAMP_MAX,       16
     .equ SHADES_MAX,     64
     .equ SHADE_SZ,       32
@@ -280,6 +271,8 @@
     .equ RD_OK_NEW,      1               // anything was read
     .equ RD_OK_NONE,     0               // nothing appended
     .equ RD_ERR,         -1              // open/read failed
+    // file-too-large errno for the probe-byte error path (EFBIG; the shared
+    // EFBIG constant lives in tc_platform.h)
 
     // value parsers (mirror tc_cli.S's P_* ids)
     .equ P_POS_INT,      1
@@ -487,12 +480,10 @@ watch_wins_cap:   .skip 8
 watch_win_n:      .skip 8
 watch_sqlite_hit: .skip 8
 
-    // seed memo
-watch_seed_key1:  .skip 8
-watch_seed_key2:  .skip 8
-watch_seed_key3:  .skip 8
-watch_seed_key4:  .skip 8
-watch_seed_val:   .skip 8
+// seed memo: {key1, key2, key3, key4, val} — one 40-byte record, read and
+    // written through watch_seed_key1 + offsets (the key2/3/4/val labels were
+    // dead; the storage they named is live)
+    watch_seed_key1:  .skip 40
 
     // gather bookkeeping (written into tc_tally after the fold)
 watch_g_files:    .skip 8
@@ -508,10 +499,8 @@ watch_g_end_ymd:  .skip 8
 watch_g_enter:    .skip 8             // entering state (in/out per file)
 watch_g_cache:    .skip 8             // cache_used
 
-    // --users sizing probe memo
-watch_search_n:   .skip 8
-watch_search_w:   .skip SEARCH_MAX * 8
-watch_search_r:   .skip SEARCH_MAX * 8
+// --users sizing probe memo
+    watch_search_n:   .skip 8
 
     // pcre2 compiled patterns (TC_HL_MAX rules x TC_HL_PAT_MAX patterns)
 watch_patterns:   .skip TC_HL_MAX * TC_HL_PAT_MAX * 8
@@ -563,13 +552,10 @@ s_tick_ms:          .asciz ", tick "
 s_ms:               .asciz "ms"
 s_slower:           .asciz " -- "
 s_ms_slower:        .asciz "ms tick, slower than the interval"
-s_blank:            .asciz ""
 
 s_int_min_pre:      .asciz ": interval must be at least "
 s_int_min_mid:      .asciz "s ("
-s_int_min_post:     .asciz ")"
 s_from_paren:       .asciz " (from "
-s_fade_collapse:    .asciz " with fade_k "
 s_collapse_mid:     .asciz " collapses the "
 s_collapse_post:    .asciz " ramp to a single colour -- lower k, or raise watch.shades"
 s_rule_bad_regex:   .asciz " is not a valid regex ("
@@ -592,7 +578,6 @@ s_env_no_color:     .asciz "NO_COLOR"
 s_woke_on:          .asciz ", woke on "
 s_woke_write:       .asciz "write"
 s_woke_timer:       .asciz "timer"
-s_m:                .asciz "m"
 
 s_curve_linear:     .asciz "linear"
 s_curve_power:      .asciz "power"
@@ -606,7 +591,6 @@ watch_curve_names:  .quad s_curve_linear
                     .quad s_curve_bias
                     .quad s_curve_ease_in_out
 
-s_cannot_read:      .asciz "cannot read"
 s_slash:            .asciz "/"
 s_up:               .asciz "up"
 s_down:             .asciz "down"
@@ -1202,7 +1186,6 @@ watch_load_settings:
     mov x1, x21
     bl watch_wc_cat
     mov x23, x0
-    mov x0, x23
     LEA x1, s_from_paren
     bl watch_wc_cat
     mov x23, x0
@@ -1213,7 +1196,6 @@ watch_load_settings:
     mov x0, x23
     bl watch_wc_catn
     mov x23, x0
-    mov x0, x23
     LEA x1, s_close_paren
     bl watch_wc_cat
     mov x23, x0
@@ -1224,13 +1206,11 @@ watch_load_settings:
     bl watch_wc_cat
     mov x23, x0
 .Lwls_ilbl_done:
-    mov x0, x23
     LEA x1, s_int_min_pre
     bl watch_wc_cat
     mov x23, x0
     // floor %g
     ldr d0, [x20, #WS_MIN_INTERVAL]
-    mov x0, x23
     mov x1, #128
     LEA x2, fmt_g
     bl tc_snprintf_d
@@ -1242,11 +1222,9 @@ watch_load_settings:
     bl watch_wc_cat
     mov x23, x0
     // floor label: "watch.min_interval (from {src})"
-    mov x0, x23
     LEA x1, s_min_interval_flag
     bl watch_wc_cat
     mov x23, x0
-    mov x0, x23
     LEA x1, s_from_paren
     bl watch_wc_cat
     mov x23, x0
@@ -1261,7 +1239,6 @@ watch_load_settings:
     mov x0, x23
     bl watch_wc_catn
     mov x23, x0
-    mov x0, x23
     LEA x1, s_close_paren2
     bl watch_wc_cat
     mov x23, x0
@@ -1279,7 +1256,6 @@ watch_load_settings:
 // ============================================================================
     .p2align 2
 watch_replay_horizon:
-    PROLOGUE 0
     fcmp d0, #0.0
     b.gt .Lwrh_div                   // hold > 0: horizon = hold
     scvtf d2, x0                     // max_steps
@@ -1294,7 +1270,6 @@ watch_replay_horizon:
     csel x9, x9, x10, ge             // steps = max(steps, 1)
     scvtf d2, x9
     fmul d0, d2, d1                  // steps * interval
-    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1456,7 +1431,7 @@ watch_build_listing:
     mov x22, x0                       // name len
     mov x0, x21
     mov x1, x22
-    bl core_parse_log_filename_n       // x0 = ymd or 0
+    bl tc_parse_log_filename_n       // x0 = ymd or 0
     cbz x0, .Lwbl_list
     mov x23, x0                       // ymd
     // append (ymd, name): grow the entry array if needed
@@ -1574,12 +1549,7 @@ watch_init_window:
     add x19, x19, x20
     ldr x20, [x19, #TC_SET_END*8]
     cmp x20, #TC_SRC_DEFAULT_NOW
-    b.eq .Lwiw_end_default
-    mov x20, #1
-    b .Lwiw_end_store
-.Lwiw_end_default:
-    mov x20, #0
-.Lwiw_end_store:
+    cset x20, ne                        // end_given = source != default now
     LEA x9, watch_end_given
     str x20, [x9]
     // kind dispatch
@@ -1757,7 +1727,6 @@ watch_reader_get:
     bl malloc
     cbz x0, .Lwrg_oom
     mov x21, x0
-    mov x0, x21
     mov x1, #0
     mov x2, #READER_SZ
     bl memset
@@ -2163,12 +2132,8 @@ watch_reader_refresh:
 .Lwrrf_read:
     // cold = (pre-read offset == 0); keep it in x27 across the read loop
     ldr x27, [x19, #RD_OFFSET]
-    cbz x27, .Lwrrf_cold1
-    mov x27, #0
-    b .Lwrrf_cold_done
-.Lwrrf_cold1:
-    mov x27, #1
-.Lwrrf_cold_done:
+    cmp x27, #0
+    cset x27, eq
     // open + lseek to offset
     add x0, x19, #RD_PATH
     mov x1, #O_RDONLY
@@ -2202,8 +2167,14 @@ watch_reader_refresh:
     lsl x26, x26, #1
     ldr x9, =FILE_CAP
     cmp x26, x9
-    b.le .Lwrrf_grow2
+    b.lt .Lwrrf_grow2                  // keep the doubled cap only while it
+                                      // stays under FILE_CAP (mirror
+                                      // tc_read_all: cap = FILE_CAP+1 at the
+                                      // boundary so a probe byte can trip it)
     mov x26, x9
+    add x26, x26, #1                  // probe byte past the cap: a file of
+                                      // exactly FILE_CAP bytes reads fully;
+                                      // one byte more trips the error below
 .Lwrrf_grow2:
     mov x0, x24
     mov x1, x26
@@ -2229,6 +2200,12 @@ watch_reader_refresh:
     ldr x9, =FILE_CAP
     cmp x25, x9
     b.le .Lwrrf_rloop
+    // > FILE_CAP: "too large" (the probe byte past the cap was a real byte).
+    // set errno = EFBIG so the skip() reason names the cause (tc_read_all
+    // reports the same condition as "too large" in the count path).
+    bl __errno_location
+    mov w9, #EFBIG
+    str w9, [x0]
     b .Lwrrf_close_err
 .Lwrrf_eintr:
     // read() returned -1; check errno (x23/x24/x25/x26 are callee-saved and
@@ -2421,7 +2398,6 @@ watch_join_bufs:
     bl malloc
     cbz x0, .Lwjb_oom
     mov x24, x0
-    mov x0, x24
     mov x1, x20
     mov x2, x21
     bl tc_copy_bytes
@@ -2614,7 +2590,7 @@ watch_seek_window:
     sub x0, x28, x27
     mov x1, x0
     add x0, x19, x27
-    bl core_line_is_marker            // x0 = state 1/2 or 0
+    bl tc_line_is_marker            // x0 = state 1/2 or 0
     cbz x0, .Lwsw_not1
     // marker: keep the latest (line_start > best)
     cmp x24, #-1
@@ -2663,7 +2639,7 @@ watch_seek_window:
     sub x0, x28, x27
     mov x1, x0
     add x0, x19, x27
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbz x0, .Lwsw_not2
     cmp x24, #-1
     b.eq .Lwsw_best2
@@ -2758,22 +2734,35 @@ watch_line_at_or_after:
     ret
 
 // watch_strncmp_ge(text, len, off, n, want) -> x0 = 1 if text[off:off+n] >=
-//   want (byte compare, exactly Python's slice >=), else 0.
+//   want (byte compare, exactly Python's slice >=), else 0.  The compare is
+//   clamped to the bytes actually available: a span that ends before off+n
+//   compares only its real bytes, and if they all equal want's prefix the
+//   shorter span is < want (Python lexicographic order).
     .p2align 2
 watch_strncmp_ge:
-    mov x5, #0
+    mov x5, x3                        // orig n (to detect a clamped span)
+    sub x6, x1, x2                    // avail = len - off
+    cmp x6, #0
+    b.le .Lwsg_lt                     // empty span: < want
+    cmp x6, x3
+    b.ge .Lwsg_full                   // avail >= n: compare all n
+    mov x3, x6                        // clamp n to avail
+.Lwsg_full:
+    mov x6, #0                        // i
 .Lwsg_loop:
-    cmp x5, x3
-    b.ge .Lwsg_eq
-    ldrb w6, [x0, x2]
-    ldrb w7, [x4, x5]
-    cmp w6, w7
+    cmp x6, x3
+    b.ge .Lwsg_end
+    ldrb w7, [x0, x2]
+    ldrb w9, [x4, x6]
+    cmp w7, w9
     b.lt .Lwsg_lt
     b.gt .Lwsg_gt
     add x2, x2, #1
-    add x5, x5, #1
+    add x6, x6, #1
     b .Lwsg_loop
-.Lwsg_eq:
+.Lwsg_end:
+    cmp x3, x5                        // clamped (x3 < orig n)?
+    b.lt .Lwsg_lt                     // shorter equal prefix: < want
     mov w0, #1
     ret
 .Lwsg_gt:
@@ -2968,7 +2957,7 @@ watch_fold_lines:
     // marker?
     mov x0, x27
     mov x1, x28
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbnz x0, .Lwfl_marker
     // message?
     mov x0, x19
@@ -2993,7 +2982,7 @@ watch_fold_lines:
     b.eq .Lwfl_done
     mov x0, x27
     mov x1, x28
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbnz x0, .Lwfl_last_marker
     mov x0, x19
     mov x1, x27
@@ -3024,7 +3013,7 @@ watch_fold_line:
     b.lt .Lwfln_skip
     mov x0, x20                        // line
     mov x1, x21                        // len
-    bl core_is_timestamp_header        // x0 = 1 if the prefix matches
+    bl tc_is_timestamp_header        // x0 = 1 if the prefix matches
     cbz x0, .Lwfln_skip
     // find the first ": " in the rest
     add x24, x20, #11
@@ -3084,12 +3073,12 @@ watch_fold_line:
     sub w5, w5, #'0'
     add x9, x9, x5
     add x28, x28, x9                   // second
-    // core_speaker_login_to(speaker, slen, dst) -> x0 = login len (0 = fail);
+    // tc_speaker_login_to(speaker, slen, dst) -> x0 = login len (0 = fail);
     // the lowercased login is written NUL-terminated into dst.
     mov x0, x25                        // speaker
     mov x1, x26                        // slen
     LEA x2, watch_scratch2             // dst
-    bl core_speaker_login_to
+    bl tc_speaker_login_to
     cbz x0, .Lwfln_skip
     mov x24, x0                        // login len
     LEA x23, watch_scratch2            // login ptr (dst)
@@ -3437,22 +3426,16 @@ watch_bucket_bounds:
     mov x1, #0
     bl tc_ymd_sod_to_epoch          // day_start
     mov x22, x0
-    // lo
-    cmp x20, x22
-    b.le .Lwbb_lo0
+    // lo = max(begin - day_start, 0)
     sub x23, x20, x22
-    b .Lwbb_hi
-.Lwbb_lo0:
-    mov x23, #0
-.Lwbb_hi:
+    cmp x20, x22
+    csel x23, x23, xzr, gt
+    // hi = min(end - day_start, LAST_SECOND)
     ldr x9, =LAST_SECOND
     add x10, x22, x9
-    cmp x21, x10
-    b.ge .Lwbb_hi0
     sub x24, x21, x22
-    b .Lwbb_check
-.Lwbb_hi0:
-    mov x24, x9
+    cmp x21, x10
+    csel x24, x24, x9, lt
 .Lwbb_check:
     cmp x23, x24
     b.gt .Lwbb_none
@@ -3529,7 +3512,6 @@ watch_reader_window:
     bl malloc
     cbz x0, .Lwrw_oom
     mov x22, x0
-    mov x0, x22
     mov x1, #0
     mov x2, #WW_MAX
     mov x9, #WW_SZ
@@ -4854,8 +4836,7 @@ watch_apply:
     LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
-    mul x11, x0, x11
-    add x10, x10, x11
+    ENTRY_PTR x10, x10, x0, x11
     cmp x21, #TC_ST_LIVE
     b.eq .Lwapp_live
     cmp x21, #TC_ST_OFFLINE
@@ -4900,8 +4881,7 @@ watch_finish:
     cmp x23, x21
     b.ge .Lwfin_done
     mov x24, #TC_US_ENTRY_SZ
-    mul x24, x23, x24
-    add x24, x22, x24
+    ENTRY_PTR x24, x22, x23, x24
     mov x0, x24
     bl tc_strlen
     mov x1, x0
@@ -5206,7 +5186,6 @@ watch_seed_state:
 watch_scan_markers:
     PROLOGUE 5
     mov x19, x0                        // path
-    mov x0, x19
     mov x1, #O_RDONLY
     bl open
     mov w20, w0
@@ -5242,7 +5221,12 @@ watch_scan_markers:
 .Lwsm_read:
     mov x0, x20
     add x1, x21, x22
-    mov x2, #READ_CHUNK_WATCH
+    sub x2, x23, x22                  // remaining capacity (clamp: a fixed
+    mov x9, #READ_CHUNK_WATCH         // READ_CHUNK_WATCH could write past the
+    cmp x2, x9                        // FILE_CAP allocation on >1 GiB files)
+    b.lt .Lwsm_read_ok
+    mov x2, x9
+.Lwsm_read_ok:
     bl read
     mov w9, w0
     cmp w9, #0
@@ -5283,7 +5267,7 @@ watch_scan_markers:
     mov x0, x21
     add x0, x0, x24
     mov x1, x27
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbnz x0, .Lwsm_marker
     b .Lwsm_line_done
 .Lwsm_marker:
@@ -5295,7 +5279,7 @@ watch_scan_markers:
     mov x0, x21
     add x0, x0, x24
     sub x1, x22, x24
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbnz x0, .Lwsm_marker2
     b .Lwsm_done
 .Lwsm_marker2:
@@ -5346,7 +5330,7 @@ watch_size_users:
     b.ge .Lwsu_ceiling_ok
     mov x21, #1
 .Lwsu_ceiling_ok:
-    bl watch_eff_threshold
+    bl tc_eff_threshold
     mov x22, x0                        // eff
     // search memo reset
     LEA x9, watch_search_n
@@ -5494,7 +5478,7 @@ watch_reported_width:
     str x0, [x20, #TC_W_BEGIN_YMD]
     str x1, [x20, #TC_W_BEGIN_SOD]
     bl watch_count_tick
-    bl watch_eff_threshold
+    bl tc_eff_threshold
     mov x21, x0                        // eff
     LEA x22, tc_users
     ldr x23, [x22, #TC_US_COUNT]
@@ -5505,8 +5489,7 @@ watch_reported_width:
     cmp x20, x23
     b.ge .Lwrpw_done
     mov x9, #TC_US_ENTRY_SZ
-    mul x9, x20, x9
-    add x9, x24, x9
+    ENTRY_PTR x9, x24, x20, x9
     mov x0, x9
     bl tc_strlen
     mov x1, x0
@@ -5524,42 +5507,6 @@ watch_reported_width:
 .Lwrpw_done:
     mov x0, x19
     EPILOGUE 3
-    ret
-
-// ============================================================================
-// watch_eff_threshold() -> x0 = max(min_count, share_floor) when a share is
-//   shown or sorted by and the floor is nonzero, else min_count.
-// ============================================================================
-    .p2align 2
-watch_eff_threshold:
-    PROLOGUE 0
-    LEA x0, tc_opts
-    ldr x1, [x0, #TC_O_MIN_COUNT]
-    ldr x2, [x0, #TC_O_SORT]
-    cmp x2, #TC_M_OFFLINE_SHARE
-    b.ge .Lwet_shown
-    ldr x3, [x0, #TC_O_COLUMN_COUNT]
-    mov x4, #0
-.Lwet_col:
-    cmp x4, x3
-    b.ge .Lwet_check
-    add x5, x0, #TC_O_COLUMNS
-    ldr x6, [x5, x4, lsl #3]
-    cmp x6, #TC_M_OFFLINE_SHARE
-    b.ge .Lwet_shown
-    add x4, x4, #1
-    b .Lwet_col
-.Lwet_check:
-    mov x0, x1
-    EPILOGUE 0
-    ret
-.Lwet_shown:
-    ldr x2, [x0, #TC_O_SHARE_FLOOR]
-    cbz x2, .Lwet_check
-    cmp x2, x1
-    b.lt .Lwet_check
-    mov x0, x2
-    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -5675,7 +5622,6 @@ watch_build_ramps:
     // {k:g}
     LEA x9, watch_fade_k
     ldr d0, [x9]
-    mov x0, x23
     mov x1, #128
     LEA x2, fmt_g
     bl tc_snprintf_d
@@ -5693,7 +5639,6 @@ watch_build_ramps:
     mov x0, x23
     bl watch_wc_cat
     mov x23, x0
-    mov x0, x23
     LEA x1, s_collapse_post
     bl watch_wc_cat
     mov w1, #0
@@ -5713,7 +5658,6 @@ watch_build_ramps:
 // ============================================================================
     .p2align 2
 watch_rule_curve_k:
-    PROLOGUE 0
     ldr x2, [x0, #TC_HL_CURVE]
     cmp x2, #-1
     b.ne .Lwrck_curve_ok
@@ -5733,7 +5677,6 @@ watch_rule_curve_k:
     str d0, [x9]
     ldr x1, [x9]
     mov x0, x2
-    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -5761,7 +5704,7 @@ watch_emit_channel:
     fcvtzs x9, d0
     mov x0, x19
     mov x1, x9
-    bl watch_fmt_u64                   // digits into the shade
+    bl tc_fmt_u64                      // digits into the shade (shared formatter)
     mov w1, w21
     strb w1, [x0], #1
     EPILOGUE 2
@@ -5925,13 +5868,11 @@ watch_build_one_ramp_full:
     bl watch_emit_channel              // x0 = cursor after ';'
     mov x19, x0
     // g
-    mov x0, x19
     mov x1, x25                        // g
     mov w2, #';'
     bl watch_emit_channel              // x0 = cursor after ';'
     mov x19, x0
     // b
-    mov x0, x19
     mov x1, x26                        // b
     mov w2, #'m'
     bl watch_emit_channel              // x0 = cursor after 'm'
@@ -5942,39 +5883,6 @@ watch_build_one_ramp_full:
 .Lwbrf_done:
     mov x0, x23                        // base
     EPILOGUE 5
-    ret
-
-// watch_fmt_u64(dst, x1) -> dst after digits (no NUL)
-    .p2align 2
-watch_fmt_u64:
-    PROLOGUE 0
-    sub sp, sp, #32
-    add x2, sp, #20
-    cmp x1, #0
-    b.ne .Lwfu_digits
-    mov w3, #'0'
-    strb w3, [x2, #-1]!
-    b .Lwfu_copy
-.Lwfu_digits:
-    mov x4, #10
-.Lwfu_loop:
-    udiv x5, x1, x4
-    msub x6, x5, x4, x1
-    add x6, x6, #'0'
-    strb w6, [x2, #-1]!
-    mov x1, x5
-    cbnz x1, .Lwfu_loop
-.Lwfu_copy:
-    add x3, sp, #20                   // end of the digit buffer
-.Lwfu_copy_loop:
-    cmp x2, x3
-    b.ge .Lwfu_done
-    ldrb w4, [x2], #1
-    strb w4, [x0], #1
-    b .Lwfu_copy_loop
-.Lwfu_done:
-    add sp, sp, #32
-    EPILOGUE 0
     ret
 
 // watch_ramp_distinct(key) -> x0 = 1 when every shade renders identically.
@@ -6025,7 +5933,7 @@ watch_ramp_key_str:
     LEA x1, s_highlight
     bl watch_wc_cat
     sub x1, x19, #2
-    bl watch_fmt_u64
+    bl tc_fmt_u64
     mov w2, #0
     strb w2, [x0]
     LEA x0, watch_scratch
@@ -6132,17 +6040,14 @@ watch_compile_patterns:
     bl watch_wc_cat
     mov x23, x0
     mov x0, x21
-    bl watch_fmt_u64                   // rule index
+    bl tc_fmt_u64                      // rule index (shared formatter)
     mov x23, x0
-    mov x0, x23
     LEA x1, s_rule_mid
     bl watch_wc_cat
     mov x23, x0
-    mov x0, x23
     mov x1, x24
     bl watch_wc_cat                          // the pattern (single-quoted)
     mov x23, x0
-    mov x0, x23
     LEA x1, s_rule_bad_regex
     bl watch_wc_cat
     mov x23, x0
@@ -6156,7 +6061,6 @@ watch_compile_patterns:
     LEA x1, watch_scratch2
     bl watch_wc_cat
     mov x23, x0
-    mov x0, x23
     LEA x1, s_rule_post
     bl watch_wc_cat
     mov w1, #0
@@ -6464,6 +6368,8 @@ watch_parse_for_store:
 .Lwpfs_pos:
     mov x0, x20
     LEA x1, watch_scratch
+    mov x2, #10                       // base: x2 held source_id (72..74) from
+                                      // tc_config_get — strtol base>36 => EINVAL
     bl strtol
     cmp x0, #0
     b.le .Lwpfs_bad
@@ -6473,6 +6379,7 @@ watch_parse_for_store:
 .Lwpfs_nonneg:
     mov x0, x20
     LEA x1, watch_scratch
+    mov x2, #10                       // base (see .Lwpfs_pos)
     bl strtol
     cmp x0, #0
     b.lt .Lwpfs_bad
@@ -7014,8 +6921,7 @@ watch_build_prev:
     cmp x22, x20
     b.ge .Lwbp_done
     mov x9, #TC_US_ENTRY_SZ
-    mul x9, x22, x9
-    add x23, x21, x9
+    ENTRY_PTR x23, x21, x22, x9
     mov x0, x23
     bl tc_strlen
     mov x1, x0
@@ -7355,11 +7261,9 @@ watch_tint_apply:
     mov x1, x25
     bl watch_wc_cat
     mov x26, x0
-    mov x0, x26
     mov x1, x21
     bl watch_wc_cat
     mov x26, x0
-    mov x0, x26
     LEA x1, s_reset
     bl watch_wc_cat
     LEA x0, watch_tintbuf
@@ -7567,14 +7471,12 @@ watch_build_status:
     LEA x1, s_watching_pre
     bl watch_wc_cat
     mov x19, x0
-    mov x0, x19
     LEA x1, s_every
     bl watch_wc_cat
     mov x19, x0
     // interval %g
     LEA x9, watch_interval
     ldr d0, [x9]
-    mov x0, x19
     mov x1, #128
     LEA x2, fmt_g
     bl tc_snprintf_d
@@ -7594,7 +7496,6 @@ watch_build_status:
     mov x0, x19
     bl watch_wc_catn
     mov x19, x0
-    mov x0, x19
     LEA x1, s_hold_mid
     bl watch_wc_cat
     mov x19, x0
@@ -7634,7 +7535,6 @@ watch_build_status:
     mov x0, x19
     bl watch_wc_catn
     mov x19, x0
-    mov x0, x19
     LEA x1, s_close_paren2
     bl watch_wc_cat
     mov x19, x0
@@ -7642,7 +7542,6 @@ watch_build_status:
     LEA x9, watch_show_timing
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
-    mov x0, x19
     LEA x1, s_tick_ms
     bl watch_wc_cat
     mov x19, x0
@@ -7652,14 +7551,12 @@ watch_build_status:
     ldr x10, =1000
     scvtf d1, x10
     fmul d0, d0, d1
-    mov x0, x19
     mov x1, #128
     LEA x2, fmt_0f
     bl tc_snprintf_d
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
-    mov x0, x19
     LEA x1, s_ms
     bl watch_wc_cat
     mov x19, x0
@@ -7669,7 +7566,6 @@ watch_build_status:
     LEA x9, watch_kq_on
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
-    mov x0, x19
     LEA x1, s_woke_on
     bl watch_wc_cat
     mov x19, x0
@@ -7695,7 +7591,6 @@ watch_build_status:
     ldr d1, [x9]
     fcmp d0, d1
     b.le .Lwbs_post
-    mov x0, x19
     LEA x1, s_slower
     bl watch_wc_cat
     mov x19, x0
@@ -7704,7 +7599,6 @@ watch_build_status:
     ldr x10, =1000
     scvtf d1, x10
     fmul d0, d0, d1
-    mov x0, x19
     mov x1, #128
     LEA x2, fmt_0f
     bl tc_snprintf_d
@@ -7974,7 +7868,6 @@ watch_screen_paint:
     mov x1, x19
     bl watch_clip                      // x0 = clipped ptr (clipbuf or line)
     mov x28, x0                        // clipped
-    mov x0, x28
     ldr x1, [x22, x27, lsl #3]         // old painted text
     bl strcmp
     cbz w0, .Lwsp_diff_copy            // unchanged: still copy (no emit)
@@ -7991,7 +7884,6 @@ watch_screen_paint:
     mov x1, x28
     bl watch_burst_cat
     mov x25, x0
-    mov x0, x25
     LEA x1, s_clr_eol
     bl watch_burst_cat
     mov x25, x0
@@ -8046,7 +7938,6 @@ watch_screen_paint:
     mov x1, x28
     bl watch_burst_cat
     mov x25, x0
-    mov x0, x25
     LEA x1, s_line_k
     bl watch_burst_cat
     mov x25, x0
@@ -8193,7 +8084,6 @@ watch_clip:
 watch_visible_width:
     PROLOGUE 1
     mov x19, x0                        // text
-    mov x0, x19
     bl tc_strlen
     mov x20, x0                        // len
     mov x9, #0                         // i
@@ -8232,7 +8122,6 @@ watch_visible_width:
 // ============================================================================
     .p2align 2
 watch_ansi_match:
-    PROLOGUE 0
     add x0, x0, x1                     // scan from pos, not the buffer head
     ldrb w1, [x0]
     cmp w1, #0x1B
@@ -8265,14 +8154,12 @@ watch_ansi_match:
     b.gt .Lwam_none
 .Lwam_yes:
     add x0, x2, #1
-    EPILOGUE 0
     ret
 .Lwam_next:
     add x2, x2, #1
     b .Lwam_scan
 .Lwam_none:
     mov x0, #0
-    EPILOGUE 0
     ret
 
     RODATA

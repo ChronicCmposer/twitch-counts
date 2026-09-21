@@ -253,8 +253,8 @@ PRINTF_O := $(BUILD)/check_tc_printf.o
 
 DRIVER_NAMES := cli config core cache cache-bump render misc watch json
 
-cli_OBJS        := check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o
-config_OBJS     := check_tc_config.o tc_config.o tc_cli.o tc_util.o
+cli_OBJS        := check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o tc_render.o tc_json.o tc_core.o tc_cache.o
+config_OBJS     := check_tc_config.o tc_config.o tc_cli.o tc_util.o tc_render.o tc_json.o tc_core.o tc_cache.o
 core_OBJS       := check_tc_core.o check_tc_dump.o tc_core.o tc_cli.o tc_config_stub.o tc_util.o tc_cache.o tc_json.o tc_render.o
 cache_OBJS      := check_tc_cache.o check_tc_dump.o tc_cache.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
 cache-bump_OBJS := check_tc_cache.o check_tc_dump.o tc_cache_bump.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_json.o tc_render.o
@@ -263,10 +263,11 @@ json_OBJS       := check_tc_json.o tc_json.o tc_render.o tc_core.o tc_cli.o tc_c
 misc_OBJS       := check_tc_misc.o tc_misc.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_json.o tc_render.o
 watch_OBJS      := check_tc_watch.o tc_watch.o tc_render.o tc_json.o tc_core.o tc_cli.o tc_config.o tc_util.o tc_cache.o tc_misc.o
 
-# The two drivers without tc_core.o need no sqlite3.o but do need the
-# harness printf wrappers; the rest link the full vendored set.
-cli_LIBS        := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
-config_LIBS     := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB)
+# Every driver now links the full vendored set (cli and config pull the
+# render/core/cache closure through tc_report_fail and the shared helpers,
+# so they link sqlite3.o like the rest).
+cli_LIBS        := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB) $(SQLITE_O)
+config_LIBS     := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB) $(SQLITE_O)
 
 DRIVERS := $(foreach n,$(DRIVER_NAMES),$(BUILD)/tc-$(n)-test)
 

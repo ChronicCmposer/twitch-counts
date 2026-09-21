@@ -37,9 +37,7 @@
     .globl clock_gettime
     .globl localtime_r
     .globl tc_strlen
-    .globl tc_source_str
     .globl tc_channel_name
-    .globl tc_fail
     .globl tc_fmt_u64
     .globl tc_fmt_ymd_sod
     .globl tc_copy_bytes

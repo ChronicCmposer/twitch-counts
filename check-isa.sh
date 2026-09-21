@@ -26,11 +26,12 @@
 #      added to the include path by default (-I.) so modules can #include
 #      tc_platform.h / tc_layout.inc from the repo root. Under armv8-a the
 #      assembler rejects most >armv8-a instructions (bfdot, smmla, sdot,
-#      ldraa, stg, retaa, ...). Such REJECTIONS are reported as warnings, not
-#      red: the instruction cannot enter the binary -- the build gate already
-#      stops it. If assembly fails for a NON-ISA reason (missing include,
-#      syntax error), the module cannot be verified and the check is RED
-#      ("green" must mean "verified").
+#      ldraa, stg, retaa, ...). Such REJECTIONS are RED (fail-loud): the
+#      module does not build under the baseline ISA and "a warning is not
+#      green" -- the check exits non-zero so an exit-code-gated CI loop
+#      cannot pass. If assembly fails for a NON-ISA reason (missing include,
+#      syntax error), the module cannot be verified and the check is also
+#      RED ("green" must mean "verified").
 #   3. DISASSEMBLY GATE (defense-in-depth; catches the silent cases): GNU as
 #      2.47 ACCEPTS some >armv8-a instructions even under `.arch armv8-a` --
 #      verified on this host: paciasp, pacibsp, autiasp, autibsp, xpaclri
@@ -47,11 +48,24 @@
 #   The mnemonic blacklist is curated from the armv8.3-armv8.6 feature sets
 #   and is not guaranteed exhaustive; the directive scan is the authoritative
 #   gate. This script is a guard, not a proof -- human review applies
-#   (AGENTS.md). It reports file:line for every violation.
+#   (AGENTS.md). It reports file:line for every violation. An instruction the
+#   assembler REJECTS under the baseline ISA is RED, not a warning: the
+#   module does not build and the build gate must fail (fail-loud).
 #
 # USAGE
-#   ./check-isa.sh [--arch armv8-a] [-I <dir>] <file.S|dir> [...]
+#   ./check-isa.sh [--arch armv8-a] [--strict-blacklist-update]
+#                  [--blacklist-arch armv9-a] [-I <dir>] <file.S|dir> [...]
 #     --arch <x>     baseline ISA to enforce (default armv8-a)
+#     --strict-blacklist-update
+#                    self-check: probe every mnemonic in the curated
+#                    blacklist under a HIGH arch (--blacklist-arch, default
+#                    armv9-a) and fail if one does not assemble -- a dead
+#                    blacklist entry is a typo. Conservative: skipped
+#                    (non-blocking) when the host assembler does not know
+#                    the high arch, and the probe-fragile mnemonics
+#                    (st2g/stz2g/cosp) are skipped, not failed.
+#     --blacklist-arch <x>
+#                    arch used by the blacklist self-check (default armv9-a)
 #     -I <dir>       add an include dir for assembly (repeatable); -I. is
 #                    always added first (modules #include repo-root headers)
 #   Exit 0 = GREEN (verified). Exit 1 = RED (violations, file:line).
@@ -62,6 +76,7 @@
 #   ./check-isa.sh -I . tc_*.S
 #   ./check-isa.sh -I . .                 # whole repo (directory mode)
 #   ./check-isa.sh --arch armv8.2-a -I . tc_core.S   # enforce another ceiling
+#   ./check-isa.sh --strict-blacklist-update -I . tc_*.S  # blacklist self-check
 #
 set -euo pipefail
 
@@ -71,6 +86,8 @@ ARCH="armv8-a"
 INCLUDES=()
 FILES=()
 EXTRA_INC=()
+STRICT_BL=0
+BL_ARCH="armv9-a"
 if [ -n "${ASM_INCLUDES:-}" ]; then
   for d in ${ASM_INCLUDES//:/ }; do
     [ -n "$d" ] && EXTRA_INC+=("-I" "$d")
@@ -78,13 +95,15 @@ if [ -n "${ASM_INCLUDES:-}" ]; then
 fi
 
 usage() {
-  sed -n '2,65p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) [ $# -ge 2 ] || usage; ARCH="$2"; shift ;;
+    --strict-blacklist-update) STRICT_BL=1 ;;
+    --blacklist-arch) [ $# -ge 2 ] || usage; BL_ARCH="$2"; shift ;;
     -I) [ $# -ge 2 ] || usage; INCLUDES+=("-I" "$2"); shift ;;
     -h|--help) usage ;;
     -*) usage ;;
@@ -138,6 +157,106 @@ ZREG_RE = re.compile(r"\bz[0-9]+")          # SVE/SVE2 vector registers
 PREG_RE = re.compile(r"\bp[0-9]+")          # SVE/SVE2 predicate registers
 
 ARCH_EXT_FORBIDDEN = ("sve", "sve2", "i8mm", "bf16", "bf16mmla", "bf16dot")
+
+# Operand templates for the blacklisted mnemonics that require operands
+# (bare mnemonics are probed with no operands). Each entry must assemble
+# under a high arch on GNU as 2.47 (aarch64) with the extension bundle
+# below; verified 2026-09. st2g/stz2g are deliberately skipped: their
+# operand syntax is assembler-version-specific and not reliably probeable.
+# cosp is also skipped: it is decode-only on GNU as 2.47 (the disassembler
+# knows it but the assembler cannot emit it), so it is a real mnemonic, not
+# a typo, and the blacklist entry is kept to catch it after a toolchain
+# upgrade.
+PROBE_OPERANDS = {
+    "pacga": "x0, x1, x2",
+    "cfp": "rctx, x0",
+    "dvp": "rctx, x0",
+    "cosp": "rctx, x0",
+    "setf8": "w0",
+    "setf16": "w0",
+    "rmif": "x0, #0, #0",
+    "stg": "x0, [sp]",
+    "stzg": "x0, [sp]",
+    "stgm": "x0, [sp]",
+    "ldgm": "x0, [sp]",
+    "irg": "x0, x1, x2",
+    "gmi": "x0, x1, x2",
+    "subp": "x0, x1, x2",
+    "addg": "x0, x1, #0, #0",
+    "subg": "x0, x1, #0, #0",
+    "bfdot": "v0.4s, v1.8h, v2.8h",
+    "bfmmla": "v0.4s, v1.8h, v2.8h",
+    "bfcvt": "z0.h, p0/m, z1.s",
+    "bfcvtnt": "z0.h, p0/m, z1.s",
+    "bfcvtn": "v0.4h, v1.4s",
+    "bfmlalb": "v0.4s, v1.8h, v2.8h",
+    "bfmlalt": "v0.4s, v1.8h, v2.8h",
+    "smmla": "v0.4s, v1.16b, v2.16b",
+    "ummla": "v0.4s, v1.16b, v2.16b",
+    "usmmla": "v0.4s, v1.16b, v2.16b",
+    "sdot": "v0.4s, v1.16b, v2.16b",
+    "udot": "v0.4s, v1.16b, v2.16b",
+    "usdot": "v0.4s, v1.16b, v2.16b",
+    "sudot": "v0.4s, v1.16b, v2.4b[0]",
+    "ldapr": "x0, [x1]",
+}
+PROBE_SKIP = {"st2g", "stz2g", "cosp"}  # probe-fragile; still blacklisted
+
+
+def probe_blacklist(arch):
+    import os
+    import subprocess
+    import tempfile
+
+    mnems = [m for m in MNE_BLACKLIST.split("|") if m]
+    ext_lines = "\n".join(".arch_extension %s" % e for e in
+                          ("memtag", "bf16", "i8mm", "dotprod", "ssbs",
+                           "sb", "predres", "flagm", "pauth"))
+
+    def assembles(body):
+        with tempfile.NamedTemporaryFile("w", suffix=".S", delete=False) as fh:
+            fh.write(body)
+            src = fh.name
+        try:
+            r = subprocess.run(
+                ["cc", "-c", "-x", "assembler-with-cpp", "-o", "/dev/null", src],
+                capture_output=True, text=True)
+            return r.returncode == 0
+        finally:
+            os.unlink(src)
+
+    if not assembles(".arch %s\n%s\n.text\n    nop\n" % (arch, ext_lines)):
+        print(f"blacklist self-check: SKIPPED -- host assembler does not accept "
+              f".arch {arch} + the probe extensions (non-blocking); "
+              f"use --blacklist-arch to override")
+        return 0
+
+    failed = []
+    skipped = []
+    for mnem in mnems:
+        if mnem in PROBE_SKIP:
+            skipped.append(mnem)
+            continue
+        operands = PROBE_OPERANDS.get(mnem, "")
+        insn = "    %s%s\n" % (mnem, " " + operands if operands else "")
+        if assembles(".arch %s\n%s\n.text\n%s" % (arch, ext_lines, insn)):
+            print(f"blacklist self-check: OK {mnem}" + (f" {operands}" if operands else ""))
+        else:
+            failed.append((mnem, operands))
+    for mnem in skipped:
+        print(f"blacklist self-check: SKIP {mnem} "
+              f"(operand syntax is assembler-version-specific)")
+    if failed:
+        for mnem, operands in failed:
+            print(f"blacklist self-check: FAIL {mnem} {operands or '(no operands)'} "
+                  f"-- does not assemble under {arch}; dead blacklist entry (typo?)")
+        print(f"blacklist self-check: RED -- {len(failed)} dead blacklist "
+              f"entr{'y' if len(failed) == 1 else 'ies'}")
+        return 1
+    print(f"blacklist self-check: GREEN -- all {len(mnems) - len(skipped)} "
+          f"probeable blacklisted mnemonics assemble under {arch} "
+          f"({len(skipped)} skipped)")
+    return 0
 
 
 def scan_directives(path, arch):
@@ -229,7 +348,10 @@ def main(argv):
         return scan_directives(argv[2], argv[3])
     if len(argv) >= 6 and argv[1] == "disasm":
         return scan_disasm(argv[2], argv[3], argv[4], argv[5])
-    print(f"usage: {argv[0]} directives <file> <arch> | disasm <objdump> <obj> <arch> <display>",
+    if len(argv) >= 3 and argv[1] == "probe-blacklist":
+        return probe_blacklist(argv[2])
+    print(f"usage: {argv[0]} directives <file> <arch> | "
+          f"disasm <objdump> <obj> <arch> <display> | probe-blacklist <arch>",
           file=sys.stderr)
     return 2
 
@@ -262,11 +384,12 @@ check_module() {
     python3 "$ANALYZER" disasm "$dis" "$obj" "$ARCH" "$f" || mod_rc=1
   else
     if grep -qE "does not support|selected processor|not supported" "$asm_err"; then
-      # The assembler REJECTED an instruction under $ARCH: it cannot
-      # silently enter the binary, so this is a warning, not red -- but the
-      # module does NOT build and a warning is not green.
-      echo "$f: WARNING: assembler rejected an instruction under $ARCH (module does not build):"
+      # The assembler REJECTED an instruction under $ARCH: the module does
+      # not build under the baseline ISA and "a warning is not green". Fail
+      # loud (RED) so an exit-code-gated CI loop keyed on $? cannot pass.
+      echo "$f: ERROR: assembler rejected an instruction under $ARCH -- the module does not build; a warning is not green (RED, fail-loud):"
       sed 's/^/    /' "$asm_err"
+      mod_rc=1
     else
       echo "$f: ERROR: could not verify ISA compliance -- assembly failed for a non-ISA reason:"
       sed 's/^/    /' "$asm_err"
@@ -294,5 +417,10 @@ for f in "${FILES[@]}"; do
     RC=2
   fi
 done
+
+# --- optional blacklist self-check (keeps the curated blacklist honest) ---
+if [ "$STRICT_BL" -eq 1 ]; then
+  if ! python3 "$ANALYZER" probe-blacklist "$BL_ARCH"; then RC=1; fi
+fi
 
 exit "$RC"

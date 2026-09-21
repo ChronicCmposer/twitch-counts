@@ -159,20 +159,18 @@
     .globl stat
     .globl time
     .globl localtime_r
-    .globl strerror
-    .globl __errno_location
     .globl strcmp
     .globl tc_strlen
     .globl tc_channel_name
     .globl tc_resolve_channel
     .globl tc_reuse_apply
     .globl tc_puts
-    .globl tc_eputs
     .globl tc_putu64
     .globl tc_opts
     .globl tc_tally
     .globl tc_users
     .globl tc_cat_cstr
+    .globl tc_cat_cstr_cap
     .globl tc_entry_ptr
     .globl tc_state_str
     .globl tc_str_live
@@ -252,8 +250,6 @@ s_reason_new_layout:.asciz "new cache layout"
 s_reason_new_gen:   .asciz "new parser generation"
 s_reason_rebuild:   .asciz "--rebuild-cache"
 s_env_xdg_cache:    .asciz "XDG_CACHE_HOME"
-s_env_home:         .asciz "HOME"
-s_home_cache_tail:  .asciz "/.cache"
 s_cache_default:    .asciz "~/.cache/twitch-counts/rollup.db"
 s_path_tail:        .asciz "/twitch-counts/rollup.db"
 s_sep:              .asciz "\n"
@@ -261,7 +257,6 @@ s_schema_version:   .asciz "2"
 s_pragma_wal:       .asciz "PRAGMA journal_mode=WAL"
 s_begin:            .asciz "BEGIN"
 s_commit:           .asciz "COMMIT"
-s_rollback:         .asciz "ROLLBACK"
 s_sql_meta:         .asciz "CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)"
 s_sql_generation:   .asciz "CREATE TABLE IF NOT EXISTS generation(fingerprint TEXT PRIMARY KEY, last_seen TEXT NOT NULL) WITHOUT ROWID"
 s_sql_file:         .asciz "CREATE TABLE IF NOT EXISTS file(fingerprint TEXT NOT NULL, channel TEXT NOT NULL, date TEXT NOT NULL, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, enter_state TEXT, exit_state TEXT, PRIMARY KEY(fingerprint, channel, date)) WITHOUT ROWID"
@@ -764,7 +759,6 @@ tc_cache_put_day:
     bl cache_prepare_stmt
     cbz x0, .Lcp_discard
     mov x21, x0
-    mov x0, x21
     mov x1, #1
     LEA x2, cache_fp
     bl cache_bind_text_stmt
@@ -840,6 +834,127 @@ tc_cache_discard_day:
     PROLOGUE 0
     bl cache_drop_stash
     EPILOGUE 0
+    ret
+
+// ============================================================================
+// tc_cache_exit_state(x0=channel_ptr, x1=ymd, x2=fpath) -> x0 = 0/1/2
+//   Consult the rollup cache for the state the day-before file ENDED in —
+//   the seed lookup for the count path (Python seed_stream_state ->
+//   Cache.exit_state(channel, file_date, stat)).  The core agent calls this
+//   BEFORE its scan loop; a non-zero answer seeds the run and skips the
+//   marker scan.
+//
+//   Validation mirrors the Python's Cache.exit_state: the file row is
+//   SELECTed for (fingerprint, channel, date) and the cached size + mtime_ns
+//   are compared against the CURRENT stat of the day-before file.  The
+//   fingerprint is bound in the SQL, the stat is taken by THIS function
+//   (x2 = fpath, stat'ed into the private cache_stat slot exactly like
+//   tc_cache_day -> cache_get_day), and the entering state is deliberately
+//   NOT compared (match_enter_state=False): the state a day ended in does
+//   not depend on how it began.
+//
+//   A cached exit-state of "unknown" proves nothing (the Python's comment:
+//   "A cached 'unknown' proves nothing, so fall through and scan") and a
+//   NULL exit_state is no state at all, so both return 0.
+//
+//   in:  x0 = channel name pointer (tc_channel_name result / cache_channel)
+//        x1 = ymd (YYYYMMDD)
+//        x2 = NUL-terminated fpath of the day-before file (the caller
+//             builds it into its own buffer before calling)
+//   out: x0 = TC_ST_LIVE (1) / TC_ST_OFFLINE (2) when a valid cached row
+//        exists with an authoritative (non-unknown) exit-state, else 0
+//        ("no authoritative cached state — fall back to scan").  0 is also
+//        returned for a closed cache, a stat failure, a missing/stale row,
+//        a NULL/"unknown" exit_state and any sqlite error — the cache must
+//        never fail the query.
+//   clobbers: x0-x17 (scratch), x19-x28 (preserved via PROLOGUE 5)
+// ============================================================================
+    .p2align 2
+    .global tc_cache_exit_state
+    FUNC_TYPE(tc_cache_exit_state)
+tc_cache_exit_state:
+    PROLOGUE 5
+    mov x19, x0                     // channel_ptr
+    mov x20, x1                     // ymd
+    mov x21, x2                     // fpath
+    // ---- guards: closed cache or no path -> no authoritative state ----
+    LEA x9, cache_db
+    ldr x9, [x9]
+    cbz x9, .Lces_zero
+    cbz x21, .Lces_zero
+    // ---- stat the day-before file into the private slot (OSError -> 0) ----
+    mov x0, x21
+    LEA x1, cache_stat
+    bl stat
+    cbnz w0, .Lces_zero
+    // ---- date string ----
+    mov x0, x20
+    LEA x1, cache_scratch
+    bl cache_fmt_date
+    LEA x22, cache_scratch          // date ptr
+    // ---- SELECT the file row (fingerprint, size, mtime_ns, enter, exit) ----
+    LEA x0, s_sql_sel_file
+    bl cache_prepare_stmt
+    cbz x0, .Lces_zero
+    mov x23, x0                     // stmt
+    mov x1, #1
+    LEA x2, cache_fp
+    bl cache_bind_text_stmt
+    mov x0, x23
+    mov x1, #2
+    mov x2, x19
+    bl cache_bind_text_stmt
+    mov x0, x23
+    mov x1, #3
+    mov x2, x22
+    bl cache_bind_text_stmt
+    mov x0, x23
+    bl cache_step_stmt
+    cmp w0, #SQLITE_ROW
+    b.ne .Lces_miss_fin
+    // row: size=col1, mtime=col2, exit=col4 (convert exit BEFORE finalize)
+    mov x0, x23
+    mov x1, #1
+    bl sqlite3_column_int64
+    mov x24, x0                     // cached size
+    mov x0, x23
+    mov x1, #2
+    bl sqlite3_column_int64
+    mov x25, x0                     // cached mtime
+    mov x0, x23
+    mov x1, #4
+    bl sqlite3_column_text
+    mov x26, x0                     // cached exit str (may be 0)
+    mov x0, x26
+    bl cache_state_id               // x0 = 0/1/2/3 (BEFORE finalize: the
+    mov x26, x0                     // pointer is owned by the stmt)
+    mov x0, x23
+    bl sqlite3_finalize
+    // ---- validity: size + mtime_ns against the freshly stat'ed file ----
+    LEA x9, cache_stat
+    ldr x10, [x9, #ST_SIZE]
+    cmp x24, x10
+    b.ne .Lces_zero
+    ldr x10, [x9, #ST_MTIM_SEC]
+    MOV_NANOSEC x11
+    mul x10, x10, x11
+    ldr x11, [x9, #ST_MTIM_NSEC]
+    add x10, x10, x11
+    cmp x25, x10
+    b.ne .Lces_zero
+    // ---- exit-state: NULL (0) or "unknown" (3) proves nothing -> 0 ----
+    cbz x26, .Lces_zero
+    cmp x26, #TC_ST_UNKNOWN
+    b.eq .Lces_zero
+    mov x0, x26                     // TC_ST_LIVE / TC_ST_OFFLINE
+    b .Lces_out
+.Lces_miss_fin:
+    mov x0, x23
+    bl sqlite3_finalize
+.Lces_zero:
+    mov x0, #0
+.Lces_out:
+    EPILOGUE 5
     ret
 
 // ============================================================================
@@ -1035,7 +1150,6 @@ cache_dump_count:
     bl cache_prepare_stmt
     cbz x0, .Ldc_done
     mov x20, x0
-    mov x0, x20
     bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Ldc_fin
@@ -1062,8 +1176,7 @@ cache_migrate_step:
     LEA x0, s_sql_sel_schema
     bl cache_prepare_stmt
     cbz x0, .Lms_fail
-    mov x20, x0                     // stmt
-    mov x0, x20
+    mov x20, x0
     bl cache_step_stmt
     cmp w0, #SQLITE_ROW
     b.ne .Lms_migrate               // no meta row -> migrate
@@ -1105,7 +1218,6 @@ cache_migrate_step:
     bl cache_prepare_stmt
     cbz x0, .Lms_fail
     mov x20, x0
-    mov x0, x20
     mov x1, #1
     LEA x2, s_schema_version
     bl cache_bind_text_stmt
@@ -1180,7 +1292,6 @@ cache_register_step:
     bl cache_prepare_stmt
     cbz x0, .Lrs_fail
     mov x19, x0
-    mov x0, x19
     mov x1, #1
     LEA x2, cache_fp
     bl cache_bind_text_stmt
@@ -1235,7 +1346,6 @@ cache_sweep_step:
     bl cache_prepare_stmt
     cbz x0, .Lsw_fail
     mov x19, x0                     // stmt
-    mov x0, x19
     mov x1, #1
     LEA x2, cache_scratch
     bl cache_bind_text_stmt
@@ -1254,7 +1364,6 @@ cache_sweep_step:
     bl cache_prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
-    mov x0, x22
     mov x1, #1
     mov x2, x21
     bl cache_bind_text_stmt
@@ -1266,7 +1375,6 @@ cache_sweep_step:
     bl cache_prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
-    mov x0, x22
     mov x1, #1
     mov x2, x21
     bl cache_bind_text_stmt
@@ -1278,7 +1386,6 @@ cache_sweep_step:
     bl cache_prepare_stmt
     cbz x0, .Lsw_fail2
     mov x22, x0
-    mov x0, x22
     mov x1, #1
     mov x2, x21
     bl cache_bind_text_stmt
@@ -1317,7 +1424,6 @@ cache_purge_step:
     bl cache_prepare_stmt
     cbz x0, .Lpg_fail
     mov x19, x0
-    mov x0, x19
     mov x1, #1
     LEA x2, cache_channel
     ldr x2, [x2]
@@ -1330,7 +1436,6 @@ cache_purge_step:
     bl cache_prepare_stmt
     cbz x0, .Lpg_fail
     mov x19, x0
-    mov x0, x19
     mov x1, #1
     LEA x2, cache_channel
     ldr x2, [x2]
@@ -1371,7 +1476,6 @@ cache_get_day:
     bl cache_prepare_stmt
     cbz x0, .Lcg_miss
     mov x22, x0                     // stmt
-    mov x0, x22
     mov x1, #1
     LEA x2, cache_fp
     bl cache_bind_text_stmt
@@ -1435,7 +1539,6 @@ cache_get_day:
     bl cache_prepare_stmt
     cbz x0, .Lcg_miss
     mov x22, x0
-    mov x0, x22
     mov x1, #1
     LEA x2, cache_fp
     bl cache_bind_text_stmt
@@ -1630,7 +1733,7 @@ cache_resolve_cache_path:
     LEA x0, cache_path
     mov x1, x19
     mov x2, #PATH_SZ
-    bl cache_cat_cstr_cap                 // x0 = cursor at the NUL
+    bl tc_cat_cstr_cap                 // x0 = cursor at the NUL
     mov x20, x0
     mov x0, x19
     bl tc_strlen
@@ -1644,7 +1747,7 @@ cache_resolve_cache_path:
     mov x0, x20
     LEA_OFF x2, cache_path, PATH_SZ
     sub x2, x2, x20                 // bytes left from the cursor
-    bl cache_cat_cstr_cap
+    bl tc_cat_cstr_cap
     b .Lrcp_done
 .Lrcp_default:
 #endif
@@ -1938,40 +2041,6 @@ cache_sqlite_type_name:
     ret
 
 // ============================================================================
-// cache_cat_cstr_cap(x0=cursor, x1=s, x2=cap) — bounded append; writes at most
-//   cap-1 bytes plus a NUL (cap = bytes available from the cursor).
-//   Returns the cursor at the NUL.
-// ============================================================================
-    .p2align 2
-cache_cat_cstr_cap:
-    PROLOGUE 1
-    mov x19, x0
-    mov x20, x2                     // cap
-    mov x2, #0                      // i
-.Lccc_loop:
-    sub x3, x20, #1
-    cmp x2, x3
-    b.ge .Lccc_full
-    ldrb w3, [x1, x2]
-    strb w3, [x19, x2]
-    cbz w3, .Lccc_done
-    add x2, x2, #1
-    b .Lccc_loop
-.Lccc_full:
-    mov w3, #0
-    strb w3, [x19, x2]
-    add x19, x19, x2
-    b .Lccc_out
-.Lccc_done:
-    // the NUL was copied at [x19 + x2]; return the cursor AT it so the
-    // caller's next append overwrites it (cat_cstr semantics)
-    add x19, x19, x2
-.Lccc_out:
-    mov x0, x19
-    EPILOGUE 1
-    ret
-
-// ============================================================================
 // cache_fmt_date(x0=ymd, x1=out) -> x0 = cursor after "YYYY-MM-DD" (NUL written).
 // ============================================================================
     .p2align 2
@@ -2083,56 +2152,55 @@ cache_fmt_iso:
 // ============================================================================
 // cache_put_pad(x0=buf, x1=value, x2=width) -> x0 = cursor after the digits.
 //   Zero-pads to `width`; value must fit (<= 9999 for the callers here).
+//   Call-free leaf: no frame, scratch regs only (x0-x17 + sp clobbered).
 // ============================================================================
     .p2align 2
 cache_put_pad:
-    PROLOGUE 3
-    mov x19, x0                     // buf
-    mov x20, x1                     // value
-    mov x21, x2                     // width
+    mov x9, x0                      // buf
+    mov x10, x1                     // value
+    mov x11, x2                     // width
     sub sp, sp, #32
-    add x22, sp, #31
-    mov x23, #0                     // digit count
-    mov x3, x20
+    add x12, sp, #31
+    mov x13, #0                     // digit count
+    mov x3, x10
     cbz x3, .Lpp_zero
 .Lpp_loop:
     mov x4, #10
     udiv x5, x3, x4
     msub x6, x5, x4, x3
     add x6, x6, #'0'
-    strb w6, [x22]
-    sub x22, x22, #1
-    add x23, x23, #1
+    strb w6, [x12]
+    sub x12, x12, #1
+    add x13, x13, #1
     mov x3, x5
     cbnz x3, .Lpp_loop
     b .Lpp_pad
 .Lpp_zero:
     mov w4, #'0'
-    strb w4, [x22]
-    sub x22, x22, #1
-    mov x23, #1
+    strb w4, [x12]
+    sub x12, x12, #1
+    mov x13, #1
 .Lpp_pad:
-    mov x5, x21
-    sub x5, x5, x23
+    mov x5, x11
+    sub x5, x5, x13
 .Lpp_pad_go:
     cmp x5, #0
     b.le .Lpp_copy                 // value wider than the field: no padding
     mov w4, #'0'
-    strb w4, [x19], #1
+    strb w4, [x9], #1
     sub x5, x5, #1
     b .Lpp_pad_go
 .Lpp_copy:
-    add x22, x22, #1
+    add x12, x12, #1
 .Lpp_copy_loop:
-    cbz x23, .Lpp_done
-    ldrb w4, [x22], #1
-    strb w4, [x19], #1
-    sub x23, x23, #1
+    cbz x13, .Lpp_done
+    ldrb w4, [x12], #1
+    strb w4, [x9], #1
+    sub x13, x13, #1
     b .Lpp_copy_loop
 .Lpp_done:
-    mov x0, x19
+    mov x0, x9
     add sp, sp, #32
-    EPILOGUE 3
     ret
 
 // ============================================================================

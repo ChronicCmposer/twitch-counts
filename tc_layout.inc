@@ -563,6 +563,9 @@
 // ============================================================================
 // Exported symbol contracts (see each module's header for the full text)
 // ============================================================================
+// Regenerated from the ACTUAL exports (`make exports` / nm on the objects)
+// after the Wave-2/2.5 dedup pass.  Accuracy over completeness: every line
+// below is a real .global in the named module as of this writing.
 //
 // tc_util.S
 //   tc_strlen(x0=s)                       -> x0 = length (no NUL)
@@ -578,9 +581,32 @@
 //   tc_sod_split(x0=sod)                  -> x0=hour, x1=minute, x2=second
 //   tc_is_ws(x0=byte)                     -> x0 = 1 for ASCII whitespace
 //   tc_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = dst+len
+//   tc_copy_str_cap(x0=dst, x1=src, x2=cap) -> x0 = dst (copy up to cap-1 + NUL)
+//   tc_cat_cstr_cap(x0=cursor, x1=s, x2=cap) -> x0 = cursor at the NUL
+//       (bounded append, cap-1 bytes + NUL)
+//   tc_cat_cstr(x0=cursor, x1=s)          -> x0 = position of the copied NUL
+//   tc_streq(x0=a, x1=b)                  -> x0 = 1/0
+//   tc_fmt2(x0=dst, x1=v) / tc_fmt4       -> x0 = dst+2 / dst+4 (zero-padded digits)
+//   tc_days_from_civil(x0=y, x1=m, x2=d)  -> x0 = days since 1970-01-01
+//   tc_civil_from_days(x0=days)           -> x0=y, x1=m, x2=d
+//   tc_is_leap(x0=y)                      -> x0 = 1/0
+//   tc_days_in_month(x0=y, x1=m)          -> x0 = 28..31
+//   tc_ymd_sod_to_epoch(x0=ymd, x1=sod)   -> x0 = epoch seconds
+//   tc_epoch_to_ymd_sod(x0=epoch)         -> x0 = ymd, x1 = sod
+//   tc_snprintf_d(x0=buf, x1=size, x2=fmt, d0=value) -> x0 = snprintf() result
+//   tc_snprintf_i(x0=buf, x1=size, x2=fmt, x3=value) -> x0 = snprintf() result
+//   tc_ioctl_p(x0=fd, x1=request, x2=ptr) -> x0 = ioctl() result
+//   tc_expanduser(x0=src, x1=dst, x2=cap) -> x0 = len (CPython expanduser)
+//   tc_shorten_path(x0=path)              -> x0 = ptr (CPython shorten_path)
+//   tc_default_config_path(x0=dst, x1=cap) -> x0 = len (platform class)
+//   tc_platform_default_logs_dir(x0=dst, x1=cap) -> x0 = len, 0 = no default
+//   tc_env_int(x0=name, x1=default)       -> x0 = value (env var as int)
+//   tc_term_columns()                     -> x0 = terminal width (COLUMNS/env/ioctl)
+//   tc_term_lines()                       -> x0 = terminal height (LINES/env/ioctl)
 //   tc_read_all(x0=path, x1=cap)          -> x0=status (0 ok, 1 too large,
 //       2 error), x1 = malloc'd buffer (caller frees; 0 on early error),
 //       x2 = bytes read
+//   tc_entry_ptr(x0=base, x1=i, x2=sz)    -> x0 = base + i*sz (record pointer)
 //   tc_state_str(x0=id)                   -> x0 = "live"/"offline"/"unknown"
 //       (TC_ST_* 1/2/3), or 0.  tc_state_names is the pointer table
 //       (indexed by TC_ST_* - 1); the string literals are exported as
@@ -590,8 +616,13 @@
 //       TC_M_*); the literals are exported as tc_str_count / tc_str_login /
 //       tc_str_live / tc_str_offline / tc_str_unknown / tc_str_offshare /
 //       tc_str_liveshare.
+//   tc_win_begin_after_end_check(x0=scratch) -> reads tc_window; fails with
+//       "begin (A) is after end (B)" when begin > end (shared CLI/core check).
 //
-// tc_cli.S
+// tc_main.S
+//   main()                                dispatch (see its header comment).
+//
+// tc_cli.S  (parse + resolution; exports the shared tc_opts/tc_window data)
 //   tc_cli_parse(x0=argc, x1=argv)        -> 0; fills tc_opts + tc_window.
 //       Parse errors: usage + "<prog>: error: ..." to stderr, exit 2.
 //       Resolution errors: "error: ..." to stderr, exit 1.
@@ -600,23 +631,23 @@
 //       TC_SRC_DYN_* (reads the live buffers in tc_opts).
 //   tc_prog_name()                        -> x0 = basename(argv[0]) pointer
 //   tc_print_help()                       prints help to stdout, exit 0
-//   tc_civil_from_days(x0=z)              -> x0=y, x1=m, x2=d (port of the
-//       Python/reference civil math; exported for the formatters)
+//   tc_setting_src_str(x0=set id)         -> x0 = source label pointer
 //   tc_parse_datetime(x0=s, x1=eod)       -> (x0=ymd, x1=sod, x2=ok 0/1)
 //       DATETIME_FORMATS + ISO weeks + fromisoformat week subset.
 //   tc_parse_duration(x0=s)               -> (x0=seconds, x1=status)
 //       status 0 ok, 1 unrecognized, 2 zero.
-//   cli_parse_positive_int(x0=s)           -> (x0=value, x1=ok)
-//   cli_parse_nonnegative_int(x0=s)        -> (x0=value, x1=ok)
-//   cli_parse_nonnegative_float(x0=s)      -> (x0=bits, x1=ok) (double bits)
-//   cli_parse_positive_float(x0=s)         -> (x0=bits, x1=ok)
 //   tc_parse_bool(x0=s)                   -> (x0=value 0/1, x1=ok)
 //   tc_parse_state(x0=s)                  -> (x0=TC_ST_*, x1=ok)
 //   tc_parse_header(x0=s)                 -> (x0=TC_HDR_*, x1=ok)
 //   tc_parse_sort(x0=s)                   -> (x0=TC_M_*, x1=ok)
 //   tc_parse_curve(x0=s)                  -> (x0=TC_CURVE_*, x1=ok)
 //   tc_parse_hex_colour(x0=s)             -> (x0=r<<16|g<<8|b, x1=ok)
+//   tc_parse_metrics(x0=s)                -> (x0=TC_M_*, x1=ok)
+//   tc_parse_users_policy(x0=s)           -> (x0=TC_USERS_POLICY_*, x1=ok)
 //   (all "ok" = 1 on success; callers print the argparse message themselves)
+//   Data exports: tc_opts (the resolved options block), tc_window (the
+//   resolved range), tc_listing, tc_tally, tc_users, tc_excl_set,
+//   tc_excl_sources, tc_excl_src_buf, tc_hl_patterns.
 //
 // tc_config.S  (tc_config_stub.S stands in for it in the CLI-only and
 //   core-only test drivers)
@@ -628,14 +659,74 @@
 //       section_id: TC_SEC_NONE/WATCH/TAIL.  found=1 only for a key present
 //       with a non-null value.  source_id is TC_SRC_CONFIG / _CONFIG_WATCH /
 //       _CONFIG_TAIL, the label the resolver records.
+//   tc_config_changed()                   -> x0 = 1 when the loaded config
+//       differs from the last tc_config_identity snapshot
+//   tc_config_reload()                    -> 0; re-runs the loader
+//   tc_config_identity(x0=dst, x1=cap)    -> x0 = len; the config identity
+//       string (used by the cache fingerprint's config part)
 //   tc_aliases_apply()                    -> 0
 //       Rewrites tc_opts+TC_O_CHANNEL and fills TC_O_CHAN_SRC when the
 //       resolved channel matches a [aliases] key ("<src> -> alias '<key>'").
+//   tc_build_exclusions()                 -> 0 (may tc_report_fail; fills
+//       tc_excl_set/tc_excl_sources from config/env/args)
 //   tc_excl_contains(x0=ptr, x1=len)      -> x0 = 1 if the login is in
 //       tc_excl_set (lowercased compare), else 0.
+//   Data export: tc_excl_src_count.
 //
-// tc_main.S
-//   main()                                dispatch (see its header comment).
+// tc_core.S  (the counting core; the shared tc_* helpers it exports)
+//   tc_resolve_channel()                  -> 0; resolves the channel dir
+//   tc_channel_name()                     -> x0 = resolved channel name ptr
+//   tc_count_run()                        -> 0; the one-shot count entry
+//   tc_count_column(x0=login, x1=len, x2=state, x3=n) -> x0 = column value
+//   tc_user_state(x0=login, x1=len, x2=state) -> x0 = count for the state
+//   tc_add_user(x0=login, x1=len, x2=state, x3=n) -> x0 = 0
+//   tc_find_user(x0=login, x1=len, x2=table) -> x0 = index or -1
+//   tc_reuse_apply(x0=login, x1=len, x2=state, x3=n) -> x0 = 0 (cache hook)
+//   tc_eff_threshold()                    -> x0 = effective --users floor
+//   tc_line_is_marker(x0=line, x1=len)    -> x0 = 1 live / 2 offline / 0
+//   tc_is_timestamp_header(x0=line, x1=len) -> x0 = 1 when "[HH:MM:SS] " prefix
+//   tc_speaker_login_to(x0=s, x1=len, x2=dst) -> x0 = login len or 0
+//   tc_parse_log_filename_n(x0=name, x1=len) -> x0 = ymd (YYYYMMDD) or 0
+//   tc_ascii_casecmp(x0=a, x1=b)          -> x0 = 0 when equal ignoring case
+//   tc_capture_errno()                    -> 0 (records the current errno)
+//   tc_errno_reason(x0=errno)             -> x0 = "ExcClass: strerror" ptr
+//   tc_oserror_text(x0=errno)             -> x0 = OSError-style reason ptr
+//   Data export: tc_last_errno.
+//
+// tc_cache.S  (the SQLite rollup cache)
+//   tc_cache_open() / tc_cache_close()    -> 0
+//   tc_cache_used()                       -> x0 = 0/1
+//   tc_cache_status()                     -> (x0=used, x1=reused, x2=parsed,
+//       x3=problem ptr, x4=path ptr)
+//   tc_cache_day(x0=fpath, x1=lo, x2=hi, x3=enter_state, x4=ymd) -> x0 = 0/1/2
+//   tc_cache_put_day(x0=exit_state)       -> 0 (write the stashed whole day)
+//   tc_cache_discard_day()                -> 0 (drop a pending stash)
+//   tc_cache_exit_state(x0=channel, x1=ymd, x2=fpath) -> x0 = TC_ST_* or 0
+//       (the C8 seed hook; the cache stats fpath itself for validation)
+//   tc_cache_debug_dump()                 -> 0 (test-only)
+//
+// tc_render.S  (output formatting)
+//   tc_render_report()                    -> 0 (plan, then JSON or text)
+//   tc_render_text()                      -> 0 (the one-shot text report)
+//   tc_plan_presentation(x0=plan)         -> 0 (fill the presentation rows)
+//   tc_report_fail(x0=msg)                noreturn; "error: <msg>" or the
+//       {"error": ...} JSON shape (exit 1)
+//   tc_frame_begin() / tc_frame_end()     watch frame capture (arm/disarm)
+//   tc_frame_set_pin(x0=w) / tc_frame_set_tint(x0=fn, x1=ctx)
+//   Data export: tc_plan, tc_frame.
+//
+// tc_json.S
+//   tc_json_emit(x0=plan)                 -> 0 (the self-describing report)
+//   tc_json_err(x0=msg)                   noreturn; {"error": ...} to stderr
+//
+// tc_misc.S
+//   tc_misc_manual() / tc_misc_fish()     -> 0 (--manual / --fish)
+//   tc_misc_complete()                    -> 0 (shell completion)
+//   tc_misc_now_utc()                     -> (x0=ymd, x1=sod)
+//   Data exports: tc_manual_text, tc_fish_text_a, tc_fish_text_b.
+//
+// tc_watch.S
+//   tc_watch_run()                        -> x0 = 0 clean / 130 SIGINT
 //
 // ============================================================================
 

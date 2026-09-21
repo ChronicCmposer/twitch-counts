@@ -122,14 +122,15 @@
     .globl strcmp
     .globl tc_strlen
     .globl tc_fail
-    .globl tc_civil_from_days
     .globl tc_excl_contains
     // rollup-cache hooks (implemented in tc_cache.S)
     .globl tc_cache_day
     .globl tc_cache_put_day
     .globl tc_cache_discard_day
+    .globl tc_cache_exit_state          // C8 seed hook (3-arg contract:
+                                        // x0=channel, x1=ymd, x2=fpath —
+                                        // see core_seed_state)
     .globl tc_cat_cstr
-    .globl tc_days_from_civil
     .globl tc_ymd_sod_to_epoch
     .globl tc_epoch_to_ymd_sod
     .globl tc_days_in_month
@@ -164,7 +165,6 @@ core_reason:     .skip 128           // "{ExcClass}: {strerror}" of a skipped fi
 core_statbuf:    .skip STAT_SZ       // os.path.isdir(logs_dir)
     .global tc_last_errno
 tc_last_errno:      .skip 8             // errno of the last captured failure
-core_fmt:        .skip 64            // datetime formatting buffer
 core_login:      .skip 32            // core_speaker_login output (<= 25 + NUL)
 core_dirpath:    .skip 640           // logs_dir + "/" + channel_name
 core_fpath:      .skip 704           // dirpath + "/" + file name
@@ -190,9 +190,6 @@ s_no_logs_mid:      .asciz "' in "
 s_avail:            .asciz "available: "
 s_none_paren:       .asciz "(none)"
 s_no_files_pre:     .asciz "no log files found in "
-s_cant_open_dir:    .asciz "cannot open channel directory: "
-s_begin_paren:      .asciz "begin ("
-s_is_after_end:     .asciz ") is after end ("
 s_too_large:        .asciz "file too large"
 s_oom:              .asciz "out of memory"
 // The marker suffixes ("is live!" / "is now offline.") are shared in
@@ -249,8 +246,7 @@ tc_count_column:
     LEA x1, tc_users
     ldr x2, [x1, #TC_US_ENTRIES]
     mov x3, #TC_US_ENTRY_SZ
-    mul x3, x0, x3
-    add x0, x2, x3                  // entry ptr
+    ENTRY_PTR x0, x2, x0, x3        // entry ptr
     LEA x3, tc_window
     ldr x1, [x3, #TC_W_STATE_FILTER]
     bl core_count_column_for_entry  // x0 = the state-filtered sum
@@ -267,8 +263,7 @@ tc_user_state:
     LEA x2, tc_users
     ldr x3, [x2, #TC_US_ENTRIES]
     mov x4, #TC_US_ENTRY_SZ
-    mul x4, x0, x4
-    add x2, x3, x4
+    ENTRY_PTR x2, x3, x0, x4
     cmp x1, #TC_ST_LIVE
     b.eq .Lus_live
     cmp x1, #TC_ST_OFFLINE
@@ -283,18 +278,20 @@ tc_user_state:
     ret
 
 // ============================================================================
-// core_eff_threshold — the effective reported() floor for --users sizing:
+// tc_eff_threshold — the effective reported() floor for --users sizing:
 //   max(min_count, share_floor) when a share is shown or sorted by and the
 //   share floor is nonzero, else min_count.  (Python rank_users ordering:
 //   the >= threshold filter, then the >= floor filter when it acts.)
+//   Exported for the watch module (tc_watch.S): watch_size_users and
+//   watch_reported_width apply the same floor.
 //   Register reuse: x0 starts as &tc_opts for the option loads, then x1 holds
 //   min_count for the whole function, and x0 is overwritten with the result
 //   (share_floor or min_count) only in the two terminal stores below.
 // ============================================================================
     .p2align 2
-    .global core_eff_threshold
-    FUNC_TYPE(core_eff_threshold)
-core_eff_threshold:
+    .global tc_eff_threshold
+    FUNC_TYPE(tc_eff_threshold)
+tc_eff_threshold:
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_MIN_COUNT]
     ldr x2, [x0, #TC_O_SORT]
@@ -376,7 +373,7 @@ tc_resolve_channel:
     ldr x22, [x22, x21, lsl #3]        // name
     LEA x1, core_chlower
     mov x0, x22
-    bl core_ascii_casecmp
+    bl tc_ascii_casecmp
     cbz x0, .Lrc_found
     add x21, x21, #1
     b .Lrc_find
@@ -492,7 +489,7 @@ tc_resolve_channel:
     mov w2, #0
     strb w2, [x19]
     LEA x0, core_scratch
-    bl tc_fail
+    bl tc_report_fail
 
 // ============================================================================
 // core_list_channel_dirs — os.listdir(logs_dir) filtered to directories:
@@ -591,7 +588,7 @@ core_build_listing:
     cbz x0, .Lbl_done
     add x22, x0, #D_NAME_OFF           // d_name (callee-saved)
     mov x0, x22
-    bl core_parse_log_filename              // x0 = ymd or 0 (clobbers x0-x2)
+    bl core_parse_log_filename              // x0 = ymd or 0 (clobbers x0-x8)
     cbz x0, .Lbl_list
     mov x21, x0                        // ymd
     mov x23, #0                        // name len
@@ -654,10 +651,10 @@ core_build_listing:
 
 .Lbl_oom:
     LEA x0, s_oom
-    bl tc_fail
+    bl tc_report_fail
 
 // ============================================================================
-// core_parse_log_filename_n(x0=name, x1=len) -> x0 = ymd (YYYYMMDD), or 0 when
+// tc_parse_log_filename_n(x0=name, x1=len) -> x0 = ymd (YYYYMMDD), or 0 when
 //   the name is not "<anything>-YYYY-MM-DD.log" with a real calendar date.
 //   Length-parameterized variant of core_parse_log_filename, exported for the
 //   watch module (tc_watch.S): the caller already holds the length (e.g. a
@@ -665,9 +662,9 @@ core_build_listing:
 //   name bytes [0, len) must be readable.  Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
-    .global core_parse_log_filename_n
-    FUNC_TYPE(core_parse_log_filename_n)
-core_parse_log_filename_n:
+    .global tc_parse_log_filename_n
+    FUNC_TYPE(tc_parse_log_filename_n)
+tc_parse_log_filename_n:
     PROLOGUE 3
     mov x19, x0                        // name
     mov x20, x1                        // len
@@ -786,7 +783,8 @@ core_parse_log_filename_n:
 // ============================================================================
 // core_parse_log_filename(x0=name) -> x0 = ymd (YYYYMMDD), or 0 when the name is
 //   not "<anything>-YYYY-MM-DD.log" with a real calendar date.  Wrapper over
-//   core_parse_log_filename_n: measures the NUL-terminated name first.
+//   tc_parse_log_filename_n: measures the NUL-terminated name first.
+//   Clobbers x0-x8 (x19-x28 preserved).
 // ============================================================================
     .p2align 2
 core_parse_log_filename:
@@ -795,7 +793,7 @@ core_parse_log_filename:
     bl tc_strlen
     mov x1, x0                         // len
     mov x0, x19
-    bl core_parse_log_filename_n       // x0 = ymd or 0
+    bl tc_parse_log_filename_n       // x0 = ymd or 0
     EPILOGUE 1
     ret
 
@@ -831,7 +829,7 @@ core_complete_window:
     mov w1, #0
     strb w1, [x0]
     LEA x0, core_scratch
-    bl tc_fail
+    bl tc_report_fail
 .Lcw_earliest_ok:
     ldr x23, [x21, #TC_L_ENTRIES]
     ldr x24, [x23]
@@ -854,50 +852,14 @@ core_complete_window:
 // ============================================================================
 // core_window_begin_after_end_check — "begin (B) is after end (E)" when the
 //   resolved begin (kind EARLIEST) is later than the resolved end.
+//   2-instruction wrapper over the shared tc_win_begin_after_end_check
+//   (tc_util.S): passes the core scratch buffer and lets the shared helper
+//   read tc_window, format the message and tc_report_fail.
 // ============================================================================
     .p2align 2
 core_window_begin_after_end_check:
-    PROLOGUE 3
-    LEA x19, tc_window
-    ldr x0, [x19, #TC_W_BEGIN_YMD]
-    ldr x1, [x19, #TC_W_BEGIN_SOD]
-    bl tc_ymd_sod_to_epoch
-    mov x20, x0
-    ldr x0, [x19, #TC_W_END_YMD]
-    ldr x1, [x19, #TC_W_END_SOD]
-    bl tc_ymd_sod_to_epoch
-    mov x21, x0
-    cmp x20, x21
-    b.le .Lwae_done
     LEA x0, core_scratch
-    mov x22, x0
-    LEA x1, s_begin_paren
-    bl tc_cat_cstr
-    mov x22, x0
-    ldr x1, [x19, #TC_W_BEGIN_YMD]
-    ldr x2, [x19, #TC_W_BEGIN_SOD]
-    mov x0, x22                         // format into the scratch cursor
-    mov w3, #' '                        // sep (the local formatter used a space)
-    bl tc_fmt_ymd_sod
-    mov x22, x0
-    LEA x1, s_is_after_end
-    mov x0, x22
-    bl tc_cat_cstr
-    mov x22, x0
-    ldr x1, [x19, #TC_W_END_YMD]
-    ldr x2, [x19, #TC_W_END_SOD]
-    mov x0, x22                         // format into the scratch cursor
-    mov w3, #' '
-    bl tc_fmt_ymd_sod
-    mov w1, #')'
-    strb w1, [x0], #1
-    mov w1, #0
-    strb w1, [x0]
-    LEA x0, core_scratch
-    bl tc_fail
-.Lwae_done:
-    EPILOGUE 3
-    ret
+    b tc_win_begin_after_end_check
 
 // ============================================================================
 // core_size_users — the --users bisection (Python _search_width + _apply_width).
@@ -1062,7 +1024,7 @@ core_reported_width:
     str x0, [x20, #TC_W_BEGIN_YMD]
     str x1, [x20, #TC_W_BEGIN_SOD]
     bl core_count_final
-    bl core_eff_threshold
+    bl tc_eff_threshold
     mov x21, x0                        // eff
     ldr x28, [x20, #TC_W_STATE_FILTER] // hoisted filter for the inlined
                                         // tc_count_column (x28 is otherwise free)
@@ -1075,8 +1037,7 @@ core_reported_width:
     cmp x26, x23
     b.ge .Lrw_done
     mov x27, #TC_US_ENTRY_SZ
-    mul x27, x26, x27
-    add x27, x24, x27                  // entry
+    ENTRY_PTR x27, x24, x26, x27    // entry
     mov x0, x27
     bl tc_strlen
     mov x1, x0
@@ -1264,12 +1225,10 @@ core_count_final:
 // ============================================================================
 // core_reset_count — zero the tally and the global counters, reset the user
 //   table count (the entry buffer is kept and reused across probes).
-//   Exported for the watch module (tc_watch.S): a fresh probe run re-zeros
-//   the same structures the counting pass does.
+//   Module-local: called only from core_count_final (tc_watch.S keeps its own
+//   watch_reset_count).
 // ============================================================================
     .p2align 2
-    .global core_reset_count
-    FUNC_TYPE(core_reset_count)
 core_reset_count:
     PROLOGUE 0
     LEA x0, core_g_live
@@ -1319,8 +1278,7 @@ core_finish_tally:
     cmp x27, x25
     b.ge .Lft_done
     mov x28, #TC_US_ENTRY_SZ
-    mul x28, x27, x28
-    add x28, x26, x28                   // entry
+    ENTRY_PTR x28, x26, x27, x28    // entry
     mov x0, x28
     bl tc_strlen
     mov x1, x0
@@ -1560,7 +1518,10 @@ core_record_unreadable:
 
 // ============================================================================
 // core_seed_state — the live/offline state in force when the range opens.
-//   Walks back through files whose date < begin.date(), newest first, at most
+//   Cache-first (C8): when the day before begin.date() is in the rollup with
+//   a valid, non-unknown exit state, that state is the seed (Python
+//   seed_stream_state's cache.exit_state() lookup).  Otherwise walks back
+//   through files whose date < begin.date(), newest first, at most
 //   seed_lookback of them; returns the LAST marker found in the first such
 //   file that has any (0 = unknown).  Unreadable files are skipped.
 // ============================================================================
@@ -1591,6 +1552,35 @@ core_seed_state:
     sub x24, x24, #1                     // newest file before begin.date()
     cmp x24, #0
     b.lt .Lss_none2
+    // ---- rollup-cache seed hook (C8) ----
+    // The day before the window may already be in the rollup.  Its cached
+    // exit state (validated by the cache module by size+mtime against the
+    // day-before file's CURRENT stat) is exactly the seed Python's
+    // seed_stream_state takes from cache.exit_state(): use it directly and
+    // skip the file scan.  A cold/missing/unknown row returns 0 and we fall
+    // through to the scan below.
+    //
+    // Contract (tc_cache.S): tc_cache_exit_state(x0=channel_ptr, x1=ymd,
+    // x2=fpath) -> x0 = 0/1/2.  x2 is REQUIRED — the cache stats the
+    // day-before file itself (cache_exit_state mirrors Python's
+    // Cache.exit_state(channel, file_date, stat)) — so build its path into
+    // core_fpath first, then recompute the entry for the ymd load
+    // (core_build_fpath clobbers x0-x17).
+    mov x9, #TC_L_ENTRY_SZ
+    mul x9, x24, x9
+    add x9, x21, x9                      // entry: the newest file before begin.date()
+    LEA x0, core_fpath
+    LEA x1, core_dirpath
+    add x2, x9, #TC_L_NAME
+    bl core_build_fpath                  // core_fpath = <dir>/<name>
+    mov x9, #TC_L_ENTRY_SZ
+    mul x9, x24, x9
+    add x9, x21, x9
+    ldr x1, [x9, #TC_L_YMD]              // the newest file before begin.date()
+    LEA x0, core_name                    // resolved channel name (cache key)
+    LEA x2, core_fpath                   // day-before file path (cache stats it)
+    bl tc_cache_exit_state               // x0 = 0 (none/cold/unknown) or 1/2
+    cbnz x0, .Lss_out                    // the cached state IS the seed
     LEA x25, tc_opts
     ldr x26, [x25, #TC_O_SEED_LOOKBACK]
     sub x27, x24, x26
@@ -1649,16 +1639,18 @@ core_seed_state:
 // ============================================================================
     .p2align 2
 core_read_file:
-    PROLOGUE 1
-    mov x19, x0                         // path
-    mov x0, x19
+    // Frame record only (no callee-saved pairs): the body calls bl twice and
+    // then rets, so x30 must be recovered from the stack, not the link
+    // register (the last bl clobbers it).  The old mov x19/x0 round-trip was
+    // dead (x19 was never read again) and is gone.
+    PROLOGUE 0
     ldr x1, =FILE_CAP
     bl tc_read_all                      // x0=status, x1=buf, x2=len
     cmp x0, #2
     b.ne .Lrf_out
     bl tc_capture_errno                 // the skip() reason for status 2
 .Lrf_out:
-    EPILOGUE 1
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -1715,7 +1707,7 @@ core_scan_markers:
     cbz x24, .Lsm_next
     mov x0, x22
     mov x1, x24
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbz x0, .Lsm_next
     mov x21, x0
 .Lsm_next:
@@ -1727,18 +1719,18 @@ core_scan_markers:
     ret
 
 // ============================================================================
-// core_line_is_marker(x0=line, x1=len) -> x0 = 1 (live), 2 (offline), or 0.
+// tc_line_is_marker(x0=line, x1=len) -> x0 = 1 (live), 2 (offline), or 0.
 //   Exported for the watch module (tc_watch.S): the same classifier the
 //   counting pass and the seed loop use.
 // ============================================================================
     .p2align 2
-    .global core_line_is_marker
-    FUNC_TYPE(core_line_is_marker)
-core_line_is_marker:
+    .global tc_line_is_marker
+    FUNC_TYPE(tc_line_is_marker)
+tc_line_is_marker:
     PROLOGUE 1
     mov x19, x0
     mov x20, x1
-    bl core_is_timestamp_header
+    bl tc_is_timestamp_header
     cbz x0, .Llim_no
     mov x0, x19
     mov x1, x20
@@ -1770,11 +1762,10 @@ core_line_is_marker:
 //   line ends with the literal, preceded by a space and a non-empty,
 //   whitespace-free token: "[HH:MM:SS] <token> <literal>".  The token rejects
 //   every ASCII whitespace byte, matching the Python's \S+ token in LIVE_RE /
-//   OFFLINE_RE.  Exported for the watch module (tc_watch.S).
+//   OFFLINE_RE.  Module-local: reached by tc_watch.S through the exported
+//   tc_line_is_marker.
 // ============================================================================
     .p2align 2
-    .global core_marker_match
-    FUNC_TYPE(core_marker_match)
 core_marker_match:
     mov x4, x3
     cmp x1, x4
@@ -1876,7 +1867,7 @@ core_process_lines:
     b.eq .Lpl_next
     mov x0, x24
     mov x1, x27
-    bl core_line_is_marker
+    bl tc_line_is_marker
     cbnz x0, .Lpl_marker
     mov x0, x24
     mov x1, x27
@@ -1911,7 +1902,7 @@ core_process_message:
     mov x23, x4                         // state
     mov x0, x19
     mov x1, x20
-    bl core_is_timestamp_header
+    bl tc_is_timestamp_header
     cbz x0, .Lpm_skip
     // find the first ": " in the rest
     add x24, x19, #11
@@ -1996,8 +1987,7 @@ core_process_message:
     LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
-    mul x11, x0, x11
-    add x10, x10, x11                   // entry
+    ENTRY_PTR x10, x10, x0, x11     // entry
     mov x0, x10                         // entry
     mov x1, x26                         // state
     mov x2, #1
@@ -2011,7 +2001,7 @@ core_process_message:
     ret
 
 // ============================================================================
-// core_speaker_login_to(x0=speaker, x1=slen, x2=dst) -> x0 = login len, or 0
+// tc_speaker_login_to(x0=speaker, x1=slen, x2=dst) -> x0 = login len, or 0
 //   when the speaker is not a real chatter.  LOGIN_RE first, then LOCALIZED_RE
 //   with a non-ASCII display byte.  The login is lowercased (LOGIN_RE) or
 //   copied verbatim (LOCALIZED_RE's right part, already lowercase) into dst,
@@ -2019,9 +2009,9 @@ core_process_message:
 //   callers that want the buffer already hold it.  Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
-    .global core_speaker_login_to
-    FUNC_TYPE(core_speaker_login_to)
-core_speaker_login_to:
+    .global tc_speaker_login_to
+    FUNC_TYPE(tc_speaker_login_to)
+tc_speaker_login_to:
     PROLOGUE 2
     mov x19, x0                         // speaker
     mov x20, x1                         // slen
@@ -2140,14 +2130,14 @@ core_speaker_login_to:
 // ============================================================================
 // core_speaker_login(x0=speaker, x1=slen) -> x0 = login_buf ptr, x1 = login len,
 //   or x0 = 0 when the speaker is not a real chatter.  Thin wrapper over
-//   core_speaker_login_to that writes into the private core_login buffer and
+//   tc_speaker_login_to that writes into the private core_login buffer and
 //   re-wraps the result as (buf, len).
 // ============================================================================
     .p2align 2
 core_speaker_login:
     PROLOGUE 0
     LEA x2, core_login
-    bl core_speaker_login_to                // x0 = login len or 0
+    bl tc_speaker_login_to                // x0 = login len or 0
     cbz x0, .Lsl_no
     mov x1, x0                              // x1 = login len
     LEA x0, core_login                      // x0 = login_buf
@@ -2223,8 +2213,7 @@ tc_find_user:
     cmp x5, x4
     b.ge .Lfu_notfound
     mov x6, #TC_US_ENTRY_SZ
-    mul x6, x5, x6
-    add x6, x3, x6                      // entry
+    ENTRY_PTR x6, x3, x5, x6        // entry
     mov x7, x1                          // remaining
     mov x8, x0                          // login scan
     cmp x7, #16
@@ -2306,8 +2295,7 @@ tc_add_user:
     ldr x3, [x21, #TC_US_COUNT]
     ldr x4, [x21, #TC_US_ENTRIES]
     mov x5, #TC_US_ENTRY_SZ
-    mul x5, x3, x5
-    add x4, x4, x5                      // entry (stays at the base)
+    ENTRY_PTR x4, x4, x3, x5        // entry (stays at the base)
     mov x22, x3                         // count (survives the copy)
     mov x23, x4                         // entry base (survives the copy)
     mov x0, x4
@@ -2324,7 +2312,7 @@ tc_add_user:
     ret
 .Lau_oom:
     LEA x0, s_oom
-    bl tc_fail
+    bl tc_report_fail
 
 // ============================================================================
 // tc_reuse_apply(x0=login, x1=len, x2=state, x3=n) -> x0 = 0
@@ -2350,8 +2338,7 @@ tc_reuse_apply:
     LEA x9, tc_users
     ldr x10, [x9, #TC_US_ENTRIES]
     mov x11, #TC_US_ENTRY_SZ
-    mul x11, x0, x11
-    add x10, x10, x11                   // entry
+    ENTRY_PTR x10, x10, x0, x11     // entry
     mov x0, x10                         // entry
     mov x1, x21                         // state
     mov x2, x22                         // n
@@ -2488,14 +2475,14 @@ core_lowercase_copy:
     ret
 
 // ============================================================================
-// core_ascii_casecmp(x0=a, x1=b) -> x0 = 0 when a equals b ignoring ASCII
+// tc_ascii_casecmp(x0=a, x1=b) -> x0 = 0 when a equals b ignoring ASCII
 //   case (b is expected to be already lowercased).  Exported so tc_misc.S's
 //   misc_casecmp can tail-call it (same semantics, no length argument).
 // ============================================================================
     .p2align 2
-    .global core_ascii_casecmp
-    FUNC_TYPE(core_ascii_casecmp)
-core_ascii_casecmp:
+    .global tc_ascii_casecmp
+    FUNC_TYPE(tc_ascii_casecmp)
+tc_ascii_casecmp:
     mov x2, #0
 .Lacc_loop:
     ldrb w3, [x0, x2]
@@ -2599,15 +2586,15 @@ core_count_column_for_entry:
     ret
 
 // ============================================================================
-// core_is_timestamp_header(x0=line, x1=len) -> x0 = 1 when the line begins
+// tc_is_timestamp_header(x0=line, x1=len) -> x0 = 1 when the line begins
 //   with "[HH:MM:SS] " (11 bytes) and len >= 11.  The prefix check shared by
-//   core_line_is_marker and core_process_message.  Exported for the watch
+//   tc_line_is_marker and core_process_message.  Exported for the watch
 //   module (tc_watch.S).  Clobbers x0-x17 only.
 // ============================================================================
     .p2align 2
-    .global core_is_timestamp_header
-    FUNC_TYPE(core_is_timestamp_header)
-core_is_timestamp_header:
+    .global tc_is_timestamp_header
+    FUNC_TYPE(tc_is_timestamp_header)
+tc_is_timestamp_header:
     cmp x1, #11
     b.lt .Lith_no
     ldrb w2, [x0]
@@ -2666,9 +2653,6 @@ core_get_user_index:
     mov x19, x0
     mov x20, x1
     mov x21, x2
-    mov x0, x19
-    mov x1, x20
-    mov x2, x21
     bl tc_find_user                        // x0 = index or -1
     cmp x0, #0
     b.ge .Lgui_have

@@ -234,6 +234,9 @@
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
+// Exit status for a SIGINT-interrupted run: 128 + SIGINT (matches Python's
+// KeyboardInterrupt -> report_failure(..., code=130, announce=False)).
+// (EXIT_INTERRUPT lives in tc_platform.h.)
 
 // ----------------------------------------------------------------------------
 // main — the real orchestrator (see the header for the dispatch order).
@@ -246,8 +249,6 @@ main:
 
     mov x19, x0                      // argc
     mov x20, x1                      // argv
-    mov x0, x19
-    mov x1, x20
     bl tc_cli_parse                  // exits 2/1/0 on its own
 
     LEA x21, tc_opts
@@ -315,9 +316,9 @@ main:
     bl tc_build_exclusions
     bl tc_cache_open                 // stays open for the session
     bl tc_watch_run
-    mov x22, x0                      // rc: 0 clean / 130 SIGINT
+    mov x22, x0                      // rc: 0 clean / EXIT_INTERRUPT (130) SIGINT
     bl tc_cache_close
-    cmp x22, #130
+    cmp x22, #EXIT_INTERRUPT
     b.ne .Lmain_watch_done
     ldr x1, [x21, #TC_O_FLAGS]
     tst x1, #TC_F_JSON
@@ -356,7 +357,7 @@ main_sigint_handler:
     LEA x2, s_interrupted_end
     sub x2, x2, x1
     bl write
-    mov w0, #130
+    mov w0, #EXIT_INTERRUPT
 #ifdef __APPLE__
     bl __exit                        // noreturn (C _exit is __exit on Darwin)
 #else

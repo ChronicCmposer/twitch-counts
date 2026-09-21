@@ -100,8 +100,7 @@ tc_dump:
     cmp x22, x20
     b.ge .Ldump_list_done
     mov x23, #TC_L_ENTRY_SZ
-    mul x23, x22, x23
-    add x23, x21, x23
+    ENTRY_PTR x23, x21, x22, x23
     ldr x0, [x23, #TC_L_YMD]
     bl tc_putu64
     LEA x0, s_space
@@ -128,8 +127,7 @@ tc_dump:
     cmp x22, x20
     b.ge .Ldump_users_done
     mov x23, #TC_US_ENTRY_SZ
-    mul x23, x22, x23
-    add x23, x21, x23
+    ENTRY_PTR x23, x21, x22, x23
     mov x0, x23
     bl tc_puts                          // login
     LEA x0, s_space
@@ -201,8 +199,7 @@ tc_dump:
     cmp x22, x20
     b.ge .Ldump_unr_done
     mov x23, #TC_T_UNR_ENTRY_SZ
-    mul x23, x22, x23
-    add x23, x21, x23
+    ENTRY_PTR x23, x21, x22, x23
     LEA x0, s_unr
     bl tc_puts
     mov x0, x23
