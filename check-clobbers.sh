@@ -25,13 +25,14 @@
 #         (s < l, the one-PROLOGUE-many-return-paths shape) is benign;
 #     (c) writes to x29 without a matching `stp x29,x30` frame record
 #         (and stp x29,x30 without a matching ldp x29,x30);
-#     (d) x30, the link register: any function that calls (`bl`) MUST save
-#         x30 before the call -- PROLOGUE n always does (`stp x29,x30`), or
-#         an explicit stp that names x30 (e.g. `stp x19,x30,[sp,#-16]!`) --
-#         and restore it before its own `ret`.  A `ret` after a `bl` without
-#         a restore returns to the bl's RETURN ADDRESS and loops back into
-#         the function (the #1 silent-wrongness bug in this codebase).  A
-#         `bl` is NEVER a tail call; only `b sym` is.
+#     (d) x30, the link register: any function that calls (`bl`/`blr`) MUST
+#         save x30 before the call -- PROLOGUE n always does
+#         (`stp x29,x30`), or an explicit stp that names x30 (e.g.
+#         `stp x19,x30,[sp,#-16]!`) -- and restore it before its own `ret`.
+#         A `ret` after a `bl`/`blr` without a restore returns to the call's
+#         RETURN ADDRESS and loops back into the function (the #1
+#         silent-wrongness bug in this codebase).  A `bl`/`blr` is NEVER a
+#         tail call; only `b sym` is.
 #     bonus: any use of x18 (the platform register; hard rule 4 in AGENTS.md).
 #
 # PRECISION -- READ THIS (guard, not proof)
@@ -58,11 +59,11 @@
 #       must be preserved") for ordinary entry/exit saves. It is still not a
 #       full liveness analysis: e.g. it does not prove that a value actually
 #       REMAINS live across a specific `bl`.
-#     * x30 is checked at the function level: a function that calls (`bl`)
-#       but never saves x30 is RED; a `bl` AFTER the x30 restore that is
-#       followed by a `ret` is RED (the wrong-link bug). A `bl` to a noreturn
-#       helper (no `ret` reachable after the bl) is exempt from the ordering
-#       rule.
+#     * x30 is checked at the function level: a function that calls
+#       (`bl`/`blr`) but never saves x30 is RED; a `bl`/`blr` AFTER the x30
+#       restore that is followed by a `ret` is RED (the wrong-link bug). A
+#       `bl`/`blr` to a noreturn helper (no `ret` reachable after the call)
+#       is exempt from the ordering rule.
 #     * Terminal (noreturn) functions -- a function whose body contains no
 #       `ret` (error paths ending in `bl exit`, entry points like fibonacci's
 #       `_start`) never returns to a caller, so the callee-saved checks do
@@ -232,7 +233,7 @@ def new_function(name, lineno):
         "writes29": [], "x18": [],
         "prologue": None, "prologue_line": None,
         "epilogue": None,
-        "bl_lines": [], "x30_save": [], "x30_restore": [], "ret_lines": [],
+        "call_lines": [], "x30_save": [], "x30_restore": [], "ret_lines": [],
     }
 
 
@@ -350,37 +351,39 @@ def check_function(fn, display, findings):
                          f"{name}: restores x29/x30 without a matching `stp x29,x30` save"))
 
     # --- x30 (the link register) ---
-    # A `bl` clobbers x30, so any function that calls MUST have saved x30
-    # before the call (PROLOGUE n always does `stp x29,x30`; an explicit
+    # A `bl`/`blr` clobbers x30, so any function that calls MUST have saved
+    # x30 before the call (PROLOGUE n always does `stp x29,x30`; an explicit
     # `stp ... x30 ...` also counts) and restored it before its own `ret`.
-    # A `ret` after a `bl` without a restore returns to the bl's RETURN
-    # ADDRESS and loops back into the function -- the #1 silent-wrongness
-    # bug. A `bl` to a noreturn helper (no `ret` reachable after the bl) is
-    # exempt from the ordering rule, and a pure leaf (no `bl` at all) never
-    # clobbers x30, so it is not flagged. Noreturn functions were already
-    # exempted above (no `ret` can consume a wrong value).
-    bl_lines = fn["bl_lines"]
-    if bl_lines:
+    # A `ret` after a `bl`/`blr` without a restore returns to the call's
+    # RETURN ADDRESS and loops back into the function -- the #1
+    # silent-wrongness bug. A call to a noreturn helper (no `ret` reachable
+    # after the call) is exempt from the ordering rule, and a pure leaf (no
+    # `bl`/`blr` at all) never clobbers x30, so it is not flagged. Noreturn
+    # functions were already exempted above (no `ret` can consume a wrong
+    # value).
+    call_lines = fn["call_lines"]
+    if call_lines:
         if not fn["x30_save"]:
-            findings.append((bl_lines[0], "ERROR",
-                             f"{name}: calls (bl) but never saves x30; bl clobbers x30 "
-                             f"and a later ret would return to the bl's caller, not "
-                             f"this function's caller"))
+            findings.append((call_lines[0], "ERROR",
+                             f"{name}: calls (bl/blr) but never saves x30; a later ret "
+                             f"would return to the call's return address (looping back "
+                             f"into the function), not to the caller"))
         elif fn["x30_restore"]:
             last_restore = max(fn["x30_restore"])
-            for bl_line in bl_lines:
-                if bl_line > last_restore and any(r > bl_line for r in fn["ret_lines"]):
-                    findings.append((bl_line, "ERROR",
-                                     f"{name}: bl at line {bl_line} after x30 was restored "
-                                     f"at line {last_restore} -- ret would use the wrong link"))
+            for call_line in call_lines:
+                if call_line > last_restore and any(r > call_line for r in fn["ret_lines"]):
+                    findings.append((call_line, "ERROR",
+                                     f"{name}: call at line {call_line} after x30 was "
+                                     f"restored at line {last_restore} -- ret would use "
+                                     f"the wrong link"))
         else:
-            # x30 saved but never restored: a ret after a bl would use the bl's link.
-            for bl_line in bl_lines:
-                if any(r > bl_line for r in fn["ret_lines"]):
-                    findings.append((bl_line, "ERROR",
-                                     f"{name}: bl at line {bl_line} after x30 was saved at "
-                                     f"line {fn['x30_save'][0]} but never restored -- ret "
-                                     f"would use the wrong link"))
+            # x30 saved but never restored: a ret after a call would use the call's link.
+            for call_line in call_lines:
+                if any(r > call_line for r in fn["ret_lines"]):
+                    findings.append((call_line, "ERROR",
+                                     f"{name}: call at line {call_line} after x30 was "
+                                     f"saved at line {fn['x30_save'][0]} but never "
+                                     f"restored -- ret would use the wrong link"))
 
     # --- x18 (hard rule 4) ---
     for lineno in fn["x18"]:
@@ -400,13 +403,13 @@ def analyze(analyze_path, display):
     findings = []
     fn = None
     func_count = 0
-    bl_count = 0
+    call_count = 0
 
     def close_function():
-        nonlocal fn, func_count, bl_count
+        nonlocal fn, func_count, call_count
         if fn is not None:
             func_count += 1
-            bl_count += len(fn["bl_lines"])
+            call_count += len(fn["call_lines"])
             check_function(fn, display, findings)
         fn = None
 
@@ -439,8 +442,8 @@ def analyze(analyze_path, display):
         if not m:
             continue  # unknown shape; ignore (guard, not proof)
         mnem, operands = m.group(1), m.group(2) or ""
-        if mnem == "bl":
-            fn["bl_lines"].append(lineno)
+        if mnem in ("bl", "blr"):
+            fn["call_lines"].append(lineno)
         if mnem == "ret" or mnem in ("retaa", "retab"):
             fn["ret_lines"].append(lineno)
         if X18_RE.search(text):
@@ -480,10 +483,10 @@ def analyze(analyze_path, display):
     if findings:
         for lineno, sev, msg in findings:
             print(f"{display}:{lineno}: {sev}: {msg}")
-        print(f"{display}: summary: functions={func_count} bl_calls={bl_count} "
+        print(f"{display}: summary: functions={func_count} calls={call_count} "
               f"findings={len(findings)} -- RED")
         return 1
-    print(f"{display}: summary: functions={func_count} bl_calls={bl_count} "
+    print(f"{display}: summary: functions={func_count} calls={call_count} "
           f"findings=0 -- GREEN")
     return 0
 

@@ -95,15 +95,15 @@ Where the repo deviates from the playbook, the deviation is called out in a
 
 ### Hard rules
 
-> **Rule 0 — x30 is preserved across every `bl`.** A `bl` clobbers x30 (the
+> **Rule 0 — x30 is preserved across every `bl`/`blr`.** A `bl`/`blr` clobbers x30 (the
 > link register). Any function that calls MUST save x30 before the call —
 > `PROLOGUE n` always does (`stp x29,x30`), or an explicit `stp x30,...`
 > (e.g. `stp x19,x30,[sp,#-16]!`) — and restore it before its own `ret`.
-> Only `b sym` is a tail call; `bl` is never one. A `ret` after a `bl`
-> without restoring x30 returns to the bl's RETURN ADDRESS and loops back
+> Only `b sym` is a tail call; `bl`/`blr` is never one. A `ret` after a `bl`/`blr`
+> without restoring x30 returns to the call's RETURN ADDRESS and loops back
 > into the function — the #1 silent-wrongness source (the wrong-link /
-> infinite-loop bug). `check-clobbers.sh` now enforces this, and local
-> (`module_*:`) functions are covered too.
+> infinite-loop bug). `check-clobbers.sh` now enforces this for both
+> `bl` and `blr`, and local (`module_*:`) functions are covered too.
 
 1. **ISA**: one `.arch` directive per module, declared to the project's
    target (currently `armv8-a`); no `.arch_extension` that silently enables
@@ -150,7 +150,7 @@ A module-prefix local subroutine (`util_*:`, `cli_*:`, `cfg_*:`, ...) is a
 FULL AAPCS64 function with the SAME obligations as an exported `tc_*`
 function — it is never "just a jump target". It must:
 
-- preserve **x19–x28 AND x30** across its own `bl`s: save x30 before every
+- preserve **x19–x28 AND x30** across its own `bl`s and `blr`s: save x30 before every
   call (`PROLOGUE n` does `stp x29,x30`; an explicit `stp x30,...` also
   counts) and restore it before its own `ret`;
 - keep `sp` 16-byte aligned at its own call sites;
@@ -281,17 +281,17 @@ dangerous directions are flagged (a save with no restore, a restore with no
 save, or strictly more saves than restores; restores outnumbering saves is
 benign — one PROLOGUE with several return paths); (c) writes to x29 have a
 matching `stp x29,x30` frame record; (d) **x30**: any function that calls
-(`bl`) must save x30 before the call — `PROLOGUE n` always does
+(`bl`/`blr`) must save x30 before the call — `PROLOGUE n` always does
 (`stp x29,x30`), or an explicit `stp x30,...` / `str x30, [sp, #-16]!` —
-and restore it before its own `ret` (a `bl` after the restore followed by a
-`ret` is the wrong-link bug); bonus: any use of x18 is flagged.
+and restore it before its own `ret` (a `bl`/`blr` after the restore followed
+by a `ret` is the wrong-link bug); bonus: any use of x18 is flagged.
 
 It analyzes the RAW source AND the macro-preprocessed text by default, so a
 register hidden inside a CPP macro is still caught (preprocessed findings
 are labeled `(preprocessed)`; their line numbers refer to the expanded
 stream). Data/rodata labels form empty functions (no findings). A function
 that never `ret`s (a noreturn fail-loud helper) is not required to restore
-its saves, and a pure leaf (no `bl`) never clobbers x30.
+its saves, and a pure leaf (no `bl`/`blr`) never clobbers x30.
 
 **Green** = no findings. **Red** (non-zero exit, `file:line` printed) = one
 or more findings. Review macro bodies by hand either way. See the comment
@@ -308,7 +308,7 @@ coverage (a non-zero function count).
 ### Debugging-time discipline
 
 Run the two checkers BEFORE reaching for gdb. The clobber/x30 checker is
-deterministic and catches the wrong-link bug (a `ret` after a `bl` with no
+deterministic and catches the wrong-link bug (a `ret` after a `bl`/`blr` with no
 x30 restore) and local-helper clobbers; `check-isa.sh` catches silent
 >armv8-a instructions. A "garbage x0 / runaway writes" symptom is most often
 a clobbered x30 or a caller-saved register across a call — check
@@ -342,7 +342,7 @@ only after both are green and a real logic bug remains.
 - [ ] `code-philosophy` loaded and applied (Gate 0.0)
 - [ ] exactly one `.arch` per module, declared to the project's target; no
   `.arch_extension`, no `.cpu`
-- [ ] x19–x28, x29, and x30 preserved across every `bl`; restored before `ret`
+- [ ] x19–x28, x29, and x30 preserved across every `bl`/`blr`; restored before `ret`
 - [ ] `sp` 16-byte aligned at every call site
 - [ ] no x18, no `;`, no `.equ`
 - [ ] constants are CPP macros; `PROLOGUE n`/`EPILOGUE n` matched
