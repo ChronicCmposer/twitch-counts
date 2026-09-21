@@ -29,6 +29,7 @@
 #   make gen-inc            force-regenerate the committed .inc blobs
 #   make analyze            GCC -fanalyzer over the vendored C (Linux only)
 #   make mca                llvm-mca throughput analysis of one .S module
+#   make check-darwin-align cross-assemble + scan Mach-O pointer alignment (any host)
 #   make decompile          Ghidra headless decompile of one function
 #   make disasm             Ghidra headless disassembly of one function (no natives)
 #   make clean              remove build/ and the root binaries
@@ -118,7 +119,7 @@ TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 # deliverable); regenerated only by an explicit `make gen-inc`.
 GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
 
-.PHONY: all run test clean third-party gen-inc drivers analyze mca decompile disasm exports $(TC) $(addprefix check-,$(HARNESSES))
+.PHONY: all run test clean third-party gen-inc drivers analyze mca check-darwin-align decompile disasm exports $(TC) $(addprefix check-,$(HARNESSES))
 
 ifeq ($(OS),Linux)
 LINUX_ONLY  := $(FIB)
@@ -348,6 +349,123 @@ mca: $(TOOLCHAIN_DEP)
 	@command -v llvm-mca >/dev/null || { echo "mca: llvm-mca not on PATH"; exit 1; }
 	@test -f $(MCA_SRC) || { echo "mca: no such source: $(MCA_SRC)"; exit 1; }
 	$(CC) -I. -E $(MCA_SRC) | llvm-mca -mtriple=aarch64-linux-gnu -mcpu=$(MCA_CPU)
+
+# `make check-darwin-align` — catch Mach-O 8-byte-pointer-alignment link
+# failures on ANY host.  ld64 rejects a pointer relocation
+# (ARM64_RELOC_UNSIGNED, 8 bytes) whose address is not 8-byte aligned —
+# "pointer not aligned in ..." — e.g. a .quad pointer table left misaligned
+# after a run of .asciz strings.  The Darwin link path cannot run on a Linux
+# host, so this target reproduces the ld64 check: it cross-assembles every
+# hand-written module with clang's integrated assembler for arm64-apple-darwin
+# and scans each object's relocations (llvm-readobj, or llvm-objdump -r as a
+# coarser fallback) for exactly that condition.  clang is named explicitly
+# (not $(CC)) because $(CC) is musl-gcc on Linux and cannot emit Mach-O;
+# on macOS the same triple is the native one, so the target works there too.
+#
+# Module set: every repo-root .S (find, maxdepth 1), so new modules are
+# covered automatically.  fibonacci.S is SKIPPED with a note: it is Linux-only
+# (ELF-only .section .rodata, never linked on Darwin), so the Darwin
+# pointer-alignment check does not apply.  Any OTHER module that fails to
+# cross-assemble is RED (fail-loud: "a warning is not green" — an unverifiable
+# module must not pass).  Missing tools (clang / llvm-readobj / llvm-objdump /
+# python3) are also fail-loud.
+#
+# No build/ writes: objects and the embedded scanner go to a mktemp dir.
+check-darwin-align:
+	@command -v clang >/dev/null || { echo "check-darwin-align: clang not on PATH (needed for the arm64-apple-darwin cross-assembler)"; exit 1; }
+	@command -v llvm-readobj >/dev/null || command -v llvm-objdump >/dev/null || { echo "check-darwin-align: neither llvm-readobj nor llvm-objdump on PATH"; exit 1; }
+	@command -v python3 >/dev/null || { echo "check-darwin-align: python3 not on PATH"; exit 1; }
+	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/tc-darwin-align.XXXXXX"); \
+	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	anal="$$tmp/scan.py"; \
+	{ printf '%s\n' \
+'import re' \
+'import shutil' \
+'import subprocess' \
+'import sys' \
+'' \
+'# Mach-O arm64 relocation record (llvm-readobj --relocations):' \
+'#   <addr> <symnum> <len> <ext> <TYPE> <scat> <sym>' \
+'# ARM64_RELOC_UNSIGNED with len 3 is an 8-byte pointer (.quad); ld64 rejects' \
+'# a pointer whose address is not 8-byte aligned ("pointer not aligned in ...").' \
+'REL_READOBJ_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+\d+\s+(\d+)\s+\d+\s+ARM64_RELOC_UNSIGNED\s+\d+\s+(.*)")' \
+'# llvm-objdump -r fallback: no length field, so every UNSIGNED relocation is' \
+'# treated as a pointer (coarser; this repo only emits 8-byte UNSIGNED).' \
+'REL_OBJDUMP_RE = re.compile(r"\s*(0x[0-9a-fA-F]+|[0-9a-fA-F]+)\s+ARM64_RELOC_UNSIGNED\s+(\S+)")' \
+'SECTION_RE = re.compile(r"Section (\S+) \{|RELOCATION RECORDS FOR \[([^\]]+)\]")' \
+'' \
+'def scan(text, obj, rel_re):' \
+'    section = None' \
+'    bad = 0' \
+'    for line in text.splitlines():' \
+'        m = SECTION_RE.search(line)' \
+'        if m:' \
+'            section = m.group(1) or m.group(2)' \
+'            continue' \
+'        if section == "__text":' \
+'            continue  # code relocations never carry data pointers' \
+'        m = rel_re.match(line)' \
+'        if not m:' \
+'            continue' \
+'        addr = m.group(1)' \
+'        if len(m.groups()) == 3:' \
+'            if m.group(2) != "3":' \
+'                continue  # only 8-byte pointers are alignment-checked' \
+'            sym = m.group(3).strip()' \
+'        else:' \
+'            sym = m.group(2)' \
+'        if int(addr, 16) % 8:' \
+'            print(f"{obj}: {sym} @ {addr} -> MISALIGNED (in {section})")' \
+'            bad = 1' \
+'    return bad' \
+'' \
+'def main(argv):' \
+'    if len(argv) != 2:' \
+'        print("usage: darwin-align.py <object>", file=sys.stderr)' \
+'        return 2' \
+'    obj = argv[1]' \
+'    if shutil.which("llvm-readobj"):' \
+'        text = subprocess.run(' \
+'            ["llvm-readobj", "--relocations", obj],' \
+'            capture_output=True, text=True).stdout' \
+'        return scan(text, obj, REL_READOBJ_RE)' \
+'    text = subprocess.run(' \
+'        ["llvm-objdump", "-r", obj],' \
+'        capture_output=True, text=True).stdout' \
+'    return scan(text, obj, REL_OBJDUMP_RE)' \
+'' \
+'if __name__ == "__main__":' \
+'    sys.exit(main(sys.argv))' \
+	; } > "$$anal"; \
+	mods=$$(find . -maxdepth 1 -name '*.S' -not -path './build/*' | sort); \
+	rc=0; n=0; \
+	for mod in $$mods; do \
+		name=$$(basename "$$mod"); \
+		if [ "$$name" = "fibonacci.S" ]; then \
+			echo "check-darwin-align: SKIP $$mod -- Linux-only (ELF-only .section .rodata; never linked on Darwin)"; \
+			continue; \
+		fi; \
+		obj="$$tmp/$${name%.S}.o"; \
+		n=$$((n+1)); \
+		if ! clang --target=arm64-apple-darwin -I. -c "$$mod" -o "$$obj" 2> "$$tmp/$${name%.S}.err"; then \
+			echo "check-darwin-align: RED $$mod -- cannot cross-assemble for arm64-apple-darwin (fail-loud: unverifiable)"; \
+			sed 's/^/    /' "$$tmp/$${name%.S}.err"; \
+			rc=1; \
+			continue; \
+		fi; \
+		if python3 "$$anal" "$$obj"; then \
+			echo "check-darwin-align: PASS $$mod (0 misaligned 8-byte pointer relocations)"; \
+		else \
+			echo "check-darwin-align: RED $$mod -- misaligned 8-byte pointer relocation(s) listed above"; \
+			rc=1; \
+		fi; \
+	done; \
+	if [ "$$rc" -eq 0 ]; then \
+		echo "check-darwin-align: GREEN -- all $$n modules aligned"; \
+	else \
+		echo "check-darwin-align: RED -- at least one module has a misaligned 8-byte pointer relocation"; \
+	fi; \
+	exit "$$rc"
 
 # `make decompile BIN=./twitch-counts FUNC=main` — Ghidra headless decompile of
 # one function to C.  Requires analyzeHeadless (installed at ~/bin, see

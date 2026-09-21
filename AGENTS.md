@@ -370,12 +370,13 @@ only after both are green and a real logic bug remains.
 The `.S` sources go through the C preprocessor (`tc_platform.h`), so they are assembled with the **compiler driver** (`$(CC)` = `musl-gcc` on Linux, `clang` on macOS), never bare `as`. The Makefile also passes `-march=armv8.6-a` (`TC_MARCH`).
 
 ## Static analysis tooling & when to use it
-The Makefile exposes four analysis targets. See `scripts/` for the Ghidra scripts they invoke.
+The Makefile exposes five analysis targets. See `scripts/` for the Ghidra scripts they invoke.
 
 | Command | Tool | When to use |
 |---|---|---|
 | `make analyze` | GCC `-fanalyzer` | Bug-finding over the **vendored C** (UAF, leaks, OOB, taint, null-deref). Runs through `musl-gcc` so it sees the same musl headers the build uses. **Linux only** (macOS uses clang, no `-fanalyzer`). Default = `toml.c` only — this box has ~6GB RAM, so the 250k-line sqlite3 amalgamation is opt-in: `make analyze ANALYZE_SRCS="...sqlite3.c"`. |
 | `make mca` | `llvm-mca` | **Instruction-level** throughput/scheduling of one hand-written `.S` module: `make mca MCA_SRC=tc_core.S MCA_CPU=neoverse-v2`. The `.S` is preprocessed first so `llvm-mca` sees real instructions. Best-effort (some assembler directives it can't parse surface as errors). |
+| `make check-darwin-align` | clang cross-assembler + llvm-readobj relocation scan | **Catch Mach-O 8-byte-pointer-alignment link failures on any host** (ld64's "pointer not aligned": a `.quad` pointer table misaligned after a run of `.asciz` strings). Cross-assembles every repo-root `.S` for `arm64-apple-darwin` with clang's integrated assembler and scans each object for `ARM64_RELOC_UNSIGNED` (8-byte) relocations at non-8-byte-aligned addresses in data sections. Needs `clang` + `llvm-readobj` (falls back to `llvm-objdump -r`, coarser: no length field) + `python3`; missing tools fail loud. `fibonacci.S` is SKIPPED (Linux-only, ELF-only `.section .rodata`, never linked on Darwin); any other module that cannot cross-assemble is RED. |
 | `make disasm` | Ghidra (headless) | **Disassembly of one function** from a built binary: `make disasm BIN=./twitch-counts FUNC=main` (or `FUNC=0x...`). Pure-Java — works everywhere. **Use this for Ghidra work on aarch64.** |
 | `make decompile` | Ghidra (headless) | **Decompile one function to C**: `make decompile BIN=... FUNC=...`. **Unavailable on aarch64 Linux** — Ghidra ships no native decompiler for that host, so the target exits early and tells you to use `make disasm`. |
 
@@ -393,7 +394,7 @@ The Makefile exposes four analysis targets. See `scripts/` for the Ghidra script
 
 ## Environment tool availability (this host, aarch64 Linux)
 - **Compilers/asm:** `gcc` 15.3 (host aarch64, has `-fanalyzer`), `aarch64-linux-gnu-gcc`, `clang`/`clang++` 21.1.8, `clang-tidy`, `as`/`ld`/`objdump`/`readelf`/`nm` (binutils), `gdb`, project-bootstrapped `musl-gcc` (in `third_party/musl/bin`).
-- **Static analysis:** GCC `-fanalyzer`, `llvm-mca`, `llvm-exegesis`, `clang-tidy`.
+- **Static analysis:** GCC `-fanalyzer`, `llvm-mca`, `llvm-exegesis`, `clang-tidy`; relocation scanning for `make check-darwin-align` uses `llvm-readobj` (fallback `llvm-objdump -r`).
 - **Reverse engineering:** **Ghidra 12.1.3** + Temurin JDK 21 at `~/bin/` (symlinked into `~/.local/bin` on PATH: `analyzeHeadless`, `ghidraRun`, `java`, `javac`).
 - **Dynamic:** `qemu-aarch64` (user-mode), `gdb`.
 - **Scripting:** `python3` 3.15-alpha (pip 25.3; **angr NOT installed**), `node`/`npm`, `go`, `perl`, `bash`.
