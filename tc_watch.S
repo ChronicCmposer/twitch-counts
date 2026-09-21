@@ -5275,146 +5275,47 @@ watch_scan_markers:
 
 // ============================================================================
 // watch_size_users — the --users bisection (Python _search_width).  Only for
-//   TC_WIN_USERS; otherwise a no-op.  Sets TC_W_USERS_WIDTH / _FOUND and
+//   TC_WIN_USERS; otherwise a no-op.  The search itself is the shared
+//   tc_users_bisect (tc_util.S) with the watch probe (watch_reported_width);
+//   this wrapper sets the watch probe state (search memo reset + seeking on
+//   before the probes, seeking + fold-reuse cleared after), writes the
+//   resolved width / found into tc_window and watch_win_width and computes
 //   begin = end - width.  Probes run with watch_seeking = 1 so readers
 //   never seek or prune during the search.
 // ============================================================================
     .p2align 2
 watch_size_users:
-    PROLOGUE 5
+    PROLOGUE 1
     LEA x9, tc_window
     ldr x10, [x9, #TC_W_KIND]
     cmp x10, #TC_WIN_USERS
-    b.ne .Lwsu_done
+    b.ne .Lwsu_done                   // no-op: not a --users window
     // end epoch
     ldr x0, [x9, #TC_W_END_YMD]
     ldr x1, [x9, #TC_W_END_SOD]
     bl tc_ymd_sod_to_epoch
     mov x19, x0                        // end_epoch
     LEA x9, tc_opts
-    ldr x20, [x9, #TC_O_USERS]         // requested
-    ldr x21, [x9, #TC_O_USERS_MAX]     // ceiling
-    cmp x21, #1
+    ldr x0, [x9, #TC_O_USERS]         // requested
+    ldr x1, [x9, #TC_O_USERS_MAX]     // ceiling
+    cmp x1, #1
     b.ge .Lwsu_ceiling_ok
-    mov x21, #1
+    mov x1, #1
 .Lwsu_ceiling_ok:
-    bl tc_eff_threshold
-    mov x22, x0                        // eff
-    // search memo reset
+    // search memo reset + seeking flag on (readers never seek/prune)
     LEA x9, watch_search_n
     str xzr, [x9]
-    // seeking flag on
     LEA x9, watch_seeking
     mov x10, #1
     str x10, [x9]
-    // widest = reported(ceiling)
-    mov x0, x21
-    bl watch_reported_width
-    mov x23, x0                        // widest
-    cmp x23, x20
-    b.lt .Lwsu_unreachable
-    // bisection 1: smallest width with count >= requested
-    mov x9, #1                         // lo
-    mov x10, x21                       // hi
-.Lwsu_b1:
-    cmp x9, x10
-    b.ge .Lwsu_b1_done
-    sub x11, x10, x9
-    lsr x11, x11, #1
-    add x11, x9, x11                   // mid (floors)
-    mov x28, x11                       // keep mid in a callee-saved reg:
-    mov x24, x9                        // watch_reported_width clobbers x11
-    mov x25, x10
-    mov x0, x11
-    bl watch_reported_width
-    cmp x0, x20
-    b.lt .Lwsu_b1_else
-    mov x10, x28
-    mov x9, x24
-    b .Lwsu_b1
-.Lwsu_b1_else:
-    add x9, x28, #1
-    mov x10, x25                      // hi: the call clobbered caller-saved x10
-    b .Lwsu_b1
-.Lwsu_b1_done:
-    mov x24, x9                        // over_width
-    mov x0, x9
-    bl watch_reported_width
-    mov x25, x0                        // over
-    // bisection 2: widest width with count <= requested
-    mov x9, #1
-    mov x10, x21
-.Lwsu_b2:
-    cmp x9, x10
-    b.ge .Lwsu_b2_done
-    sub x11, x10, x9
-    add x11, x11, #1
-    lsr x11, x11, #1
-    add x11, x9, x11                   // mid (ceils)
-    mov x28, x11                       // keep mid in a callee-saved reg:
-    mov x26, x9                        // watch_reported_width clobbers x11
-    mov x27, x10
-    mov x0, x11
-    bl watch_reported_width
-    cmp x0, x20
-    b.gt .Lwsu_b2_else
-    mov x9, x28
-    mov x10, x27
-    b .Lwsu_b2
-.Lwsu_b2_else:
-    sub x10, x28, #1
-    mov x9, x26
-    b .Lwsu_b2
-.Lwsu_b2_done:
-    mov x26, x9                        // under_width
-    mov x0, x9
-    bl watch_reported_width
-    mov x27, x0                        // under
-    // policy
-    LEA x9, tc_opts
-    ldr x9, [x9, #TC_O_USERS_POLICY]
-    cmp x9, #TC_POLICY_AT_MOST
-    b.eq .Lwsu_at_most
-    cmp x9, #TC_POLICY_NEAREST
-    b.eq .Lwsu_nearest
-    mov x1, x24                        // at-least
-    mov x2, x25
-    b .Lwsu_apply
-.Lwsu_at_most:
-    mov x1, x26
-    mov x2, x27
-    b .Lwsu_apply
-.Lwsu_nearest:
-    sub x9, x27, x20
-    cmp x9, #0
-    b.ge .Lwsu_n_absu
-    neg x9, x9
-.Lwsu_n_absu:
-    sub x10, x25, x20
-    cmp x10, #0
-    b.ge .Lwsu_n_abso
-    neg x10, x10
-.Lwsu_n_abso:
-    cmp x9, x10
-    b.le .Lwsu_n_under
-    mov x1, x24
-    mov x2, x25
-    b .Lwsu_apply
-.Lwsu_n_under:
-    mov x1, x26
-    mov x2, x27
-    b .Lwsu_apply
-.Lwsu_unreachable:
-    mov x1, x21
-    mov x2, x23
-    b .Lwsu_apply
-.Lwsu_apply:
+    LEA x2, watch_reported_width
+    bl tc_users_bisect                 // x0 = width, x1 = found
     LEA x9, tc_window
-    str x1, [x9, #TC_W_USERS_WIDTH]
-    str x2, [x9, #TC_W_USERS_FOUND]
+    str x0, [x9, #TC_W_USERS_WIDTH]
+    str x1, [x9, #TC_W_USERS_FOUND]
     LEA x9, watch_win_width
-    str x1, [x9]
-    sub x0, x19, x1
+    str x0, [x9]
+    sub x0, x19, x0                    // begin = end - width
     bl tc_epoch_to_ymd_sod
     LEA x9, tc_window
     str x0, [x9, #TC_W_BEGIN_YMD]
@@ -5425,7 +5326,7 @@ watch_size_users:
     // clear the fold-reuse state: the probes perturbed the tables
     LEA x9, watch_fold_n
     str xzr, [x9]
-    EPILOGUE 5
+    EPILOGUE 1
     ret
 
 // ============================================================================

@@ -52,6 +52,10 @@
 //        x0 = dst+len; composes "rule <idx>: '<pattern>' is not a valid
 //        regex (<regex_msg>)" for the CLI/watch consumers (pcre2-free: the
 //        caller passes the already-fetched pcre2 error string)
+//    tc_users_bisect(x0=requested, x1=ceiling, x2=probe_fn) -> x0 = width,
+//        x1 = found; the shared --users width search (the two bisections
+//        plus the at-least/at-most/nearest policy) probed through the
+//        caller's probe_fn (core_reported_width / watch_reported_width)
 //
 //  AAPCS64 notes (the rules every later phase must follow)
 //  -------------------------------------------------------
@@ -1838,6 +1842,120 @@ tc_hl_bad_regex:
     mov x0, x20
     bl tc_cat_cstr                  // ")" (copies the NUL too)
     EPILOGUE 3
+    ret
+
+// ============================================================================
+// tc_users_bisect(x0=requested, x1=ceiling, x2=probe_fn) -> x0 = width, x1 = found.
+//   The --users width search (Python _search_width), shared by the count
+//   mode (core_size_users, probe = core_reported_width) and watch mode
+//   (watch_size_users, probe = watch_reported_width).  probe_fn(x0=seconds)
+//   must return the reported population for the window [end - seconds, end];
+//   it is invoked through x2 with `blr` (the helper never names a probe).
+//   Owns the unreachable check, the two bisections (smallest width with
+//   count >= requested, widest width with count <= requested) and the
+//   at-least/at-most/nearest policy resolution.  Callers apply the result:
+//   core writes TC_W_USERS_WIDTH/_FOUND + begin = end - width; watch adds
+//   watch_win_width and clears its seeking / fold-reuse probe state.
+//   Preserves x19-x28 (PROLOGUE 5); clobbers x0-x17 and x30 (via blr).
+// ============================================================================
+    .p2align 2
+    .global tc_users_bisect
+    FUNC_TYPE(tc_users_bisect)
+tc_users_bisect:
+    PROLOGUE 5
+    mov x20, x0                         // requested
+    mov x21, x1                         // ceiling
+    mov x23, x2                         // probe_fn (callee-saved across blr)
+    // widest = probe_fn(ceiling)
+    mov x0, x21
+    blr x23
+    mov x22, x0                         // widest
+    cmp x22, x20
+    b.lt .Ltub_unreachable              // widest < requested at any width
+    // ---- bisection 1: smallest width with count >= requested ----
+    mov x24, #1                         // lo
+    mov x25, x21                        // hi
+.Ltub_b1:
+    cmp x24, x25
+    b.ge .Ltub_b1_done
+    sub x28, x25, x24
+    lsr x28, x28, #1
+    add x28, x24, x28                   // mid (floors)
+    mov x0, x28
+    blr x23
+    cmp x0, x20
+    b.lt .Ltub_b1_else
+    mov x25, x28                        // hi = mid
+    b .Ltub_b1
+.Ltub_b1_else:
+    add x24, x28, #1                    // lo = mid + 1
+    b .Ltub_b1
+.Ltub_b1_done:
+    mov x0, x24                         // over_width
+    blr x23
+    mov x25, x0                         // over
+    // ---- bisection 2: widest width with count <= requested ----
+    mov x26, #1                         // lo
+    mov x27, x21                        // hi
+.Ltub_b2:
+    cmp x26, x27
+    b.ge .Ltub_b2_done
+    sub x28, x27, x26
+    add x28, x28, #1
+    lsr x28, x28, #1
+    add x28, x26, x28                   // mid (ceils)
+    mov x0, x28
+    blr x23
+    cmp x0, x20
+    b.gt .Ltub_b2_else
+    mov x26, x28                        // lo = mid
+    b .Ltub_b2
+.Ltub_b2_else:
+    sub x27, x28, #1                    // hi = mid - 1
+    b .Ltub_b2
+.Ltub_b2_done:
+    mov x0, x26                         // under_width
+    blr x23
+    mov x27, x0                         // under
+    // ---- policy: at-least / at-most / nearest ----
+    LEA x9, tc_opts
+    ldr x9, [x9, #TC_O_USERS_POLICY]
+    cmp x9, #TC_POLICY_AT_MOST
+    b.eq .Ltub_at_most
+    cmp x9, #TC_POLICY_NEAREST
+    b.eq .Ltub_nearest
+    mov x0, x24                         // at-least: over_width
+    mov x1, x25                         // found = over
+    b .Ltub_out
+.Ltub_at_most:
+    mov x0, x26                         // under_width
+    mov x1, x27                         // found = under
+    b .Ltub_out
+.Ltub_nearest:
+    sub x9, x27, x20                    // |under - requested|
+    cmp x9, #0
+    b.ge .Ltub_n_absu
+    neg x9, x9
+.Ltub_n_absu:
+    sub x10, x25, x20                   // |over - requested|
+    cmp x10, #0
+    b.ge .Ltub_n_abso
+    neg x10, x10
+.Ltub_n_abso:
+    cmp x9, x10
+    b.le .Ltub_n_under                  // ties to the narrower window
+    mov x0, x24
+    mov x1, x25
+    b .Ltub_out
+.Ltub_n_under:
+    mov x0, x26
+    mov x1, x27
+    b .Ltub_out
+.Ltub_unreachable:
+    mov x0, x21                         // width = ceiling
+    mov x1, x22                         // found = widest
+.Ltub_out:
+    EPILOGUE 5
     ret
 
     RODATA

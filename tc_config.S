@@ -383,11 +383,7 @@ tc_excl_contains:
     b.gt .Lec_no                    // stored logins are capped at 25 chars
     // lowercase the candidate's first byte (stored first bytes are lowercase)
     ldrb w21, [x19]
-    cmp w21, #'A'
-    b.lt .Lec_first_done
-    cmp w21, #'Z'
-    b.gt .Lec_first_done
-    add w21, w21, #0x20
+    LOWER_BYTE w21, .Lec_first_done
 .Lec_first_done:
     LEA x22, tc_excl_set
     ldr x23, [x22]                  // count
@@ -399,11 +395,7 @@ tc_excl_contains:
     cmp x25, x23
     b.ge .Lec_no
     ldrb w9, [x26]                  // stored first byte (lowercased at build)
-    cmp w9, #'A'
-    b.lt .Lec_fcheck
-    cmp w9, #'Z'
-    b.gt .Lec_fcheck
-    add w9, w9, #0x20
+    LOWER_BYTE w9, .Lec_fcheck
 .Lec_fcheck:
     cmp w9, w21
     b.ne .Lec_next                  // cheap early-exit: first byte differs
@@ -1834,11 +1826,7 @@ cfg_split_names:
     mov w0, w2
     bl cfg_is_split_sep
     cbnz x0, .Lsn_tok_end
-    cmp w2, #'A'
-    b.lt .Lsn_tok_store
-    cmp w2, #'Z'
-    b.gt .Lsn_tok_store
-    add w2, w2, #0x20
+    LOWER_BYTE w2, .Lsn_tok_store
 .Lsn_tok_store:
     strb w2, [x20], #1
     add x22, x22, #1
@@ -2412,17 +2400,9 @@ cfg_login_matches:
     ldrb w4, [x19, x22]
     cbz w4, .Llm_no                 // stored ended before len -> no match
     ldrb w5, [x20, x22]
-    cmp w4, #'A'
-    b.lt .Llm_stored_norm
-    cmp w4, #'Z'
-    b.gt .Llm_stored_norm
-    add w4, w4, #0x20
+    LOWER_BYTE w4, .Llm_stored_norm
 .Llm_stored_norm:
-    cmp w5, #'A'
-    b.lt .Llm_cand_norm
-    cmp w5, #'Z'
-    b.gt .Llm_cand_norm
-    add w5, w5, #0x20
+    LOWER_BYTE w5, .Llm_cand_norm
 .Llm_cand_norm:
     cmp w4, w5
     b.ne .Llm_no

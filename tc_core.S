@@ -863,11 +863,13 @@ core_window_begin_after_end_check:
 
 // ============================================================================
 // core_size_users — the --users bisection (Python _search_width + _apply_width).
-//   Sets TC_W_USERS_WIDTH / TC_W_USERS_FOUND and begin = end - width.
+//   The search itself is the shared tc_users_bisect (tc_util.S); this wrapper
+//   passes the core probe (core_reported_width), writes the resolved width /
+//   found into tc_window and computes begin = end - width.
 // ============================================================================
     .p2align 2
 core_size_users:
-    PROLOGUE 5
+    PROLOGUE 1
     // end_epoch
     LEA x9, tc_window
     ldr x0, [x9, #TC_W_END_YMD]
@@ -876,132 +878,23 @@ core_size_users:
     mov x19, x0                        // end_epoch
     // requested / ceiling
     LEA x9, tc_opts
-    ldr x20, [x9, #TC_O_USERS]
-    ldr x21, [x9, #TC_O_USERS_MAX]
-    cmp x21, #1
+    ldr x0, [x9, #TC_O_USERS]
+    ldr x1, [x9, #TC_O_USERS_MAX]
+    cmp x1, #1
     b.ge .Lsu_ceiling_ok
-    mov x21, #1
+    mov x1, #1
 .Lsu_ceiling_ok:
-    // widest = reported(ceiling)
-    mov x0, x21
-    bl core_reported_width
-    mov x23, x0                        // widest
-    cmp x23, x20
-    b.lt .Lsu_unreachable
-    // ---- bisection 1: smallest width with count >= requested ----
-    mov x9, #1                         // lo
-    mov x10, x21                       // hi
-.Lsu_b1:
-    cmp x9, x10
-    b.ge .Lsu_b1_done
-    sub x11, x10, x9
-    lsr x11, x11, #1
-    add x11, x9, x11                   // mid (floors)
-    stp x9, x10, [sp, #-16]!
-    stp x11, x19, [sp, #-16]!
-    stp x20, x21, [sp, #-16]!
-    str x23, [sp, #-16]!             // widest (x22 was dead: no eff here)
-    mov x0, x11
-    bl core_reported_width
-    ldr x23, [sp], #16
-    ldp x20, x21, [sp], #16
-    ldp x11, x19, [sp], #16
-    ldp x9, x10, [sp], #16
-    cmp x0, x20
-    b.lt .Lsu_b1_else
-    mov x10, x11
-    b .Lsu_b1
-.Lsu_b1_else:
-    add x9, x11, #1
-    b .Lsu_b1
-.Lsu_b1_done:
-    mov x24, x9                        // over_width
-    mov x0, x9
-    bl core_reported_width
-    mov x25, x0                        // over
-    // ---- bisection 2: widest width with count <= requested ----
-    mov x9, #1
-    mov x10, x21
-.Lsu_b2:
-    cmp x9, x10
-    b.ge .Lsu_b2_done
-    sub x11, x10, x9
-    add x11, x11, #1
-    lsr x11, x11, #1
-    add x11, x9, x11                   // mid (ceils)
-    stp x9, x10, [sp, #-16]!
-    stp x11, x19, [sp, #-16]!
-    stp x20, x21, [sp, #-16]!
-    str x23, [sp, #-16]!             // widest (x22 was dead: no eff here)
-    stp x24, x25, [sp, #-16]!
-    mov x0, x11
-    bl core_reported_width
-    ldp x24, x25, [sp], #16
-    ldr x23, [sp], #16
-    ldp x20, x21, [sp], #16
-    ldp x11, x19, [sp], #16
-    ldp x9, x10, [sp], #16
-    cmp x0, x20
-    b.gt .Lsu_b2_else
-    mov x9, x11
-    b .Lsu_b2
-.Lsu_b2_else:
-    sub x10, x11, #1
-    b .Lsu_b2
-.Lsu_b2_done:
-    mov x26, x9                        // under_width
-    mov x0, x9
-    bl core_reported_width
-    mov x27, x0                        // under
-    // ---- policy ----
-    LEA x9, tc_opts
-    ldr x9, [x9, #TC_O_USERS_POLICY]
-    cmp x9, #TC_POLICY_AT_MOST
-    b.eq .Lsu_at_most
-    cmp x9, #TC_POLICY_NEAREST
-    b.eq .Lsu_nearest
-    // at-least
-    mov x1, x24
-    mov x2, x25
-    b .Lsu_apply
-.Lsu_at_most:
-    mov x1, x26
-    mov x2, x27
-    b .Lsu_apply
-.Lsu_nearest:
-    sub x9, x27, x20
-    cmp x9, #0
-    b.ge .Lsu_n_absu
-    neg x9, x9
-.Lsu_n_absu:
-    sub x10, x25, x20
-    cmp x10, #0
-    b.ge .Lsu_n_abso
-    neg x10, x10
-.Lsu_n_abso:
-    cmp x9, x10
-    b.le .Lsu_n_under                 // ties to the narrower window
-    mov x1, x24
-    mov x2, x25
-    b .Lsu_apply
-.Lsu_n_under:
-    mov x1, x26
-    mov x2, x27
-    b .Lsu_apply
-.Lsu_unreachable:
-    mov x1, x21                       // width = ceiling
-    mov x2, x23                       // found = widest
-    b .Lsu_apply
-.Lsu_apply:
+    LEA x2, core_reported_width
+    bl tc_users_bisect                 // x0 = width, x1 = found
     LEA x9, tc_window
-    str x1, [x9, #TC_W_USERS_WIDTH]
-    str x2, [x9, #TC_W_USERS_FOUND]
-    sub x0, x19, x1                   // begin = end - width
+    str x0, [x9, #TC_W_USERS_WIDTH]
+    str x1, [x9, #TC_W_USERS_FOUND]
+    sub x0, x19, x0                    // begin = end - width
     bl tc_epoch_to_ymd_sod
-    LEA x9, tc_window  // reload: the call clobbered x9
+    LEA x9, tc_window                  // reload: the call clobbered x9
     str x0, [x9, #TC_W_BEGIN_YMD]
     str x1, [x9, #TC_W_BEGIN_SOD]
-    EPILOGUE 5
+    EPILOGUE 1
     ret
 
 // ============================================================================
@@ -2096,11 +1989,7 @@ tc_speaker_login_to:
     cmp x2, x20
     b.ge .Lslt_lower_done
     ldrb w3, [x19, x2]
-    cmp w3, #'A'
-    b.lt .Lslt_lstore
-    cmp w3, #'Z'
-    b.gt .Lslt_lstore
-    add w3, w3, #('a' - 'A')
+    LOWER_BYTE w3, .Lslt_lstore
 .Lslt_lstore:
     strb w3, [x4, x2]
     add x2, x2, #1
@@ -2543,11 +2432,7 @@ tc_ascii_casecmp:
     ldrb w4, [x1, x2]
     cbz w3, .Lacc_a_end
     cbz w4, .Lacc_neq
-    cmp w3, #'A'
-    b.lt .Lacc_norm
-    cmp w3, #'Z'
-    b.gt .Lacc_norm
-    add w3, w3, #('a' - 'A')
+    LOWER_BYTE w3, .Lacc_norm
 .Lacc_norm:
     cmp w3, w4
     b.ne .Lacc_neq

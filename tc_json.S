@@ -781,7 +781,9 @@ json_src_entry_last:
     b json_src_emit
 
 // ============================================================================
-// json_emit_sources — the sorted provenance map.
+// json_emit_sources — the sorted provenance map.  The identity entries
+//   (begin/channel/end/exclude) stay here; the always-present settings group
+//   and the conditional entries group are named helpers.
 // ============================================================================
     .p2align 2
 json_emit_sources:
@@ -811,12 +813,22 @@ json_emit_sources:
     LEA x0, s_js_exclude
     mov x1, x20
     bl json_src_entry_ptr
-    b .Ljes_header
+    b .Ljes_settings
 .Ljes_excl_none:
     LEA x0, s_js_exclude
     LEA x1, s_jn_none
     bl json_src_entry_ptr
-.Ljes_header:
+.Ljes_settings:
+    bl json_emit_sources_settings
+    bl json_emit_sources_optional
+    EPILOGUE 1
+    ret
+
+// json_emit_sources_settings — the four always-present set-id source entries
+//   (header, logs_dir, min_count, share_floor).
+    .p2align 2
+json_emit_sources_settings:
+    PROLOGUE 0
     LEA x0, s_js_header
     mov x1, #TC_SET_HEADER
     bl json_src_entry
@@ -829,35 +841,43 @@ json_emit_sources:
     LEA x0, s_js_share_floor
     mov x1, #TC_SET_SHARE_FLOOR
     bl json_src_entry
-    // show (only when asked)
+    EPILOGUE 0
+    ret
+
+// json_emit_sources_optional — show/sort/state (each only when asked) and the
+//   last entry, top.  Shares the tc_opts base in x19.
+    .p2align 2
+json_emit_sources_optional:
+    PROLOGUE 1
     LEA x19, tc_opts
+    // show (only when asked)
     ldr x20, [x19, #TC_O_SRC + TC_SET_SHOW*8]
     cmp x20, #TC_SRC_DEFAULT
-    b.eq .Ljes_sort
+    b.eq .Ljso_sort
     LEA x0, s_js_show
     mov x1, #TC_SET_SHOW
     bl json_src_entry
-.Ljes_sort:
+.Ljso_sort:
     // sort (only when asked, not the built-in default)
     ldr x20, [x19, #TC_O_SRC + TC_SET_SORT*8]
     cmp x20, #TC_SRC_DEFAULT_BUILTIN
-    b.eq .Ljes_state
+    b.eq .Ljso_state
     LEA x0, s_js_sort
     mov x1, #TC_SET_SORT
     bl json_src_entry
-.Ljes_state:
+.Ljso_state:
     ldr x20, [x19, #TC_O_SRC + TC_SET_STATE*8]
     cmp x20, #TC_SRC_DEFAULT
-    b.eq .Ljes_state_nofilter
+    b.eq .Ljso_state_nofilter
     LEA x0, s_js_state
     mov x1, #TC_SET_STATE
     bl json_src_entry
-    b .Ljes_top
-.Ljes_state_nofilter:
+    b .Ljso_top
+.Ljso_state_nofilter:
     LEA x0, s_js_state
     LEA x1, s_j_not_filtered
     bl json_src_entry_ptr
-.Ljes_top:
+.Ljso_top:
     // top (last, no comma)
     LEA x0, s_js_top
     LEA_OFF x1, tc_plan, TC_PLAN_LIMIT_SRC
@@ -867,11 +887,28 @@ json_emit_sources:
     ret
 
 // ============================================================================
-// json_emit_totals
+// json_emit_totals — the `"totals"` object.  Each key group is a named
+//   helper (json_emit_totals_users / _msgs / _meta / _cache); the object
+//   closes with the unreadable array delegate.
 // ============================================================================
     .p2align 2
 json_emit_totals:
-    PROLOGUE 2
+    PROLOGUE 0
+    bl json_emit_totals_users
+    bl json_emit_totals_msgs
+    bl json_emit_totals_meta
+    bl json_emit_totals_cache
+    // unreadable
+    LEA x0, s_j_t_unreadable
+    bl json_jputs
+    bl json_emit_unreadable
+    EPILOGUE 0
+    ret
+
+// json_emit_totals_users — the four user-count totals.
+    .p2align 2
+json_emit_totals_users:
+    PROLOGUE 1
     // users_shown
     LEA x0, s_j_t_shown
     bl json_jputs
@@ -904,6 +941,13 @@ json_emit_totals:
     bl json_jint
     LEA x0, s_j_comma_nl
     bl json_jputs
+    EPILOGUE 1
+    ret
+
+// json_emit_totals_msgs — the four message-count totals.
+    .p2align 2
+json_emit_totals_msgs:
+    PROLOGUE 1
     // messages_shown
     LEA x0, s_j_t_mshown
     bl json_jputs
@@ -936,19 +980,27 @@ json_emit_totals:
     bl json_jint
     LEA x0, s_j_comma_nl
     bl json_jputs
+    EPILOGUE 1
+    ret
+
+// json_emit_totals_meta — truncated, the all-state split, log_files and
+//   users_below_share_floor.
+    .p2align 2
+json_emit_totals_meta:
+    PROLOGUE 1
     // truncated
     LEA x0, s_j_t_trunc
     bl json_jputs
     LEA_OFF x19, tc_plan, TC_PLAN_HIDDEN_N
     ldr x20, [x19]
-    cbz x20, .Ljt_trunc_false
+    cbz x20, .Ljtm_trunc_false
     LEA x0, s_j_true
     bl json_jputs
-    b .Ljt_trunc_done
-.Ljt_trunc_false:
+    b .Ljtm_trunc_done
+.Ljtm_trunc_false:
     LEA x0, s_j_false
     bl json_jputs
-.Ljt_trunc_done:
+.Ljtm_trunc_done:
     LEA x0, s_j_comma_nl
     bl json_jputs
     // states
@@ -973,6 +1025,14 @@ json_emit_totals:
     bl json_jint
     LEA x0, s_j_comma_nl
     bl json_jputs
+    EPILOGUE 1
+    ret
+
+// json_emit_totals_cache — the nested `"cache"` object: used, days_reused
+//   and the problem text-or-null.
+    .p2align 2
+json_emit_totals_cache:
+    PROLOGUE 1
     // cache
     LEA x0, s_j_t_cache
     bl json_jputs
@@ -980,14 +1040,14 @@ json_emit_totals:
     bl json_jputs
     LEA x19, tc_plan
     ldr x20, [x19, #TC_PLAN_CACHE_USED]
-    cbz x20, .Ljt_used_false
+    cbz x20, .Ljtc_used_false
     LEA x0, s_j_true
     bl json_jputs
-    b .Ljt_used_done
-.Ljt_used_false:
+    b .Ljtc_used_done
+.Ljtc_used_false:
     LEA x0, s_j_false
     bl json_jputs
-.Ljt_used_done:
+.Ljtc_used_done:
     LEA x0, s_j_comma_nl
     bl json_jputs
     LEA x0, s_j_cache_days
@@ -999,25 +1059,21 @@ json_emit_totals:
     LEA x0, s_j_cache_prob
     bl json_jputs
     ldr x20, [x19, #TC_PLAN_CACHE_PROBLEM] // problem
-    cbz x20, .Ljt_prob_null
+    cbz x20, .Ljtc_prob_null
     mov x0, x20
     bl json_jquoted
-    b .Ljt_prob_done
-.Ljt_prob_null:
+    b .Ljtc_prob_done
+.Ljtc_prob_null:
     LEA x0, s_j_null
     bl json_jputs
-.Ljt_prob_done:
+.Ljtc_prob_done:
     LEA x0, s_j_nl
     bl json_jputs
     LEA x0, s_j_close4nl
     bl json_jputs
     LEA x0, s_j_comma_nl
     bl json_jputs
-    // unreadable
-    LEA x0, s_j_t_unreadable
-    bl json_jputs
-    bl json_emit_unreadable
-    EPILOGUE 2
+    EPILOGUE 1
     ret
 
 // json_emit_totals_states — the all-state split object (nonzero only).
@@ -1114,7 +1170,8 @@ json_emit_unreadable:
     ret
 
 // ============================================================================
-// json_emit_rows — the displayed rows.
+// json_emit_rows — the displayed rows.  The `[`/`]` shell and the loop
+//   iterate here; each row object is emitted by json_emit_row.
 // ============================================================================
     .p2align 2
 json_emit_rows:
@@ -1137,34 +1194,7 @@ json_emit_rows:
     mov x2, #ROW_SZ
     bl tc_entry_ptr
     mov x23, x0                        // rec
-    LEA x0, s_j_ind4
-    mov x1, #4
-    bl json_jputraw
-    LEA x0, s_j_row_open
-    mov x1, #2
-    bl json_jputraw
-    // login
-    LEA x0, s_j_login
-    bl json_jputs
-    add x0, x23, #0                    // login ptr
-    bl json_jquoted
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    // count
-    LEA x0, s_j_count
-    bl json_jputs
-    ldr x0, [x23, #ROW_COUNT]
-    bl json_jint
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    // states
-    LEA x0, s_j_states_k
-    bl json_jputs
-    bl json_emit_row_states            // ends with the states close "      }"
-    mov w0, #'\n'
-    bl json_jputc
-    LEA x0, s_j_close4nl
-    bl json_jputs                      // "    }"
+    bl json_emit_row
     add x9, x22, #1
     cmp x9, x20
     b.ge .Ljer_nl
@@ -1185,6 +1215,43 @@ json_emit_rows:
     mov w0, #']'
     bl json_jputc
 .Ljer_out:
+    EPILOGUE 3
+    ret
+
+// json_emit_row — one displayed row: "    {\n", login, count, the per-user
+//   states object, then "    }".  Expects rec = x23.
+    .p2align 2
+json_emit_row:
+    PROLOGUE 3
+    mov x19, x23                       // rec
+    LEA x0, s_j_ind4
+    mov x1, #4
+    bl json_jputraw
+    LEA x0, s_j_row_open
+    mov x1, #2
+    bl json_jputraw
+    // login
+    LEA x0, s_j_login
+    bl json_jputs
+    add x0, x19, #0                    // login ptr
+    bl json_jquoted
+    LEA x0, s_j_comma_nl
+    bl json_jputs
+    // count
+    LEA x0, s_j_count
+    bl json_jputs
+    ldr x0, [x19, #ROW_COUNT]
+    bl json_jint
+    LEA x0, s_j_comma_nl
+    bl json_jputs
+    // states
+    LEA x0, s_j_states_k
+    bl json_jputs
+    bl json_emit_row_states            // ends with the states close "      }"
+    mov w0, #'\n'
+    bl json_jputc
+    LEA x0, s_j_close4nl
+    bl json_jputs                      // "    }"
     EPILOGUE 3
     ret
 
