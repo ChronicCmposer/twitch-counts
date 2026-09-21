@@ -427,9 +427,37 @@ json_now_iso:
     .global tc_json_emit
     FUNC_TYPE(tc_json_emit)
 tc_json_emit:
-    PROLOGUE 2
+    PROLOGUE 0
     mov x0, #STDOUT
     bl json_jinit
+    bl json_emit_header
+    bl json_emit_query
+    // totals
+    LEA x0, s_j_totals
+    bl json_jputs
+    bl json_emit_totals
+    LEA x0, s_j_close2
+    bl json_jputs
+    LEA x0, s_j_comma_nl
+    bl json_jputs
+    // rows
+    LEA x0, s_j_rows
+    bl json_jputs
+    bl json_emit_rows
+    LEA x0, s_j_end
+    bl json_jputs
+    bl json_jflush
+    mov x0, #0
+    EPILOGUE 0
+    ret
+
+// ============================================================================
+// json_emit_header — the document head: `{`, the embedded schema blob, the
+//   frozen schema_version and the freshly formatted generated_at.
+// ============================================================================
+    .p2align 2
+json_emit_header:
+    PROLOGUE 0
     // { + schema blob
     LEA x0, s_j_open
     mov x1, #2
@@ -448,6 +476,16 @@ tc_json_emit:
     bl json_jquoted
     LEA x0, s_j_comma_nl
     bl json_jputs
+    EPILOGUE 0
+    ret
+
+// ============================================================================
+// json_emit_query — the `"query": {...}` object.  Each key group is a named
+//   helper (json_emit_query_*); the object closes with `},`.
+// ============================================================================
+    .p2align 2
+json_emit_query:
+    PROLOGUE 2
     // query
     LEA x0, s_j_query
     bl json_jputs
@@ -458,40 +496,52 @@ tc_json_emit:
     bl json_jquoted
     LEA x0, s_j_comma_nl
     bl json_jputs
-    // begin
+    // begin / end — the shared window-timestamp helper
     LEA x0, s_j_qbegin
-    bl json_jputs
-    LEA x19, tc_window
-    LEA x20, json_iso
-    mov x0, x20
-    ldr x1, [x19, #TC_W_BEGIN_YMD]
-    ldr x2, [x19, #TC_W_BEGIN_SOD]
-    mov w3, #'T'
-    bl tc_fmt_ymd_sod
-    mov w1, #0
-    strb w1, [x0]
-    mov x0, x20
-    bl json_jquoted
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    // end
+    mov x1, #TC_W_BEGIN_YMD
+    mov x2, #TC_W_BEGIN_SOD
+    bl json_emit_query_window
     LEA x0, s_j_qend
+    mov x1, #TC_W_END_YMD
+    mov x2, #TC_W_END_SOD
+    bl json_emit_query_window
+    // min_count + top
+    bl json_emit_query_limits
+    // state
+    bl json_emit_query_state
+    // excluded
+    LEA x0, s_j_qexcluded
     bl json_jputs
-    LEA x20, json_iso
-    mov x0, x20
-    ldr x1, [x19, #TC_W_END_YMD]
-    ldr x2, [x19, #TC_W_END_SOD]
-    mov w3, #'T'
-    bl tc_fmt_ymd_sod
-    mov w1, #0
-    strb w1, [x0]
-    mov x0, x20
-    bl json_jquoted
+    bl json_emit_excluded_array
     LEA x0, s_j_comma_nl
     bl json_jputs
+    // sort
+    bl json_emit_query_sort
+    // share_floor
+    bl json_emit_query_share_floor
+    // sources
+    LEA x0, s_j_qsources
+    bl json_jputs
+    bl json_emit_sources
+    LEA x0, s_j_close4nl
+    bl json_jputs
+    LEA x0, s_j_nl
+    bl json_jputs
+    // close query
+    LEA x0, s_j_query_close
+    bl json_jputs
+    EPILOGUE 2
+    ret
+
+// json_emit_query_limits() — the `"min_count"` and `"top"` query keys: the
+//   resolved threshold and the --top cap (0 = unlimited -> "null").
+    .p2align 2
+json_emit_query_limits:
+    PROLOGUE 2
     // min_count
     LEA x0, s_j_qmin
     bl json_jputs
+    LEA x19, tc_window
     ldr x0, [x19, #TC_W_THRESHOLD]
     bl json_jint
     LEA x0, s_j_comma_nl
@@ -511,7 +561,59 @@ tc_json_emit:
 .Lje_top_done:
     LEA x0, s_j_comma_nl
     bl json_jputs
-    // state
+    EPILOGUE 2
+    ret
+
+// json_emit_query_sort() — the `"sort"` query key: the metric-name string
+//   for the tc_plan sort metric, followed by ",\n".
+    .p2align 2
+json_emit_query_sort:
+    PROLOGUE 1
+    LEA x0, s_j_qsort
+    bl json_jputs
+    LEA_OFF x19, tc_plan, TC_PLAN_SORT
+    ldr x20, [x19]
+    LEA x0, tc_metric_names
+    ldr x0, [x0, x20, lsl #3]
+    bl json_jquoted
+    LEA x0, s_j_comma_nl
+    bl json_jputs
+    EPILOGUE 1
+    ret
+
+// json_emit_query_window(key=x0, ymd_off=x1, sod_off=x2) — emit one window
+//   timestamp query key: `"<key>": "<YYYY-MM-DDTHH:MM:SS>",\n`.  Reads the
+//   packed ymd and second-of-day at the given tc_window offsets, formats
+//   them into json_iso, then writes the key and the quoted value.
+    .p2align 2
+json_emit_query_window:
+    PROLOGUE 2
+    mov x19, x0                        // key
+    mov x20, x1                        // ymd offset
+    mov x21, x2                        // sod offset
+    LEA x22, json_iso
+    mov x0, x19
+    bl json_jputs
+    LEA x10, tc_window
+    ldr x1, [x10, x20]
+    ldr x2, [x10, x21]
+    mov w3, #'T'
+    mov x0, x22
+    bl tc_fmt_ymd_sod
+    mov w1, #0
+    strb w1, [x0]
+    mov x0, x22
+    bl json_jquoted
+    LEA x0, s_j_comma_nl
+    bl json_jputs
+    EPILOGUE 2
+    ret
+
+// json_emit_query_state() — the `"state"` query key: the state-filter name
+//   string when a filter is set, "null" when none, followed by ",\n".
+    .p2align 2
+json_emit_query_state:
+    PROLOGUE 2
     LEA x0, s_j_qstate
     bl json_jputs
     LEA x19, tc_window
@@ -528,23 +630,14 @@ tc_json_emit:
 .Lje_state_done:
     LEA x0, s_j_comma_nl
     bl json_jputs
-    // excluded
-    LEA x0, s_j_qexcluded
-    bl json_jputs
-    bl json_emit_excluded_array
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    // sort
-    LEA x0, s_j_qsort
-    bl json_jputs
-    LEA_OFF x19, tc_plan, TC_PLAN_SORT
-    ldr x20, [x19]
-    LEA x0, tc_metric_names
-    ldr x0, [x0, x20, lsl #3]
-    bl json_jquoted
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    // share_floor
+    EPILOGUE 2
+    ret
+
+// json_emit_query_share_floor() — the nested `"share_floor": {...}` query
+//   object: the requested floor from tc_opts and whether it was applied.
+    .p2align 2
+json_emit_query_share_floor:
+    PROLOGUE 2
     LEA x0, s_j_qsf
     bl json_jputs
     LEA x0, s_j_sf_req
@@ -570,32 +663,6 @@ tc_json_emit:
     bl json_jputs
     LEA x0, s_j_comma_nl
     bl json_jputs
-    // sources
-    LEA x0, s_j_qsources
-    bl json_jputs
-    bl json_emit_sources
-    LEA x0, s_j_close4nl
-    bl json_jputs
-    LEA x0, s_j_nl
-    bl json_jputs
-    // close query, open totals
-    LEA x0, s_j_query_close
-    bl json_jputs
-    LEA x0, s_j_totals
-    bl json_jputs
-    bl json_emit_totals
-    LEA x0, s_j_close2
-    bl json_jputs
-    LEA x0, s_j_comma_nl
-    bl json_jputs
-    // rows
-    LEA x0, s_j_rows
-    bl json_jputs
-    bl json_emit_rows
-    LEA x0, s_j_end
-    bl json_jputs
-    bl json_jflush
-    mov x0, #0
     EPILOGUE 2
     ret
 

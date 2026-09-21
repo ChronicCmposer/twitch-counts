@@ -434,6 +434,35 @@
     add \dst, \base, \sz
     .endm
 
+// LOWER_BYTE reg, skip — fold one ASCII byte in \reg from 'A'-'Z' to
+//   'a'-'z' in place.  The shared 5-instruction lowercase idiom of the
+//   lowercase-copy sites in tc_core.S / tc_config.S / tc_misc.S / tc_cli.S:
+//     cmp \reg, #'A' ; b.lt \skip ; cmp \reg, #'Z' ; b.gt \skip ;
+//     add \reg, \reg, #0x20
+//   \skip is the "not in A-Z" exit and MUST be a `.L` label at the call
+//   site (the module's own .L branch target, so it is unique per use).
+//   Clobbers the condition flags and \reg (the folded byte) only.
+    .macro LOWER_BYTE reg, skip
+    cmp \reg, #'A'
+    b.lt \skip
+    cmp \reg, #'Z'
+    b.gt \skip
+    add \reg, \reg, #0x20
+    .endm
+
+// PAD2 cur — write two ASCII space bytes at \cur and advance the cursor
+//   past them:
+//     mov w1, #' ' ; strb w1, [\cur], #1 ; strb w1, [\cur], #1
+//   The shared two-space pad of the table-emit sites in tc_render.S.
+//   Clobbers w1/x1 and the cursor register \cur (advanced by 2).  \cur must
+//   not be x1/w1 (the value register) — strb with the same architectural
+//   register for value and base-with-writeback is unpredictable.
+    .macro PAD2 cur
+    mov w1, #' '
+    strb w1, [\cur], #1
+    strb w1, [\cur], #1
+    .endm
+
 // Field loads whose WIDTH differs between the platforms.  `n` is the
 // register number: LOAD_ST_MODE 1, x0  ->  w1 = st_mode (zero-extended).
 #ifdef __APPLE__

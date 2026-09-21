@@ -591,6 +591,14 @@ tc_cache_day:
 // ============================================================================
 // tc_cache_put_day(x0=exit_state) — write the stashed whole day after a
 //   successful whole-file parse.  No-op without a stash.
+//
+//   Pipeline of three per-statement helpers (each owns one SQL statement and
+//   returns x0 = 0 ok / 1 drop-the-stash on a prepare failure):
+//     cache_put_del_counts(x0=date)                DELETE the day's counts
+//     cache_put_ins_counts(x0=date)                INSERT the user delta rows
+//     cache_put_ins_file(x0=date, x1=exit_state)   INSERT OR REPLACE the row
+//   x19 (exit_state) and x20 (date) are the only values live across the whole
+//   call; every helper preserves x19-x28, so the caller's registers survive.
 // ============================================================================
     .p2align 2
     .global tc_cache_put_day
@@ -614,32 +622,78 @@ tc_cache_put_day:
     bl cache_fmt_date
     LEA x20, cache_scratch  // date ptr
     // ---- DELETE counts for this (fp, channel, date) ----
+    mov x0, x20
+    bl cache_put_del_counts                 // x0 = 0 ok, else discard
+    cbnz x0, .Lcp_discard
+    // ---- INSERT counts rows (delta of the user table since the snapshot) ----
+    mov x0, x20
+    bl cache_put_ins_counts                 // x0 = 0 ok, else discard
+    cbnz x0, .Lcp_discard
+    // ---- INSERT OR REPLACE INTO file ----
+    mov x0, x20
+    mov x1, x19
+    bl cache_put_ins_file                   // x0 = 0 ok, else discard
+    cbnz x0, .Lcp_discard
+    // ---- commit ----
+    LEA x0, s_commit
+    bl cache_db_exec
+.Lcp_discard:
+    bl cache_drop_stash
+.Lcp_done:
+    EPILOGUE 5
+    ret
+
+// ============================================================================
+// cache_put_del_counts(x0=date) -> x0 = 0 ok, 1 discard (prepare failed).
+//   DELETE FROM counts WHERE fingerprint = ? AND channel = ? AND date = ?.
+//   clobbers x0-x17; preserves x19-x28 (PROLOGUE 2 covers x19/x20, x21/x22).
+// ============================================================================
+    .p2align 2
+cache_put_del_counts:
+    PROLOGUE 2
+    mov x19, x0                     // date
     LEA x0, s_sql_del_day_counts
     bl cache_prepare_stmt                 // x0 = stmt or 0
-    cbz x0, .Lcp_discard
-    mov x21, x0                     // stmt
-    LEA x0, cache_fp
-    mov x2, x0
-    mov x0, x21
+    cbz x0, .Lpdc_fail
+    mov x20, x0                     // stmt
+    LEA x2, cache_fp
+    mov x0, x20
     mov x1, #1
     bl cache_bind_text_stmt
     LEA x2, cache_channel
     ldr x2, [x2]
-    mov x0, x21
+    mov x0, x20
     mov x1, #2
     bl cache_bind_text_stmt
-    mov x0, x21
+    mov x0, x20
     mov x1, #3
-    mov x2, x20
+    mov x2, x19
     bl cache_bind_text_stmt
-    mov x0, x21
+    mov x0, x20
     bl cache_step_stmt
-    mov x0, x21
+    mov x0, x20
     bl sqlite3_finalize
-    // ---- INSERT counts rows (delta of the user table since the snapshot) ----
+    mov x0, #0
+    EPILOGUE 2
+    ret
+.Lpdc_fail:
+    mov x0, #1
+    EPILOGUE 2
+    ret
+
+// ============================================================================
+// cache_put_ins_counts(x0=date) -> x0 = 0 ok, 1 discard (prepare failed).
+//   INSERT INTO counts VALUES(?, ?, ?, ?, ?, ?) for every user whose live/
+//   offline/unknown count grew since the snapshot (the delta the put owns).
+//   clobbers x0-x17; preserves x19-x28 (PROLOGUE 5).
+// ============================================================================
+    .p2align 2
+cache_put_ins_counts:
+    PROLOGUE 5
+    mov x20, x0                     // date
     LEA x0, s_sql_ins_count
-    bl cache_prepare_stmt
-    cbz x0, .Lcp_discard
+    bl cache_prepare_stmt                 // x0 = stmt or 0
+    cbz x0, .Lpic_fail
     mov x21, x0                     // counts stmt
     LEA x22, tc_users
     ldr x23, [x22, #TC_US_COUNT]    // new_n
@@ -649,9 +703,9 @@ tc_cache_put_day:
     LEA x26, cache_snap_n
     ldr x26, [x26]                  // snap_n
     mov x27, #0                     // i
-.Lcp_user_loop:
+.Lpic_user_loop:
     cmp x27, x23
-    b.ge .Lcp_users_done
+    b.ge .Lpic_users_done
     // entry pointer (survives the bind calls in x28)
     mov x0, x24
     mov x1, x27
@@ -668,12 +722,12 @@ tc_cache_put_day:
     mov x11, #0
     mov x12, #0
     cmp x27, x26
-    b.ge .Lcp_old_zero
+    b.ge .Lpic_old_zero
     add x13, x25, x9
     ldr x10, [x13]
     ldr x11, [x13, #8]
     ldr x12, [x13, #16]
-.Lcp_old_zero:
+.Lpic_old_zero:
     sub x16, x16, x10                // dl (live delta)
     sub x17, x17, x11                // do (offline delta)
     sub x14, x14, x12                // du (unknown delta)
@@ -702,7 +756,7 @@ tc_cache_put_day:
     bl cache_bind_text_stmt
     // live
     ldr x9, [sp]
-    cbz x9, .Lcp_no_live
+    cbz x9, .Lpic_no_live
     mov x0, x21
     mov x1, #5
     LEA x2, tc_str_live
@@ -715,10 +769,10 @@ tc_cache_put_day:
     bl cache_step_stmt
     mov x0, x21
     bl sqlite3_reset
-.Lcp_no_live:
+.Lpic_no_live:
     // offline
     ldr x9, [sp, #8]
-    cbz x9, .Lcp_no_off
+    cbz x9, .Lpic_no_off
     mov x0, x21
     mov x1, #5
     LEA x2, tc_str_offline
@@ -731,10 +785,10 @@ tc_cache_put_day:
     bl cache_step_stmt
     mov x0, x21
     bl sqlite3_reset
-.Lcp_no_off:
+.Lpic_no_off:
     // unknown
     ldr x9, [sp, #16]
-    cbz x9, .Lcp_no_unk
+    cbz x9, .Lpic_no_unk
     mov x0, x21
     mov x1, #5
     LEA x2, tc_str_unknown
@@ -747,18 +801,35 @@ tc_cache_put_day:
     bl cache_step_stmt
     mov x0, x21
     bl sqlite3_reset
-.Lcp_no_unk:
+.Lpic_no_unk:
     add sp, sp, #32
     add x27, x27, #1
-    b .Lcp_user_loop
-.Lcp_users_done:
+    b .Lpic_user_loop
+.Lpic_users_done:
     mov x0, x21
     bl sqlite3_finalize
-    // ---- INSERT OR REPLACE INTO file ----
+    mov x0, #0
+    EPILOGUE 5
+    ret
+.Lpic_fail:
+    mov x0, #1
+    EPILOGUE 5
+    ret
+
+// ============================================================================
+// cache_put_ins_file(x0=date, x1=exit_state) -> x0 = 0 ok, 1 discard (prepare
+//   failed).  INSERT OR REPLACE INTO file VALUES(?, ?, ?, ?, ?, ?, ?).
+//   clobbers x0-x17; preserves x19-x28 (PROLOGUE 2 covers x19/x20, x21/x22).
+// ============================================================================
+    .p2align 2
+cache_put_ins_file:
+    PROLOGUE 2
+    mov x19, x0                     // date
+    mov x20, x1                     // exit_state
     LEA x0, s_sql_ins_file
-    bl cache_prepare_stmt
-    cbz x0, .Lcp_discard
-    mov x21, x0
+    bl cache_prepare_stmt                 // x0 = stmt or 0
+    cbz x0, .Lpif_fail
+    mov x21, x0                     // stmt
     mov x1, #1
     LEA x2, cache_fp
     bl cache_bind_text_stmt
@@ -769,7 +840,7 @@ tc_cache_put_day:
     bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #3
-    mov x2, x20
+    mov x2, x19
     bl cache_bind_text_stmt
     mov x0, x21
     mov x1, #4
@@ -785,42 +856,41 @@ tc_cache_put_day:
     LEA x2, cache_stash_enter
     ldr x0, [x2]
     bl cache_state_str
-    cbz x0, .Lcp_enter_null
+    cbz x0, .Lpif_enter_null
     mov x2, x0
     mov x0, x21
     mov x1, #6
     bl cache_bind_text_stmt
-    b .Lcp_enter_done
-.Lcp_enter_null:
+    b .Lpif_enter_done
+.Lpif_enter_null:
     mov x0, x21
     mov x1, #6
     bl sqlite3_bind_null
-.Lcp_enter_done:
+.Lpif_enter_done:
     // exit_state (state id -> string; 0 -> NULL)
-    mov x0, x19
+    mov x0, x20
     bl cache_state_str
-    cbz x0, .Lcp_exit_null
+    cbz x0, .Lpif_exit_null
     mov x2, x0
     mov x0, x21
     mov x1, #7
     bl cache_bind_text_stmt
-    b .Lcp_exit_done
-.Lcp_exit_null:
+    b .Lpif_exit_done
+.Lpif_exit_null:
     mov x0, x21
     mov x1, #7
     bl sqlite3_bind_null
-.Lcp_exit_done:
+.Lpif_exit_done:
     mov x0, x21
     bl cache_step_stmt
     mov x0, x21
     bl sqlite3_finalize
-    // ---- commit ----
-    LEA x0, s_commit
-    bl cache_db_exec
-.Lcp_discard:
-    bl cache_drop_stash
-.Lcp_done:
-    EPILOGUE 5
+    mov x0, #0
+    EPILOGUE 2
+    ret
+.Lpif_fail:
+    mov x0, #1
+    EPILOGUE 2
     ret
 
 // ============================================================================
@@ -982,10 +1052,7 @@ tc_cache_debug_dump:
     b.ne .Lcdd_tbl_done
     mov x0, x19
     mov x1, #0
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     b .Lcdd_tbl_loop
 .Lcdd_tbl_done:
     LEA x0, s_newline
@@ -1025,58 +1092,32 @@ tc_cache_debug_dump:
     b.ne .Lcdd_file_done
     LEA x0, s_cachefile
     bl tc_puts
+    // fingerprint, channel, date (text), size, mtime (u64), enter (text-or-
+    // dash) each carry a trailing space; the row-final exit column (also
+    // text-or-dash) does NOT (the newline follows directly)
     mov x0, x19
     mov x1, #0
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #1
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #2
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #3
-    bl sqlite3_column_int64
-    bl tc_putu64
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_i64
     mov x0, x19
     mov x1, #4
-    bl sqlite3_column_int64
-    bl tc_putu64
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_i64
     mov x0, x19
     mov x1, #5
-    bl sqlite3_column_text
-    cbz x0, .Lcdd_file_en_dash
-    bl tc_puts
-    b .Lcdd_file_ent_done
-.Lcdd_file_en_dash:
-    LEA x0, s_dash
-    bl tc_puts
-.Lcdd_file_ent_done:
+    bl cache_dump_col_text_dash
     LEA x0, s_space
     bl tc_puts
     mov x0, x19
     mov x1, #6
-    bl sqlite3_column_text
-    cbz x0, .Lcdd_file_ex_dash
-    bl tc_puts
-    b .Lcdd_file_ex_done
-.Lcdd_file_ex_dash:
-    LEA x0, s_dash
-    bl tc_puts
-.Lcdd_file_ex_done:
+    bl cache_dump_col_text_dash
     LEA x0, s_newline
     bl tc_puts
     b .Lcdd_file_loop
@@ -1095,37 +1136,23 @@ tc_cache_debug_dump:
     b.ne .Lcdd_cnt_done
     LEA x0, s_cachecount
     bl tc_puts
-    // fingerprint, channel, date, login
+    // fingerprint, channel, date, login, state (each with a trailing space)
     mov x0, x19
     mov x1, #0
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #1
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #2
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #3
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
     mov x0, x19
     mov x1, #4
-    bl sqlite3_column_text
-    bl tc_puts
-    LEA x0, s_space
-    bl tc_puts
+    bl cache_dump_col_text
+    // n (no trailing space: the newline follows directly)
     mov x0, x19
     mov x1, #5
     bl sqlite3_column_int64
@@ -1162,6 +1189,51 @@ cache_dump_count:
     bl sqlite3_finalize
 .Ldc_done:
     EPILOGUE 1
+    ret
+
+// ============================================================================
+// cache_dump_col_text(x0=stmt, x1=idx) — print column idx as text + a space.
+// ============================================================================
+    .p2align 2
+cache_dump_col_text:
+    PROLOGUE 0
+    bl sqlite3_column_text
+    bl tc_puts
+    LEA x0, s_space
+    bl tc_puts
+    EPILOGUE 0
+    ret
+
+// ============================================================================
+// cache_dump_col_i64(x0=stmt, x1=idx) — print column idx as u64 + a space.
+// ============================================================================
+    .p2align 2
+cache_dump_col_i64:
+    PROLOGUE 0
+    bl sqlite3_column_int64
+    bl tc_putu64
+    LEA x0, s_space
+    bl tc_puts
+    EPILOGUE 0
+    ret
+
+// ============================================================================
+// cache_dump_col_text_dash(x0=stmt, x1=idx) — print column idx as text, or a
+//   dash when the column is NULL.  Row-final columns: NO trailing space (the
+//   caller prints the separator or the newline that follows).
+// ============================================================================
+    .p2align 2
+cache_dump_col_text_dash:
+    PROLOGUE 0
+    bl sqlite3_column_text
+    cbz x0, .Ldctd_dash
+    bl tc_puts
+    b .Ldctd_done
+.Ldctd_dash:
+    LEA x0, s_dash
+    bl tc_puts
+.Ldctd_done:
+    EPILOGUE 0
     ret
 
 // ============================================================================

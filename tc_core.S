@@ -146,7 +146,7 @@
     .equ DNAME_SZ,        256
     .equ LISTING_INIT,    64
     .equ USERS_INIT,      64
-    .equ CF_ENTRY,        0               // core_count_final frame slots
+    .equ CF_ENTRY,        0               // core_fold_one_day frame slots
     .equ CF_LO,           8
     .equ CF_HI,           16
     .equ CF_BUF,          32              // malloc'd file buffer across calls
@@ -1063,12 +1063,13 @@ core_reported_width:
 // ============================================================================
 // core_count_final — the counting pass for the resolved window [begin, end]:
 //   seed state, fold every in-range file, then finish the tally.  Fills
-//   tc_users and tc_tally (fresh each call; probes overwrite later).
+//   tc_users and tc_tally (fresh each call; probes overwrite later).  The
+//   per-day fold lives in core_fold_one_day (its register contract is on
+//   that helper); this loop only picks the in-range entries and calls it.
 // ============================================================================
     .p2align 2
 core_count_final:
     PROLOGUE 5
-    sub sp, sp, #CF_FRAME_SZ
     bl core_reset_count
     bl core_seed_state                    // x0 = 0/1/2
     LEA x28, core_cur_state               // &core_cur_state is invariant across
@@ -1095,10 +1096,6 @@ core_count_final:
     b.lt .Lcf_next
     cmp x10, x24
     b.gt .Lcf_next
-    // in range: files++
-    ldr x11, [x26, #TC_T_FILES]
-    add x11, x11, #1
-    str x11, [x26, #TC_T_FILES]
     // lo/hi (bucket_bounds)
     mov x11, #0
     cmp x22, x10
@@ -1110,9 +1107,42 @@ core_count_final:
     b.gt .Lcf_hi_ok
     mov x12, x25
 .Lcf_hi_ok:
-    str x9, [sp, #CF_ENTRY]
-    str x11, [sp, #CF_LO]
-    str x12, [sp, #CF_HI]
+    mov x0, x9                          // entry
+    mov x1, x11                         // lo
+    mov x2, x12                         // hi
+    mov x3, x26                         // tally
+    mov x4, x28                         // &core_cur_state
+    bl core_fold_one_day
+.Lcf_next:
+    add x27, x27, #1
+    b .Lcf_loop
+.Lcf_done:
+    bl core_finish_tally
+    EPILOGUE 5
+    ret
+
+// ============================================================================
+// core_fold_one_day(x0=entry, x1=lo, x2=hi, x3=tally, x4=&core_cur_state) —
+//   fold one in-range day into the tally: bump TC_T_FILES, build the file
+//   path, consult the rollup cache (reuse when cached, record + reset when
+//   the stat fails), read the file and fold its lines when it has a
+//   trailing newline, then free the buffer.  The per-day body of
+//   core_count_final's loop; it owns the CF_* frame slots and preserves
+//   x19-x28, so the caller's loop invariants survive the call.
+// ============================================================================
+    .p2align 2
+core_fold_one_day:
+    PROLOGUE 2
+    sub sp, sp, #CF_FRAME_SZ
+    mov x19, x3                         // tally
+    mov x20, x4                         // &core_cur_state
+    // in range: files++
+    ldr x11, [x19, #TC_T_FILES]
+    add x11, x11, #1
+    str x11, [x19, #TC_T_FILES]
+    str x0, [sp, #CF_ENTRY]
+    str x1, [sp, #CF_LO]
+    str x2, [sp, #CF_HI]
     // build the file path
     LEA x0, core_fpath
     LEA x1, core_dirpath
@@ -1127,7 +1157,7 @@ core_count_final:
     LEA x0, core_fpath
     ldr x1, [sp, #CF_LO]
     ldr x2, [sp, #CF_HI]
-    ldr x3, [x28]                   // entering state (x28 = &core_cur_state)
+    ldr x3, [x20]                   // entering state (x20 = &core_cur_state)
     ldr x4, [sp, #CF_ENTRY]
     ldr x4, [x4, #TC_L_YMD]
     bl tc_cache_day
@@ -1151,12 +1181,12 @@ core_count_final:
     ldr x0, [sp, #CF_BUF]
     ldr x1, [sp, #CF_LEN]
     bl core_process_lines
-    ldr x11, [x26, #TC_T_PARSED]
+    ldr x11, [x19, #TC_T_PARSED]
     add x11, x11, #1
-    str x11, [x26, #TC_T_PARSED]
+    str x11, [x19, #TC_T_PARSED]
     // ---- write the whole day to the rollup (no-op unless the
     // cache module stashed this file's snapshot) ----
-    ldr x0, [x28]                   // exiting state (x28 = &core_cur_state)
+    ldr x0, [x20]                   // exiting state (x20 = &core_cur_state)
     bl tc_cache_put_day
     b .Lcf_free
 .Lcf_unreadable:
@@ -1186,25 +1216,26 @@ core_count_final:
     mov x0, x10
     bl free
 .Lcf_state_reset:
-    str xzr, [x28]                  // reset the stream state
-    b .Lcf_next
+    str xzr, [x20]                  // reset the stream state
+    b .Lcf_exit
 .Lcf_free:
     bl tc_cache_discard_day             // no-newline days never write
     ldr x9, [sp, #CF_BUF]
-    cbz x9, .Lcf_next
+    cbz x9, .Lcf_exit
     mov x0, x9
     bl free
-.Lcf_next:
-    add x27, x27, #1
-    b .Lcf_loop
+.Lcf_exit:
+    add sp, sp, #CF_FRAME_SZ
+    EPILOGUE 2
+    ret
 .Lcf_cached:
     // the day came from the rollup.  x1 = cached exit_state; the
     // cache module already applied the counts to tc_users + the totals.
-    ldr x11, [x26, #TC_T_REUSED]
+    ldr x11, [x19, #TC_T_REUSED]
     add x11, x11, #1
-    str x11, [x26, #TC_T_REUSED]
-    str x1, [x28]                   // store the cached exit state
-    b .Lcf_next
+    str x11, [x19, #TC_T_REUSED]
+    str x1, [x20]                   // store the cached exit state
+    b .Lcf_exit
 .Lcf_cache_unreadable:
     // stat failed inside the cache hook (errno captured there);
     // record + reset state, exactly like Python's skip().
@@ -1214,13 +1245,8 @@ core_count_final:
     ldr x0, [sp, #CF_ENTRY]
     add x0, x0, #TC_L_NAME
     bl core_record_unreadable
-    str xzr, [x28]                  // reset the stream state
-    b .Lcf_next
-.Lcf_done:
-    add sp, sp, #CF_FRAME_SZ
-    bl core_finish_tally
-    EPILOGUE 5
-    ret
+    str xzr, [x20]                  // reset the stream state
+    b .Lcf_exit
 
 // ============================================================================
 // core_reset_count — zero the tally and the global counters, reset the user
@@ -1889,8 +1915,9 @@ core_process_lines:
 
 // ============================================================================
 // core_process_message(x0=line, x1=len, x2=lo, x3=hi, x4=state) -> x0 = 1 if the
-//   message was counted.  The speaker is classified by core_speaker_login; the
-//   state (0 = unknown) becomes TC_ST_UNKNOWN for the count.
+//   message was counted.  core_parse_message is the boundary parse (it returns
+//   the speaker login ptr/len and the state); this function only increments
+//   the matching user-state bucket (state 0 = unknown -> TC_ST_UNKNOWN).
 // ============================================================================
     .p2align 2
 core_process_message:
@@ -1900,41 +1927,86 @@ core_process_message:
     mov x21, x2                         // lo
     mov x22, x3                         // hi
     mov x23, x4                         // state
+    bl core_parse_message
+    cbz x0, .Lpm_skip
+    mov x24, x1                         // login ptr
+    mov x25, x2                         // login len
+    mov x26, x3                         // state survives the table calls
+    cbnz x26, .Lpm_state_set
+    mov x26, #TC_ST_UNKNOWN
+.Lpm_state_set:
+    mov x0, x24
+    mov x1, x25
+    LEA x2, tc_users
+    bl core_get_user_index              // x0 = index
+    // entry = users.entries + index*50
+    LEA x9, tc_users
+    ldr x10, [x9, #TC_US_ENTRIES]
+    mov x11, #TC_US_ENTRY_SZ
+    ENTRY_PTR x10, x10, x0, x11     // entry
+    mov x0, x10                         // entry
+    mov x1, x26                         // state
+    mov x2, #1
+    bl core_inc_user_state              // +1
+    mov x0, #1
+    b .Lpm_out
+.Lpm_skip:
+    mov x0, #0
+.Lpm_out:
+    EPILOGUE 4
+    ret
+
+// ============================================================================
+// core_parse_message(x0=line, x1=len, x2=lo, x3=hi, x4=state) -> x0 = 1 when
+//   the line is a countable in-range message, with x1 = speaker login ptr,
+//   x2 = login len and x3 = state (0 = unknown); x0 = 0 otherwise.  The
+//   boundary parse of core_process_message: timestamp header, the first
+//   ": " split, the speaker charset, the HH:MM:SS second-of-day, the
+//   [lo, hi] clip, then the speaker login lookup.  Preserves x19-x28.
+// ============================================================================
+    .p2align 2
+core_parse_message:
+    PROLOGUE 4
+    mov x19, x0                         // line
+    mov x20, x1                         // len
+    mov x21, x2                         // lo
+    mov x22, x3                         // hi
+    mov x23, x4                         // state
     mov x0, x19
     mov x1, x20
     bl tc_is_timestamp_header
-    cbz x0, .Lpm_skip
+    cbz x0, .Lpmsg_skip
     // find the first ": " in the rest
     add x24, x19, #11
     add x3, x19, x20
-.Lpm_find_colon:
+.Lpmsg_find_colon:
     cmp x24, x3
-    b.ge .Lpm_skip
+    b.ge .Lpmsg_skip
     ldrb w4, [x24]
     add x24, x24, #1
     cmp w4, #':'
-    b.ne .Lpm_find_colon
+    b.ne .Lpmsg_find_colon
     cmp x24, x3
-    b.ge .Lpm_skip
+    b.ge .Lpmsg_skip
     ldrb w4, [x24]
     cmp w4, #' '
-    b.ne .Lpm_find_colon
+    b.ne .Lpmsg_find_colon
     // colon at x24-1; speaker = [line+11, x24-1)
     sub x24, x24, #1
     sub x25, x24, x19
     sub x25, x25, #11                   // speaker len
-    cbz x25, .Lpm_skip
+    cbz x25, .Lpmsg_skip
     add x4, x19, #11
     mov x5, #0
-.Lpm_spk:
+.Lpmsg_spk:
     cmp x5, x25
-    b.ge .Lpm_spk_ok
+    b.ge .Lpmsg_spk_ok
     ldrb w6, [x4, x5]
     cmp w6, #':'
-    b.eq .Lpm_skip
+    b.eq .Lpmsg_skip
     add x5, x5, #1
-    b .Lpm_spk
-.Lpm_spk_ok:
+    b .Lpmsg_spk
+.Lpmsg_spk_ok:
     // second-of-day from line[1..8]
     ldrb w6, [x19, #1]
     sub w6, w6, #'0'
@@ -1965,38 +2037,24 @@ core_process_message:
     add x26, x7, x10                    // second
     // clip to [lo, hi]
     cmp x26, x21
-    b.lt .Lpm_skip
+    b.lt .Lpmsg_skip
     cmp x26, x22
-    b.gt .Lpm_skip
+    b.gt .Lpmsg_skip
     // speaker login
     mov x0, x4
     mov x1, x25
     bl core_speaker_login                    // x0 = login ptr or 0, x1 = login len
-    cbz x0, .Lpm_skip
+    cbz x0, .Lpmsg_skip
     mov x24, x0                         // login ptr
     mov x25, x1                         // login len
-    mov x26, x23                        // state survives the table calls
-    cbnz x26, .Lpm_state_set
-    mov x26, #TC_ST_UNKNOWN
-.Lpm_state_set:
-    mov x0, x24
-    mov x1, x25
-    LEA x2, tc_users
-    bl core_get_user_index              // x0 = index
-    // entry = users.entries + index*50
-    LEA x9, tc_users
-    ldr x10, [x9, #TC_US_ENTRIES]
-    mov x11, #TC_US_ENTRY_SZ
-    ENTRY_PTR x10, x10, x0, x11     // entry
-    mov x0, x10                         // entry
-    mov x1, x26                         // state
-    mov x2, #1
-    bl core_inc_user_state              // +1
     mov x0, #1
-    b .Lpm_out
-.Lpm_skip:
+    mov x1, x24
+    mov x2, x25
+    mov x3, x23                         // state (0 = unknown -> caller maps)
+    EPILOGUE 4
+    ret
+.Lpmsg_skip:
     mov x0, #0
-.Lpm_out:
     EPILOGUE 4
     ret
 
@@ -2458,11 +2516,7 @@ core_lowercase_copy:
     mov x2, #0
 .Llc2:
     ldrb w3, [x0, x2]
-    cmp w3, #'A'
-    b.lt .Llc2_store
-    cmp w3, #'Z'
-    b.gt .Llc2_store
-    add w3, w3, #('a' - 'A')
+    LOWER_BYTE w3, .Llc2_store
 .Llc2_store:
     strb w3, [x1, x2]
     cbz w3, .Llc2_done

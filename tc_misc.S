@@ -112,6 +112,7 @@
     .globl tc_fmt_pad
     .globl tc_ymd_split
     .globl tc_ascii_casecmp
+    .globl tc_cat_cstr
 
 // ----------------------------------------------------------------------------
 // Module constants
@@ -612,7 +613,7 @@ misc_complete_includes:
     mov x21, x0
     LEA x1, s_flag_exclude
     mov x0, x21
-    bl misc_cat
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lci_nx_group:
@@ -626,7 +627,7 @@ misc_complete_includes:
     mov x21, x0
     LEA x1, s_flag_exclude_group
     mov x0, x21
-    bl misc_cat
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lci_nx_bcast:
@@ -640,7 +641,7 @@ misc_complete_includes:
     mov x21, x0
     LEA x1, s_flag_exclude_bcast
     mov x0, x21
-    bl misc_cat
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lci_nx_include:
@@ -654,7 +655,7 @@ misc_complete_includes:
     mov x21, x0
     LEA x1, s_flag_include
     mov x0, x21
-    bl misc_cat
+    bl tc_cat_cstr
     mov x21, x0
     mov x22, #1
 .Lci_nx_done:
@@ -662,9 +663,9 @@ misc_complete_includes:
     // "--no-exclude cannot be combined with " + list
     LEA x0, misc_buf2
     LEA x1, s_noexcl_prefix
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_buf
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
@@ -698,26 +699,8 @@ misc_complete_includes:
 .Lci_always_loop:
     cmp x23, x21
     b.ge .Lci_always_done
-    ldr x24, [x22, x23, lsl #3]
-    mov x0, x24
-    bl misc_group_index                 // x0 = record index or -1
-    cmn x0, #1
-    b.eq .Lci_always_next
-    mov x25, #GR_SZ
-    mul x25, x0, x25
-    LEA x26, misc_groups
-    add x26, x26, x25
-    ldr x27, [x26, #GR_MEMBERS]
-    ldr x28, [x26, #GR_MEMBER_N]
-    mov x26, #0
-.Lci_always_mem:
-    cmp x26, x28
-    b.ge .Lci_always_next
-    ldr x0, [x27, x26, lsl #3]
-    bl misc_names_add
-    add x26, x26, #1
-    b .Lci_always_mem
-.Lci_always_next:
+    ldr x0, [x22, x23, lsl #3]
+    bl misc_add_group_members           // x0 = 0 found, 1 unknown (skip silently)
     add x23, x23, #1
     b .Lci_always_loop
 .Lci_always_done:
@@ -736,27 +719,11 @@ misc_complete_includes:
     mul x0, x23, x0
     add x24, x22, x0                    // group name entry
     mov x0, x24
-    bl misc_group_index
-    cmn x0, #1
-    b.ne .Lci_cli_grp_ok
+    bl misc_add_group_members           // x0 = 0 found, 1 unknown
+    cbz x0, .Lci_cli_grp_next
     mov x0, x24
     bl misc_unknown_group_failed        // prints; returns void
     b .Lci_done
-.Lci_cli_grp_ok:
-    mov x25, #GR_SZ
-    mul x25, x0, x25
-    LEA x26, misc_groups
-    add x26, x26, x25
-    ldr x27, [x26, #GR_MEMBERS]
-    ldr x28, [x26, #GR_MEMBER_N]
-    mov x26, #0
-.Lci_cli_grp_mem:
-    cmp x26, x28
-    b.ge .Lci_cli_grp_next
-    ldr x0, [x27, x26, lsl #3]
-    bl misc_names_add
-    add x26, x26, #1
-    b .Lci_cli_grp_mem
 .Lci_cli_grp_next:
     add x23, x23, #1
     b .Lci_cli_grp_loop
@@ -818,6 +785,44 @@ misc_complete_includes:
     EPILOGUE 5
     ret
 
+// misc_add_group_members(x0=group_name) -> x0 = 0 when the group exists and
+//   every member was added to the dedup list, 1 when the group is unknown
+//   (nothing added).  The shared member walk of the exclusion layers: layer 2
+//   (config always:<name> groups) skips the return; layer 3 (--exclude-group)
+//   reports an unknown group.
+//   Register roles: x19 = group name, x20 = record index (-1 = unknown),
+//   x21 = record ptr, x22 = members ptr, x23 = member count, x24 = loop i.
+misc_add_group_members:
+    PROLOGUE 3
+    mov x19, x0                         // group name
+    mov x0, x19
+    bl misc_group_index                 // x0 = record index or -1
+    cmn x0, #1
+    b.eq .Lagm_unknown
+    mov x20, x0                         // record index
+    mov x21, #GR_SZ
+    mul x21, x20, x21
+    LEA x22, misc_groups
+    add x21, x22, x21                   // record ptr
+    ldr x22, [x21, #GR_MEMBERS]
+    ldr x23, [x21, #GR_MEMBER_N]
+    mov x24, #0
+.Lagm_mem:
+    cmp x24, x23
+    b.ge .Lagm_ok
+    ldr x0, [x22, x24, lsl #3]
+    bl misc_names_add
+    add x24, x24, #1
+    b .Lagm_mem
+.Lagm_ok:
+    mov x0, #0
+    EPILOGUE 3
+    ret
+.Lagm_unknown:
+    mov x0, #1
+    EPILOGUE 3
+    ret
+
 // ============================================================================
 // misc_require_channel() -> x0: 0 ok (misc_cdir filled), 1 no channel,
 //   2 error printed.  Python resolve() + resolve_channel_dir().
@@ -838,9 +843,9 @@ misc_require_channel:
     // "logs directory not found: <root>"
     LEA x0, misc_buf2
     LEA x1, s_dir_not_found
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_root
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
@@ -873,11 +878,11 @@ misc_require_channel:
     // misc_cdir = <root>/<real name>
     LEA x0, misc_cdir
     LEA x1, misc_root
-    bl misc_cat
+    bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
     mov x1, x23
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     mov x0, #0
@@ -886,17 +891,17 @@ misc_require_channel:
     // "no logs for channel '<ch>' in <root>\navailable: <join|(none)>"
     LEA x0, misc_buf2
     LEA x1, s_no_logs_pre
-    bl misc_cat
+    bl tc_cat_cstr
     LEA_OFF x1, tc_opts, TC_O_CHANNEL
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_no_logs_mid
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_root
-    bl misc_cat
+    bl tc_cat_cstr
     mov w2, #'\n'
     strb w2, [x0], #1
     LEA x1, s_avail
-    bl misc_cat
+    bl tc_cat_cstr
     mov x19, x0                         // cursor
     LEA x20, misc_n
     ldr x21, [x20]
@@ -907,7 +912,7 @@ misc_require_channel:
     ldr x24, [x22, x23, lsl #3]
     mov x0, x19
     mov x1, x24
-    bl misc_cat
+    bl tc_cat_cstr
     mov x19, x0
     add x23, x23, #1
     cmp x23, x21
@@ -920,7 +925,7 @@ misc_require_channel:
 .Lrc_avail_none:
     LEA x1, s_none_paren
     mov x0, x19
-    bl misc_cat
+    bl tc_cat_cstr
     mov x19, x0
 .Lrc_avail_done:
     mov w1, #0
@@ -970,11 +975,11 @@ misc_cfg_exclusions:
     // neither: "`exclude` in <where> must be a list of logins or a table of groups"
     LEA x0, misc_buf2
     LEA x1, s_excl_shape_pre
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_where
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_excl_shape_suf
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
@@ -982,36 +987,9 @@ misc_cfg_exclusions:
     mov x0, #2
     b .Lce_out
 .Lce_flat:
-    // exclude = [ ... ] -> flat logins (cfg_split_names of each element)
-    mov x20, x0                         // array
-    bl toml_array_nelem
-    mov x21, x0                         // nelem
-    LEA x22, misc_flat_n
-    LEA x23, misc_flat
-    mov x24, #0
-.Lce_flat_loop:
-    cmp x24, x21
-    b.ge .Lce_ok_empty
-    mov x0, x20
-    mov x1, x24
-    bl toml_string_at                   // x0 = ok, x1 = u.s (malloc'd)
-    cbz w0, .Lce_flat_next
-    mov x25, x1
-    mov x0, x25
-    bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
-    cbz x0, .Lce_flat_free
-    ldr x26, [x22]
-    cmp x26, #MISC_MAX_NAMES
-    b.ge .Lce_flat_free
-    str x0, [x23, x26, lsl #3]
-    add x26, x26, #1
-    str x26, [x22]
-.Lce_flat_free:
-    mov x0, x25
-    bl free
-.Lce_flat_next:
-    add x24, x24, #1
-    b .Lce_flat_loop
+    // exclude = [ ... ] -> flat logins (misc_cfg_flat fills misc_flat)
+    bl misc_cfg_flat                    // x0 = the exclude array (from toml_array_in)
+    b .Lce_out
 .Lce_table:
     // exclude = { groups... } -> validate each key, collect members
     mov x20, x0                         // exclude table
@@ -1020,7 +998,7 @@ misc_cfg_exclusions:
     mov x0, x20
     mov x1, x21
     bl toml_key_in
-    cbz x0, .Lce_always_validate
+    cbz x0, .Lce_validate
     mov x22, x0                         // key
     LEA x1, s_key_always
     bl tc_streq
@@ -1122,15 +1100,15 @@ misc_cfg_exclusions:
     // "[exclude].<key> in <where> must be a list of logins"
     LEA x0, misc_buf2
     LEA x1, s_excl_group_pre
-    bl misc_cat
+    bl tc_cat_cstr
     mov x1, x22
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_excl_in_where
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_where
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_list_logins
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
@@ -1141,42 +1119,98 @@ misc_cfg_exclusions:
     // "[exclude].always in <where> must be a list of group names"
     LEA x0, misc_buf2
     LEA x1, s_excl_always_pre
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_where
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_list_group_names
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
     bl misc_failed
     mov x0, #2
     b .Lce_out
-.Lce_always_validate:
-    // validate every always name against the group names
-    LEA x19, misc_always_n
-    ldr x20, [x19]
-    LEA x21, misc_always
-    mov x22, #0
-.Lce_av_loop:
-    cmp x22, x20
-    b.ge .Lce_ok_empty
-    ldr x23, [x21, x22, lsl #3]
-    mov x0, x23
-    bl misc_group_index
-    cmn x0, #1
-    b.ne .Lce_av_next
-    mov x0, x23
-    bl misc_always_unknown_failed
-    mov x0, #2
+.Lce_validate:
+    // every always name must name a defined group (misc_cfg_always_validate)
+    bl misc_cfg_always_validate         // x0 = status (0 ok, 2 error printed)
     b .Lce_out
-.Lce_av_next:
-    add x22, x22, #1
-    b .Lce_av_loop
 .Lce_ok_empty:
     mov x0, #0
 .Lce_out:
     EPILOGUE 5
+    ret
+
+// misc_cfg_flat(x0=array) -> x0 = status (0 ok).  The flat-login layer of
+//   config_exclusions: exclude = [ ... ] -> cfg_split_names of each element
+//   (stripped + lowercased, empty dropped) into misc_flat.
+//   Register roles: x20 = array, x21 = nelem, x22 = flat_n ptr, x23 = flat
+//   base, x24 = loop i, x25 = arena copy, x26 = kept count.
+misc_cfg_flat:
+    PROLOGUE 4
+    mov x20, x0                         // array
+    bl toml_array_nelem
+    mov x21, x0                         // nelem
+    LEA x22, misc_flat_n
+    LEA x23, misc_flat
+    mov x24, #0
+.Lcf_flat_loop:
+    cmp x24, x21
+    b.ge .Lcf_ok
+    mov x0, x20
+    mov x1, x24
+    bl toml_string_at                   // x0 = ok, x1 = u.s (malloc'd)
+    cbz w0, .Lcf_flat_next
+    mov x25, x1
+    mov x0, x25
+    bl misc_arena_str_lower_strip       // x0 = arena copy (0 if empty)
+    cbz x0, .Lcf_flat_free
+    ldr x26, [x22]
+    cmp x26, #MISC_MAX_NAMES
+    b.ge .Lcf_flat_free
+    str x0, [x23, x26, lsl #3]
+    add x26, x26, #1
+    str x26, [x22]
+.Lcf_flat_free:
+    mov x0, x25
+    bl free
+.Lcf_flat_next:
+    add x24, x24, #1
+    b .Lcf_flat_loop
+.Lcf_ok:
+    mov x0, #0
+    EPILOGUE 4
+    ret
+
+// misc_cfg_always_validate() -> x0 = status (0 ok, 2 error printed).  The
+//   tail of config_exclusions: every [exclude].always name must name a
+//   defined group (the shared groups table is read-only here).
+//   Register roles: x19 = always_n ptr, x20 = count, x21 = always base,
+//   x22 = loop i, x23 = name.
+misc_cfg_always_validate:
+    PROLOGUE 3
+    LEA x19, misc_always_n
+    ldr x20, [x19]
+    LEA x21, misc_always
+    mov x22, #0
+.Lcav_loop:
+    cmp x22, x20
+    b.ge .Lcav_ok
+    ldr x23, [x21, x22, lsl #3]
+    mov x0, x23
+    bl misc_group_index
+    cmn x0, #1
+    b.ne .Lcav_next
+    mov x0, x23
+    bl misc_always_unknown_failed
+    mov x0, #2
+    EPILOGUE 3
+    ret
+.Lcav_next:
+    add x22, x22, #1
+    b .Lcav_loop
+.Lcav_ok:
+    mov x0, #0
+    EPILOGUE 3
     ret
 
 // ============================================================================
@@ -1190,7 +1224,7 @@ misc_unknown_group_failed:
     mov x19, x0                         // group name
     LEA x0, misc_buf2
     LEA x1, s_unknown_group_pre
-    bl misc_cat
+    bl tc_cat_cstr
     mov x0, x19                         // restore the name for .Lugf_append
     EPILOGUE 1
     b .Lugf_append                      // x0 = name
@@ -1207,9 +1241,9 @@ misc_unknown_group_failed:
     add x20, x20, x0                    // cursor = end of buf2
     mov x0, x20
     mov x1, x19
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_defined_groups
-    bl misc_cat
+    bl tc_cat_cstr
     mov x19, x0                         // cursor
     // collect + sort the group names
     LEA x20, misc_group_n
@@ -1247,7 +1281,7 @@ misc_unknown_group_failed:
     b.ge .Lugf_done
     ldr x1, [x22, x21, lsl #3]
     mov x0, x19
-    bl misc_cat
+    bl tc_cat_cstr
     mov x19, x0
     add x21, x21, #1
     cmp x21, x20
@@ -1260,7 +1294,7 @@ misc_unknown_group_failed:
 .Lugf_none:
     LEA x1, s_none_defined
     mov x0, x19
-    bl misc_cat
+    bl tc_cat_cstr
     mov x19, x0
 .Lugf_done:
     mov w1, #0
@@ -1325,13 +1359,13 @@ misc_config_open:
     // "could not read config <path>: <errbuf>"
     LEA x0, misc_buf2
     LEA x1, s_could_not_read
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_where
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_colon_space
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_errbuf
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
@@ -1344,9 +1378,9 @@ misc_config_open:
     // "config file not found: <path>"
     LEA x0, misc_buf2
     LEA x1, s_cfg_not_found
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_where
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, misc_buf2
@@ -1422,7 +1456,7 @@ misc_failed:
     LEA x1, s_failed_prefix
 .Lmf_pre:
     mov x0, x21
-    bl misc_cat
+    bl tc_cat_cstr
     mov x21, x0
     LEA x19, misc_buf
 .Lmf_loop:
@@ -1490,7 +1524,7 @@ misc_failed:
     LEA x1, s_failed_suffix
 .Lmf_suf:
     mov x0, x21
-    bl misc_cat
+    bl tc_cat_cstr
     mov x0, x20
     bl tc_eputs
     EPILOGUE 4
@@ -2004,7 +2038,7 @@ misc_shorten_path:
     bl tc_shorten_path                  // x0 = shortened (scratch or src)
     mov x1, x0
     mov x0, x20
-    bl misc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     EPILOGUE 1
@@ -2017,11 +2051,7 @@ misc_lower_copy:
 .Llc_loop:
     ldrb w3, [x0, x2]
     cbz w3, .Llc_done
-    cmp w3, #'A'
-    b.lt .Llc_store
-    cmp w3, #'Z'
-    b.gt .Llc_store
-    add w3, w3, #('a' - 'A')
+    LOWER_BYTE w3, .Llc_store
 .Llc_store:
     strb w3, [x1, x2]
     add x2, x2, #1
@@ -2074,19 +2104,6 @@ misc_list_dirs:
 // ============================================================================
 // String helpers.
 // ============================================================================
-
-// misc_cat(x0=dst, x1=src) -> x0 = cursor past the copied bytes (no NUL).
-misc_cat:
-    mov x2, x0                          // dst
-    mov x3, x1                          // src
-.Lcat_loop:
-    ldrb w1, [x3], #1
-    cbz w1, .Lcat_done
-    strb w1, [x2], #1
-    b .Lcat_loop
-.Lcat_done:
-    mov x0, x2
-    ret
 
 // misc_cat_comma_if(x0=end, x1=wrote_any) -> x0 = end (writes ", " when set).
 misc_cat_comma_if:
@@ -2284,11 +2301,11 @@ misc_always_unknown_failed:
     mov x19, x0                         // name
     LEA x0, misc_buf2
     LEA x1, s_always_unknown_pre
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, misc_where
-    bl misc_cat
+    bl tc_cat_cstr
     LEA x1, s_names_unknown_group
-    bl misc_cat
+    bl tc_cat_cstr
     mov x0, x19
     EPILOGUE 1
     b .Lugf_append

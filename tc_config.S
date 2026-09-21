@@ -1956,11 +1956,7 @@ cfg_strip_copy_lower:
     cmp x22, x21
     b.ge .Lscl_nul
     ldrb w0, [x20, x22]
-    cmp w0, #'A'
-    b.lt .Lscl_store
-    cmp w0, #'Z'
-    b.gt .Lscl_store
-    add w0, w0, #0x20
+    LOWER_BYTE w0, .Lscl_store
 .Lscl_store:
     strb w0, [x19, x22]
     add x22, x22, #1
@@ -2626,11 +2622,7 @@ cfg_copy_n_nul:
 cfg_lowercase_copy:
     ldrb w2, [x1], #1
     cbz w2, .Llc_done
-    cmp w2, #'A'
-    b.lt .Llc_store
-    cmp w2, #'Z'
-    b.gt .Llc_store
-    add w2, w2, #0x20
+    LOWER_BYTE w2, .Llc_store
 .Llc_store:
     strb w2, [x0], #1
     b cfg_lowercase_copy

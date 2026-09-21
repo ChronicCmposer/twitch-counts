@@ -24,7 +24,7 @@ Hand-written **ARMv8-A / ARMv8.6-A AArch64 assembly** project. Two deliverables,
   `twitch-counts` module set (the Makefile's `TC_MODS`) is:
   - `tc_main.S` — `main()` dispatch/orchestration
   - `tc_util.S` — shared helpers (`tc_puts`, `tc_fail`, `tc_fmt_u64`,
-    `tc_read_all`, ...) and the Wave-1 shared constants
+    `tc_read_all`, `tc_hl_bad_regex`, ...) and the Wave-1 shared constants
   - `tc_cli.S` — CLI parsing, resolves `[[watch.highlight]]`
   - `tc_config.S` — config / env / exclusions
   - `tc_core.S` — the counting core
@@ -192,6 +192,8 @@ them in a module. The set actually used by this repo:
 | `MOV_NANOSEC reg` | materialize the nanoseconds constant |
 | `SWAR_MASK_01` / `SWAR_MASK_80` | CPP constants: SWAR has-zero-byte low-bit mask / detection mask (`01` mask << 7) |
 | `LOAD_ST_MODE n,base` / `LOAD_ST_DEV n,base` | load `mode_t`/`dev_t` fields — **platform-sized** (16-bit on Darwin, 32/64-bit on musl); use these, never a hardcoded load width |
+| `LOWER_BYTE reg,skip` | fold one ASCII byte in `reg` from `A`-`Z` to `a`-`z` in place: `cmp reg,#'A'; b.lt skip; cmp reg,#'Z'; b.gt skip; add reg,reg,#0x20` — `skip` is a `.L` label at the call site; clobbers flags + `reg` (the lowercase-copy sites in tc_core/tc_config/tc_misc/tc_cli) |
+| `PAD2 cur` | write two ASCII spaces at `cur` and advance it by 2: `mov w1,#' '; strb w1,[cur],#1; strb w1,[cur],#1` — clobbers w1/x1 + `cur` (the table-emit sites in tc_render.S); `cur` must not be x1/w1 |
 
 ### The 5 gates
 

@@ -150,12 +150,14 @@
     .globl tc_speaker_login_to
     .globl tc_eff_threshold
     .globl tc_fmt_u64
+    .globl tc_cat_cstr
     .globl tc_copy_bytes
     .globl tc_copy_str_cap
     .globl pcre2_compile_8
     .globl pcre2_match_8
     .globl pcre2_match_data_create_from_pattern_8
     .globl pcre2_get_error_message_8
+    .globl tc_hl_bad_regex
     .globl tc_ymd_sod_to_epoch
     .globl tc_epoch_to_ymd_sod
     .globl tc_fmt2
@@ -558,10 +560,6 @@ s_int_min_mid:      .asciz "s ("
 s_from_paren:       .asciz " (from "
 s_collapse_mid:     .asciz " collapses the "
 s_collapse_post:    .asciz " ramp to a single colour -- lower k, or raise watch.shades"
-s_rule_bad_regex:   .asciz " is not a valid regex ("
-s_rule_pre:         .asciz "rule "
-s_rule_mid:         .asciz ": '"
-s_rule_post:        .asciz "')"
 s_oom:              .asciz "out of memory"
 
 s_cursor_hide:      .asciz "\033[?25l"
@@ -1184,30 +1182,30 @@ watch_load_settings:
     // "--watch (from {src})"
     mov x0, x23
     mov x1, x21
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     LEA x1, s_from_paren
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     mov x0, x22
     bl tc_source_str                  // (x0=ptr, x1=len)
     mov x2, x1
     mov x1, x0
     mov x0, x23
-    bl watch_wc_catn
+    bl tc_copy_bytes
     mov x23, x0
     LEA x1, s_close_paren
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     b .Lwls_ilbl_done
 .Lwls_ilbl_plain:
     mov x0, x23
     mov x1, x21
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
 .Lwls_ilbl_done:
     LEA x1, s_int_min_pre
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     // floor %g
     ldr d0, [x20, #WS_MIN_INTERVAL]
@@ -1219,14 +1217,14 @@ watch_load_settings:
     add x23, x23, x0
     mov x0, x23
     LEA x1, s_int_min_mid
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     // floor label: "watch.min_interval (from {src})"
     LEA x1, s_min_interval_flag
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     LEA x1, s_from_paren
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     LEA x21, tc_opts
     mov x22, #TC_O_SRC
@@ -1237,10 +1235,10 @@ watch_load_settings:
     mov x2, x1
     mov x1, x0
     mov x0, x23
-    bl watch_wc_catn
+    bl tc_copy_bytes
     mov x23, x0
     LEA x1, s_close_paren2
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     mov w1, #0
     strb w1, [x23]
@@ -1306,32 +1304,6 @@ watch_burst_cat:
     EPILOGUE 1
     ret
 
-// watch_wc_cat(dst, src) -> dst after the copied NUL; watch_wc_catn(dst, src, len).
-// ============================================================================
-    .p2align 2
-watch_wc_cat:
-    mov x2, x0
-.Lwc_loop:
-    ldrb w3, [x1], #1
-    strb w3, [x2], #1
-    cbnz w3, .Lwc_loop
-    sub x0, x2, #1                    // cursor AT the NUL (append in place)
-    ret
-
-    .p2align 2
-watch_wc_catn:
-    mov x3, #0
-.Lwcn_loop:
-    cmp x3, x2
-    b.ge .Lwcn_done
-    ldrb w4, [x1, x3]
-    strb w4, [x0, x3]
-    add x3, x3, #1
-    b .Lwcn_loop
-.Lwcn_done:
-    add x0, x0, x2
-    ret
-
 // ============================================================================
 // watch_build_dirpath — watch_dirpath = logs_dir + "/" + channel_name.
 // ============================================================================
@@ -1340,14 +1312,14 @@ watch_build_dirpath:
     PROLOGUE 1
     LEA x0, watch_dirpath
     LEA_OFF x1, tc_opts, TC_O_LOGS_DIR
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0                        // cursor AT the NUL (append in place)
     mov w2, #'/'
     strb w2, [x19], #1
     bl tc_channel_name
     mov x1, x0
     mov x0, x19
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov w2, #0
     strb w2, [x0]
     EPILOGUE 1
@@ -1363,11 +1335,11 @@ watch_build_fpath:
     mov x19, x0                        // entry
     LEA x0, watch_fpath
     LEA x1, watch_dirpath
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov w2, #'/'
     strb w2, [x0], #1
     add x1, x19, #TC_L_NAME
-    bl watch_wc_cat
+    bl tc_cat_cstr
     EPILOGUE 1
     ret
 
@@ -1594,9 +1566,9 @@ watch_init_window:
     cbnz x21, .Lwiw_earliest_ok
     LEA x0, watch_errbuf
     LEA x1, s_no_logs_pre
-    bl watch_wc_cat
+    bl tc_cat_cstr
     LEA x1, watch_dirpath
-    bl watch_wc_cat
+    bl tc_cat_cstr
     LEA x0, watch_errbuf
     bl tc_report_fail
 .Lwiw_earliest_ok:
@@ -1732,7 +1704,7 @@ watch_reader_get:
     bl memset
     add x0, x21, #RD_PATH
     mov x1, x19
-    bl watch_wc_cat
+    bl tc_cat_cstr
     str x20, [x21, #RD_FDATE]
     // append to the reader array (grow)
     LEA x9, watch_reader_n
@@ -3239,11 +3211,7 @@ watch_speaker_login2:
     cmp x2, x20
     b.ge .Lsl2_lower_done
     ldrb w3, [x19, x2]
-    cmp w3, #'A'
-    b.lt .Lsl2_lstore
-    cmp w3, #'Z'
-    b.gt .Lsl2_lstore
-    add w3, w3, #('a' - 'A')
+    LOWER_BYTE w3, .Lsl2_lstore        // A-Z -> a-z in place
 .Lsl2_lstore:
     strb w3, [x4, x2]
     add x2, x2, #1
@@ -5601,7 +5569,7 @@ watch_build_ramps:
     mov x23, x19
     mov x0, x23
     LEA x1, s_watch_fade_curve
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     // {curve!r}
     mov w1, #'\''
@@ -5611,13 +5579,13 @@ watch_build_ramps:
     LEA x10, watch_curve_names
     ldr x1, [x10, x9, lsl #3]
     mov x0, x23
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     mov w1, #'\''
     strb w1, [x23], #1
     mov x0, x23
     LEA x1, s_collapse_mid2
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     // {k:g}
     LEA x9, watch_fade_k
@@ -5630,17 +5598,17 @@ watch_build_ramps:
     add x23, x23, x0
     mov x0, x23
     LEA x1, s_collapse_mid
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     // the ramp key
     mov x0, x24
     bl watch_ramp_key_str              // x0 = key string
     mov x1, x0
     mov x0, x23
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x23, x0
     LEA x1, s_collapse_post
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     LEA x0, watch_errbuf
@@ -5859,7 +5827,7 @@ watch_build_one_ramp_full:
     // "\033[38;2;R;G;Bm"
     mov x0, x28
     LEA x1, s_esc_38
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0                        // cursor AT the NUL (append in place)
     // r channel
     mov x0, x19
@@ -5931,7 +5899,7 @@ watch_ramp_key_str:
     // "highlight" + (key-2)
     LEA x0, watch_scratch
     LEA x1, s_highlight
-    bl watch_wc_cat
+    bl tc_cat_cstr
     sub x1, x19, #2
     bl tc_fmt_u64
     mov w2, #0
@@ -6032,39 +6000,19 @@ watch_compile_patterns:
     add x21, x21, #1
     b .Lwcp_rule
 .Lwcp_bad:
-    // "rule {index}: '{pattern}' is not a valid regex ({msg})"
-    LEA x19, watch_errbuf
-    mov x23, x19
-    mov x0, x23
-    LEA x1, s_rule_pre
-    bl watch_wc_cat
-    mov x23, x0
-    mov x0, x21
-    bl tc_fmt_u64                      // rule index (shared formatter)
-    mov x23, x0
-    LEA x1, s_rule_mid
-    bl watch_wc_cat
-    mov x23, x0
-    mov x1, x24
-    bl watch_wc_cat                          // the pattern (single-quoted)
-    mov x23, x0
-    LEA x1, s_rule_bad_regex
-    bl watch_wc_cat
-    mov x23, x0
-    // pcre2 error message
+    // "rule {index}: '{pattern}' is not a valid regex ({msg})" — composed by
+    // the shared tc_hl_bad_regex (the pcre2 error text is fetched first;
+    // the helper appends the fixed prefix/suffix around it).
     LEA x9, watch_scratch
     ldr w0, [x9]                       // errcode
     LEA x1, watch_scratch2
     mov x2, #512
-    bl pcre2_get_error_message_8
-    mov x0, x23
-    LEA x1, watch_scratch2
-    bl watch_wc_cat
-    mov x23, x0
-    LEA x1, s_rule_post
-    bl watch_wc_cat
-    mov w1, #0
-    strb w1, [x0]
+    bl pcre2_get_error_message_8       // watch_scratch2 = the error text
+    LEA x0, watch_errbuf               // dst
+    mov x1, x21                        // rule index
+    mov x2, x24                        // the pattern
+    LEA x3, watch_scratch2             // regex_msg
+    bl tc_hl_bad_regex                 // x0 = dst + len (cursor at the NUL)
     LEA x0, watch_errbuf
     bl tc_report_fail                  // noreturn
 .Lwcp_none:
@@ -7259,13 +7207,13 @@ watch_tint_apply:
     LEA x26, watch_tintbuf
     mov x0, x26
     mov x1, x25
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x26, x0
     mov x1, x21
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x26, x0
     LEA x1, s_reset
-    bl watch_wc_cat
+    bl tc_cat_cstr
     LEA x0, watch_tintbuf
     b .Lwta_out
 .Lwta_expired:
@@ -7469,10 +7417,10 @@ watch_build_status:
     mov x19, x12                       // dst
     mov x0, x19
     LEA x1, s_watching_pre
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     LEA x1, s_every
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // interval %g
     LEA x9, watch_interval
@@ -7485,7 +7433,7 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_s_paren
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // interval source
     LEA x9, watch_interval_src
@@ -7494,10 +7442,10 @@ watch_build_status:
     mov x2, x1
     mov x1, x0
     mov x0, x19
-    bl watch_wc_catn
+    bl tc_copy_bytes
     mov x19, x0
     LEA x1, s_hold_mid
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // held
     LEA x9, watch_hold
@@ -7513,18 +7461,18 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_hold_s
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     b .Lwbs_hold_done
 .Lwbs_indef:
     mov x0, x19
     LEA x1, s_indefinite
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
 .Lwbs_hold_done:
     mov x0, x19
     LEA x1, s_open_paren
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // hold source
     LEA x9, watch_hold_src
@@ -7533,17 +7481,17 @@ watch_build_status:
     mov x2, x1
     mov x1, x0
     mov x0, x19
-    bl watch_wc_catn
+    bl tc_copy_bytes
     mov x19, x0
     LEA x1, s_close_paren2
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // show_timing
     LEA x9, watch_show_timing
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
     LEA x1, s_tick_ms
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // elapsed*1000 %.0f
     LEA x9, watch_elapsed
@@ -7558,7 +7506,7 @@ watch_build_status:
     bl tc_strlen
     add x19, x19, x0
     LEA x1, s_ms
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     // ", woke on write|timer" only for a watcher that is enabled (kqueue);
     // the Python's woke_on_write counter is cumulative, so once any write
@@ -7567,7 +7515,7 @@ watch_build_status:
     ldr x9, [x9]
     cbz x9, .Lwbs_slower
     LEA x1, s_woke_on
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     LEA x9, watch_woke_write
     ldr x9, [x9]
@@ -7581,7 +7529,7 @@ watch_build_status:
     LEA x1, s_woke_timer
 .Lwbs_woke_emit:
     mov x0, x19
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
 .Lwbs_slower:
     // elapsed > interval?
@@ -7592,7 +7540,7 @@ watch_build_status:
     fcmp d0, d1
     b.le .Lwbs_post
     LEA x1, s_slower
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
     LEA x9, watch_elapsed
     ldr d0, [x9]
@@ -7607,12 +7555,12 @@ watch_build_status:
     add x19, x19, x0
     mov x0, x19
     LEA x1, s_ms_slower
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x19, x0
 .Lwbs_post:
     mov x0, x19
     LEA x1, s_watching_post
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov w1, #0
     strb w1, [x0]
     // bump the captured count
@@ -7890,7 +7838,7 @@ watch_screen_paint:
 .Lwsp_diff_copy:
     // copy the clipped text into the painted slot (x28 survives? no —
     // reload: the slot is x22[row]; copy from the clip result)
-    // (x28 is caller-saved and died in watch_wc_cat; the clipped text lives in
+    // (x28 is caller-saved and died in the burst cat helper; the clipped text lives in
     //  watch_clipbuf or the line buffer; both are stable — reload it)
     ldr x0, [x21, x27, lsl #3]
     mov x1, x19
@@ -8064,7 +8012,7 @@ watch_clip:
     cbz x25, .Lwcl_nul
     mov x0, x22
     LEA x1, s_reset
-    bl watch_wc_cat
+    bl tc_cat_cstr
     mov x22, x0
 .Lwcl_nul:
     mov w9, #0

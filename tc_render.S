@@ -1026,12 +1026,43 @@ render_plan_columns:
     ret
 
 // ============================================================================
-// render_plan_rank — walk the user table into the reported array, apply the share
-// floor, compute share sort keys, qsort, and join 'unknown' when --by-state
-// sees any.
+// render_plan_rank — the ranking pipeline: walk the user table into the
+// reported array (count, then fill), apply the share floor, compute share
+// sort keys, qsort, and join 'unknown' when --by-state sees any.
+//
+//   The stages are named sub-helpers, each a full AAPCS64 function that
+//   reads tc_users / tc_window / tc_opts and the plan struct and writes its
+//   results to the plan — the plan is the interface between stages, so this
+//   dispatcher carries no data in registers:
+//
+//     render_rank_count    walk 1: count reported/in_range/excl; allocate
+//     render_rank_fill     walk 2: fill the reported records
+//     render_rank_floor    share floor: compact the reported array
+//     render_rank_keys     share sort keys (1000x fixed-point)
+//     render_rank_sort     qsort the reported array
+//     render_rank_unknown  join the 'unknown' column under --by-state
 // ============================================================================
     .p2align 2
 render_plan_rank:
+    PROLOGUE 0
+    bl render_rank_count
+    bl render_rank_fill
+    bl render_rank_floor
+    bl render_rank_keys
+    bl render_rank_sort
+    bl render_rank_unknown
+    EPILOGUE 0
+    ret
+
+// render_rank_count — walk 1 (counts): per user, strlen/excl/count probe;
+//   accumulate reported_n (non-excluded, count >= threshold), in_range
+//   (non-excluded, count > 0), excl_appeared and excl_msgs (excluded,
+//   count > 0).  Stores the four counters to the plan, then allocates
+//   ROW_SZ * reported_n bytes into TC_PLAN_REPORTED (OOM is a noreturn
+//   tc_report_fail).
+//   Clobbers: x19-x28 (PROLOGUE 5).  Returns nothing; results live in the plan.
+    .p2align 2
+render_rank_count:
     PROLOGUE 5
     // pass 1: counts
     LEA x19, tc_users
@@ -1044,9 +1075,9 @@ render_plan_rank:
     mov x26, #0                      // excl_appeared
     mov x27, #0                      // excl_msgs
     mov x28, #0                      // i
-.Lpr_walk1:
+.Lprc_walk1:
     cmp x28, x20
-    b.ge .Lpr_walk1_done
+    b.ge .Lprc_walk1_done
     mov x0, #TC_US_ENTRY_SZ
     ENTRY_PTR x10, x21, x28, x0    // entry (tc_strlen clobbers x0-x2 only)
     mov x0, x10
@@ -1059,21 +1090,21 @@ render_plan_rank:
     mov x0, x28
     bl tc_count_column
     mov x10, x0
-    cbnz x9, .Lpr_w1_excl
-    cbz x10, .Lpr_w1_next
+    cbnz x9, .Lprc_w1_excl
+    cbz x10, .Lprc_w1_next
     add x25, x25, #1
     cmp x10, x23
-    b.lt .Lpr_w1_next
+    b.lt .Lprc_w1_next
     add x24, x24, #1
-    b .Lpr_w1_next
-.Lpr_w1_excl:
-    cbz x10, .Lpr_w1_next
+    b .Lprc_w1_next
+.Lprc_w1_excl:
+    cbz x10, .Lprc_w1_next
     add x26, x26, #1
     add x27, x27, x10
-.Lpr_w1_next:
+.Lprc_w1_next:
     add x28, x28, #1
-    b .Lpr_walk1
-.Lpr_walk1_done:
+    b .Lprc_walk1
+.Lprc_walk1_done:
     LEA_OFF x28, tc_plan, TC_PLAN_REPORTED_N
     str x24, [x28]
     LEA_OFF x28, tc_plan, TC_PLAN_IN_RANGE
@@ -1083,14 +1114,28 @@ render_plan_rank:
     LEA_OFF x28, tc_plan, TC_PLAN_EXCL_MSGS
     str x27, [x28]
     // allocate
-    cbz x24, .Lpr_alloc_done
+    cbz x24, .Lprc_alloc_done
     mov x0, #ROW_SZ
     mul x0, x24, x0
     bl malloc
-    cbz x0, .Lpr_oom
+    cbz x0, .Lprc_oom
     LEA_OFF x28, tc_plan, TC_PLAN_REPORTED
     str x0, [x28]
-.Lpr_alloc_done:
+.Lprc_alloc_done:
+    EPILOGUE 5
+    ret
+.Lprc_oom:
+    LEA x0, s_oom
+    bl tc_report_fail
+
+// render_rank_fill — walk 2 (fill): per user, re-probe; a non-excluded user
+//   with count >= threshold gets a ROW_SZ record: login (up to 25 bytes),
+//   count, live, offline, unknown.  Stores the fill count to
+//   TC_PLAN_REPORTED_N.
+//   Clobbers: x19-x28 (PROLOGUE 5).  Returns nothing.
+    .p2align 2
+render_rank_fill:
+    PROLOGUE 5
     // pass 2: fill
     LEA x19, tc_users
     ldr x20, [x19, #TC_US_COUNT]
@@ -1101,9 +1146,9 @@ render_plan_rank:
     ldr x24, [x24]
     mov x25, #0                      // fill index
     mov x26, #0                      // i
-.Lpr_walk2:
+.Lprf_walk2:
     cmp x26, x20
-    b.ge .Lpr_walk2_done
+    b.ge .Lprf_walk2_done
     mov x0, #TC_US_ENTRY_SZ
     ENTRY_PTR x10, x21, x26, x0    // entry (tc_strlen clobbers x0-x2 only)
     mov x0, x10
@@ -1112,25 +1157,25 @@ render_plan_rank:
     mov x0, x10
     mov x1, x2
     bl tc_excl_contains
-    cbnz x0, .Lpr_w2_next
+    cbnz x0, .Lprf_w2_next
     mov x0, x26
     bl tc_count_column
     cmp x0, x23
-    b.lt .Lpr_w2_next
+    b.lt .Lprf_w2_next
     mov x0, #ROW_SZ
     ENTRY_PTR x27, x24, x25, x0
     mov x0, #TC_US_ENTRY_SZ
     ENTRY_PTR x0, x21, x26, x0
     add x1, x27, #ROW_LOGIN
     mov x2, #0
-.Lpr_w2_login:
+.Lprf_w2_login:
     ldrb w3, [x0, x2]
     strb w3, [x1, x2]
-    cbz w3, .Lpr_w2_login_done
+    cbz w3, .Lprf_w2_login_done
     add x2, x2, #1
     cmp x2, #25
-    b.lt .Lpr_w2_login
-.Lpr_w2_login_done:
+    b.lt .Lprf_w2_login
+.Lprf_w2_login_done:
     mov w3, #0
     strb w3, [x1, x2]
     mov x0, x26
@@ -1149,12 +1194,24 @@ render_plan_rank:
     bl tc_user_state
     str x0, [x27, #ROW_UNKNOWN]
     add x25, x25, #1
-.Lpr_w2_next:
+.Lprf_w2_next:
     add x26, x26, #1
-    b .Lpr_walk2
-.Lpr_walk2_done:
+    b .Lprf_walk2
+.Lprf_walk2_done:
     LEA_OFF x28, tc_plan, TC_PLAN_REPORTED_N
     str x25, [x28]
+    EPILOGUE 5
+    ret
+
+// render_rank_floor — the share floor: when a share column is shown and the
+//   floor is non-zero, compact the reported array in place, keeping only
+//   rows with count >= floor.  Stores TC_PLAN_SHARE_FLOOR,
+//   TC_PLAN_BELOW_FLOOR (the dropped count) and the post-floor
+//   TC_PLAN_REPORTED_N (the next stages reload it from the plan).
+//   Clobbers: x19-x26 (PROLOGUE 4).  Leaf; returns nothing.
+    .p2align 2
+render_rank_floor:
+    PROLOGUE 4
     // ---- share floor -----------------------------------------------------
     LEA_OFF x19, tc_plan, TC_PLAN_SHARES_SHOWN
     ldr x19, [x19]
@@ -1164,38 +1221,38 @@ render_plan_rank:
     ldr x21, [x21]
     LEA_OFF x22, tc_plan, TC_PLAN_REPORTED_N
     ldr x22, [x22]
-    cbz x19, .Lpr_floor_none
-    cbz x20, .Lpr_floor_none
+    cbz x19, .Lrpf_none
+    cbz x20, .Lrpf_none
     mov x23, #0                      // kept
     mov x24, #0                      // i
-.Lpr_floor_loop:
+.Lrpf_loop:
     cmp x24, x22
-    b.ge .Lpr_floor_apply
+    b.ge .Lrpf_apply
     mov x0, #ROW_SZ
     mul x0, x24, x0
     add x0, x21, x0
     ldr x1, [x0, #ROW_COUNT]
     cmp x1, x20
-    b.lt .Lpr_floor_next
+    b.lt .Lrpf_next
     cmp x23, x24
-    b.eq .Lpr_floor_keep
+    b.eq .Lrpf_keep
     mov x2, #ROW_SZ
     mul x2, x23, x2
     add x2, x21, x2
     mov x3, #0
-.Lpr_floor_copy:
+.Lrpf_copy:
     cmp x3, #ROW_SZ
-    b.ge .Lpr_floor_keep
+    b.ge .Lrpf_keep
     ldrb w4, [x0, x3]
     strb w4, [x2, x3]
     add x3, x3, #1
-    b .Lpr_floor_copy
-.Lpr_floor_keep:
+    b .Lrpf_copy
+.Lrpf_keep:
     add x23, x23, #1
-.Lpr_floor_next:
+.Lrpf_next:
     add x24, x24, #1
-    b .Lpr_floor_loop
-.Lpr_floor_apply:
+    b .Lrpf_loop
+.Lrpf_apply:
     LEA_OFF x24, tc_plan, TC_PLAN_SHARE_FLOOR
     str x20, [x24]
     LEA_OFF x25, tc_plan, TC_PLAN_BELOW_FLOOR
@@ -1203,114 +1260,145 @@ render_plan_rank:
     str x26, [x25]
     LEA_OFF x25, tc_plan, TC_PLAN_REPORTED_N
     str x23, [x25]
-    mov x22, x23
-    b .Lpr_keys
-.Lpr_floor_none:
+    b .Lrpf_done
+.Lrpf_none:
     LEA_OFF x24, tc_plan, TC_PLAN_SHARE_FLOOR
     str xzr, [x24]
-.Lpr_keys:
+.Lrpf_done:
+    EPILOGUE 4
+    ret
+
+// render_rank_keys — the share sort keys: for a live-share / offline-share
+//   sort, write floor(1000 * state/count) fixed-point keys into ROW_KEY of
+//   every reported row (the documented deviation from Python's float
+//   comparison; ties break by login in render_cmp).
+//   Clobbers: x19-x23 (PROLOGUE 3).  Leaf; returns nothing.
+    .p2align 2
+render_rank_keys:
+    PROLOGUE 3
     // share sort keys (fixed point 1000*state/count)
     LEA_OFF x19, tc_plan, TC_PLAN_SORT
     ldr x20, [x19]
     cmp x20, #TC_M_OFFLINE_SHARE
-    b.eq .Lpr_keys_do
+    b.eq .Lrpk_do
     cmp x20, #TC_M_LIVE_SHARE
-    b.ne .Lpr_sort
-.Lpr_keys_do:
+    b.ne .Lrpk_done
+.Lrpk_do:
     LEA_OFF x21, tc_plan, TC_PLAN_REPORTED
     ldr x21, [x21]
+    LEA_OFF x22, tc_plan, TC_PLAN_REPORTED_N
+    ldr x22, [x22]
     mov x23, #0
-.Lpr_keys_loop:
+.Lrpk_loop:
     cmp x23, x22
-    b.ge .Lpr_sort
+    b.ge .Lrpk_done
     mov x0, #ROW_SZ
     mul x0, x23, x0
     add x0, x21, x0
     cmp x20, #TC_M_OFFLINE_SHARE
-    b.eq .Lpr_keys_off
+    b.eq .Lrpk_off
     ldr x1, [x0, #ROW_LIVE]
-    b .Lpr_keys_calc
-.Lpr_keys_off:
+    b .Lrpk_calc
+.Lrpk_off:
     ldr x1, [x0, #ROW_OFFLINE]
-.Lpr_keys_calc:
+.Lrpk_calc:
     ldr x2, [x0, #ROW_COUNT]
     mov x3, #1000
     mul x1, x1, x3
     udiv x1, x1, x2
     str x1, [x0, #ROW_KEY]
     add x23, x23, #1
-    b .Lpr_keys_loop
-.Lpr_sort:
-    cbz x22, .Lpr_unknown
+    b .Lrpk_loop
+.Lrpk_done:
+    EPILOGUE 3
+    ret
+
+// render_rank_sort — qsort the reported array (ROW_SZ-byte records,
+//   render_cmp) when reported_n > 0.
+//   Clobbers: caller-saved only (PROLOGUE 0).  Returns nothing.
+    .p2align 2
+render_rank_sort:
+    PROLOGUE 0
     LEA_OFF x0, tc_plan, TC_PLAN_REPORTED
-    ldr x0, [x0]
-    mov x1, x22
+    ldr x0, [x0]                     // x0 = base (reported array)
+    LEA_OFF x1, tc_plan, TC_PLAN_REPORTED_N
+    ldr x1, [x1]                     // x1 = nmemb
+    cbz x1, .Lrps_done
     mov x2, #ROW_SZ
     LEA x3, render_cmp
     bl qsort
-.Lpr_unknown:
+.Lrps_done:
+    EPILOGUE 0
+    ret
+
+// render_rank_unknown — the 'unknown' join: when --by-state is set and any
+//   reported row has unknown > 0, insert TC_M_UNKNOWN into the plan columns
+//   at the offline-share slot (deduping against an existing unknown column).
+//   Clobbers: x19-x28 (PROLOGUE 5).  Leaf; returns nothing.
+    .p2align 2
+render_rank_unknown:
+    PROLOGUE 5
     // unknown joins when --by-state and any reported row has unknown > 0
     LEA x19, tc_opts
     ldr x20, [x19, #TC_O_FLAGS]
     tst x20, #TC_F_BY_STATE
-    b.eq .Lpr_done
+    b.eq .Lpru_done
     LEA_OFF x21, tc_plan, TC_PLAN_REPORTED
     ldr x21, [x21]
+    LEA_OFF x22, tc_plan, TC_PLAN_REPORTED_N
+    ldr x22, [x22]
     mov x23, #0
-.Lpr_unk_scan:
+.Lpru_scan:
     cmp x23, x22
-    b.ge .Lpr_done
+    b.ge .Lpru_done
     mov x0, #ROW_SZ
     mul x0, x23, x0
     add x0, x21, x0
     ldr x1, [x0, #ROW_UNKNOWN]
-    cbnz x1, .Lpr_unk_insert
+    cbnz x1, .Lpru_insert
     add x23, x23, #1
-    b .Lpr_unk_scan
-.Lpr_unk_insert:
+    b .Lpru_scan
+.Lpru_insert:
     LEA_OFF x24, tc_plan, TC_PLAN_COL_COUNT
     ldr x25, [x24]
     LEA_OFF x26, tc_plan, TC_PLAN_COLUMNS
     mov x27, #0
-.Lpr_unk_dedupe:
+.Lpru_dedupe:
     cmp x27, x25
-    b.ge .Lpr_unk_find
+    b.ge .Lpru_find
     ldr x28, [x26, x27, lsl #3]
     cmp x28, #TC_M_UNKNOWN
-    b.eq .Lpr_done
+    b.eq .Lpru_done
     add x27, x27, #1
-    b .Lpr_unk_dedupe
-.Lpr_unk_find:
+    b .Lpru_dedupe
+.Lpru_find:
     mov x27, #0
-.Lpr_unk_find_loop:
+.Lpru_find_loop:
     cmp x27, x25
-    b.ge .Lpr_unk_at
+    b.ge .Lpru_at
     ldr x28, [x26, x27, lsl #3]
     cmp x28, #TC_M_OFFLINE_SHARE
-    b.eq .Lpr_unk_at
+    b.eq .Lpru_at
     add x27, x27, #1
-    b .Lpr_unk_find_loop
-.Lpr_unk_at:
+    b .Lpru_find_loop
+.Lpru_at:
     mov x28, x25
-.Lpr_unk_shift:
+.Lpru_shift:
     cmp x28, x27
-    b.le .Lpr_unk_place
+    b.le .Lpru_place
     sub x9, x28, #1
     ldr x10, [x26, x9, lsl #3]
     str x10, [x26, x28, lsl #3]
     sub x28, x28, #1
-    b .Lpr_unk_shift
-.Lpr_unk_place:
+    b .Lpru_shift
+.Lpru_place:
     mov x9, #TC_M_UNKNOWN
     str x9, [x26, x27, lsl #3]
     add x25, x25, #1
     str x25, [x24]
-.Lpr_done:
+.Lpru_done:
     EPILOGUE 5
     ret
-.Lpr_oom:
-    LEA x0, s_oom
-    bl tc_report_fail
 
 // ============================================================================
 // render_plan_exclusions — sorted exclusion logins + the ", "-joined sources.
@@ -3347,10 +3435,7 @@ render_emit_table_header:
     bl render_pin_cell
     mov x21, x0
     // separator + "count" rjust w[1]
-    mov w1, #' '
-    strb w1, [x21], #1
-    mov w1, #' '
-    strb w1, [x21], #1
+    PAD2 x21
     LEA x24, metric_headers  // table base (kept in x24)
     ldr x26, [x24, #0]                 // "count" header string (rodata)
     LEA x27, render_cell
@@ -3370,10 +3455,7 @@ render_emit_table_header:
     add x26, x23, #2
     cmp x26, x20
     b.ge .Leth_done
-    mov w1, #' '
-    strb w1, [x21], #1
-    mov w1, #' '
-    strb w1, [x21], #1
+    PAD2 x21
     LEA_OFF x25, tc_plan, TC_PLAN_COLUMNS
     ldr x25, [x25, x23, lsl #3]
     ldr x26, [x24, x25, lsl #3]        // header string (rodata)
@@ -3416,10 +3498,7 @@ render_emit_rule:
     cbnz x23, .Leru_sep
     b .Leru_dashes
 .Leru_sep:
-    mov w1, #' '
-    strb w1, [x21], #1
-    mov w1, #' '
-    strb w1, [x21], #1
+    PAD2 x21
 .Leru_dashes:
     ldr x24, [x22, x23, lsl #3]
     mov x25, #0
@@ -3460,10 +3539,7 @@ render_emit_table_row:
     bl render_pin_cell
     mov x22, x0
     // count cell rjust w[1]
-    mov w1, #' '
-    strb w1, [x22], #1
-    mov w1, #' '
-    strb w1, [x22], #1
+    PAD2 x22
     mov x1, #TC_M_COUNT
     mov x0, x20
     bl render_cell_render
@@ -3479,10 +3555,7 @@ render_emit_table_row:
     add x26, x24, #2
     cmp x26, x21
     b.ge .Letr_done
-    mov w1, #' '
-    strb w1, [x22], #1
-    mov w1, #' '
-    strb w1, [x22], #1
+    PAD2 x22
     // render metric cell into render_cell
     LEA_OFF x25, tc_plan, TC_PLAN_COLUMNS
     ldr x26, [x25, x24, lsl #3]
@@ -3616,10 +3689,7 @@ render_emit_others_row:
     add x10, x24, #1                   // width slot: count -> 1, metric i -> 2+i
     cmp x10, x21
     b.ge .Leor_done
-    mov w1, #' '
-    strb w1, [x22], #1
-    mov w1, #' '
-    strb w1, [x22], #1
+    PAD2 x22
     cmp x24, #0
     b.eq .Leor_count
     LEA_OFF x11, tc_plan, TC_PLAN_COLUMNS

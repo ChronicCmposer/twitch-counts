@@ -2419,153 +2419,50 @@ cli_resolve_settings:
     b.eq .Lrs_next
     cmp x19, #TC_SET_INCLUDE
     b.eq .Lrs_next
+    // the settings with a dedicated resolution phase (each a named
+    // subroutine below); the rest take the generic cli_resolve_one path.
     cmp x19, #TC_SET_CONFIG
-    b.eq .Lrs_config
+    b.ne .Lrs_not_config
+    bl cli_rs_config
+    b .Lrs_next
+.Lrs_not_config:
     cmp x19, #TC_SET_COLOR
-    b.eq .Lrs_color
+    b.ne .Lrs_not_color
+    bl cli_rs_color
+    b .Lrs_next
+.Lrs_not_color:
     cmp x19, #TC_SET_STATE
-    b.eq .Lrs_state
+    b.ne .Lrs_not_state
+    bl cli_rs_state
+    b .Lrs_next
+.Lrs_not_state:
     cmp x19, #TC_SET_INTERVAL
-    b.eq .Lrs_interval
+    b.ne .Lrs_not_interval
+    bl cli_rs_interval
+    b .Lrs_next
+.Lrs_not_interval:
     cmp x19, #TC_SET_STREAMER_MODE
-    b.eq .Lrs_streamer
+    b.ne .Lrs_not_streamer
+    bl cli_rs_streamer
+    b .Lrs_next
+.Lrs_not_streamer:
     cmp x19, #TC_SET_EXCLUDE_BCAST
-    b.eq .Lrs_bcast
+    b.ne .Lrs_not_bcast
+    bl cli_rs_bcast
+    b .Lrs_next
+.Lrs_not_bcast:
     cmp x19, #TC_SET_HIGHLIGHT
-    b.eq .Lrs_highlights
+    b.ne .Lrs_not_highlights
+    bl cli_rs_highlights
+    b .Lrs_next
+.Lrs_not_highlights:
     cmp x19, #TC_SET_LOGS_DIR
-    b.eq .Lrs_logs_dir
+    b.ne .Lrs_generic
+    bl cli_rs_logs_dir
+    b .Lrs_next
+.Lrs_generic:
     mov x0, x19
     bl cli_resolve_one
-    b .Lrs_next
-.Lrs_logs_dir:
-    // logs_dir: CLI/env/config take the generic path.  Only when nothing
-    // set it (source still TC_SRC_DEFAULT after resolution) does the
-    // platform supply its built-in default (already expanded); on a
-    // platform with no default (Linux) the value stays empty and the
-    // source stays TC_SRC_DEFAULT, matching Python's None.
-    mov x0, x19
-    bl cli_resolve_one
-    LEA x0, tc_opts
-    ldr x1, [x0, #TC_O_SRC + TC_SET_LOGS_DIR*8]
-    cmp x1, #TC_SRC_DEFAULT
-    b.ne .Lrs_next
-    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
-    mov x1, #TC_O_LOGS_DIR_SZ
-    bl tc_platform_default_logs_dir
-    cbz x0, .Lrs_next
-    LEA x1, tc_opts
-    mov x2, #TC_SRC_DEFAULT_BUILTIN
-    str x2, [x1, #TC_O_SRC + TC_SET_LOGS_DIR*8]
-    b .Lrs_next
-.Lrs_config:
-    // config path
-    LEA x0, cli_given
-    ldrb w1, [x0, #TC_SET_CONFIG]
-    cbz w1, .Lrs_config_default
-    LEA x1, tc_opts
-    mov x2, #TC_SRC_CLI_CONFIG
-    str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
-    b .Lrs_next
-.Lrs_config_default:
-    LEA_OFF x1, tc_opts, TC_O_CONFIG_PATH
-    LEA x0, s_default_config_path
-.Lcfg_inline:
-    ldrb w2, [x0], #1
-    strb w2, [x1], #1
-    cbnz w2, .Lcfg_inline
-    LEA x1, tc_opts
-    mov x2, #TC_SRC_DEFAULT
-    str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
-    b .Lrs_next
-.Lrs_color:
-    LEA x0, cli_given
-    ldrb w1, [x0, #TC_SET_COLOR]
-    cbnz w1, .Lrs_color_cli
-    LEA x0, tc_opts
-    mov x1, #TC_SRC_DEFAULT
-    str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
-    mov x1, #TC_COLOR_AUTO
-    str x1, [x0, #TC_O_COLOR_MODE]
-    b .Lrs_next
-.Lrs_color_cli:
-    LEA x0, tc_opts
-    mov x1, #TC_SRC_CLI_COLOR
-    str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
-    b .Lrs_next
-.Lrs_state:
-    LEA x0, cli_given
-    ldrb w1, [x0, #TC_SET_STATE]
-    cbz w1, .Lrs_state_generic
-    LEA x0, cli_state
-    ldr x1, [x0]
-    cmp x1, #TC_ST_LIVE
-    b.eq .Lrs_state_live
-    cmp x1, #TC_ST_OFFLINE
-    b.eq .Lrs_state_offline
-    mov x2, #TC_SRC_CLI_UNKNOWN
-    b .Lrs_state_store
-.Lrs_state_live:
-    mov x2, #TC_SRC_CLI_LIVE
-    b .Lrs_state_store
-.Lrs_state_offline:
-    mov x2, #TC_SRC_CLI_OFFLINE
-.Lrs_state_store:
-    LEA x0, tc_opts
-    str x2, [x0, #TC_O_SRC + TC_SET_STATE*8]
-    b .Lrs_next
-.Lrs_state_generic:
-    mov x0, x19
-    bl cli_resolve_one
-    b .Lrs_next
-.Lrs_interval:
-    // CLI numeric value?
-    LEA x0, tc_opts
-    ldr x1, [x0, #TC_O_FLAGS]
-    tst x1, #TC_F_WATCH_VALUE
-    b.eq .Lrs_interval_generic
-    mov x1, #TC_SRC_CLI_WATCH
-    str x1, [x0, #TC_O_SRC + TC_SET_INTERVAL*8]
-    b .Lrs_next
-.Lrs_interval_generic:
-    LEA x0, cli_given
-    strb wzr, [x0, #TC_SET_INTERVAL]    // ignore the from-config sentinel
-    mov x0, x19
-    bl cli_resolve_one
-    b .Lrs_next
-.Lrs_streamer:
-    LEA x0, cli_given
-    ldrb w1, [x0, #TC_SET_STREAMER_MODE]
-    cbz w1, .Lrs_streamer_generic
-    LEA x0, tc_opts
-    mov x1, #1
-    str x1, [x0, #TC_O_STREAMER_MODE]
-    mov x1, #TC_SRC_CLI_STREAMER
-    str x1, [x0, #TC_O_SRC + TC_SET_STREAMER_MODE*8]
-    b .Lrs_next
-.Lrs_streamer_generic:
-    mov x0, x19
-    bl cli_resolve_one
-    b .Lrs_next
-.Lrs_bcast:
-    LEA x0, cli_given
-    ldrb w1, [x0, #TC_SET_EXCLUDE_BCAST]
-    cbz w1, .Lrs_bcast_generic
-    LEA x0, tc_opts
-    mov x1, #1
-    str x1, [x0, #TC_O_EXCL_BCAST_VAL]
-    mov x1, #TC_SRC_CLI_EXCLUDE_BCAST
-    str x1, [x0, #TC_O_SRC + TC_SET_EXCLUDE_BCAST*8]
-    b .Lrs_next
-.Lrs_bcast_generic:
-    mov x0, x19
-    bl cli_resolve_one
-    b .Lrs_next
-.Lrs_highlights:
-    // [[watch.highlight]] — parsed here (cli_resolve_highlights fills
-    // TC_O_HL_COUNT / TC_O_HL_ARR; Python resolve_settings + parse_highlights)
-    bl cli_resolve_highlights
-    b .Lrs_next
 .Lrs_next:
     add x19, x19, #1
     b .Lrs
@@ -2602,6 +2499,191 @@ cli_resolve_settings:
     str xzr, [x2, #TC_O_SRC + TC_SET_EXCLUDE_GROUP*8]
 .Lrs_eg_done:
     EPILOGUE 5
+    ret
+
+// ----------------------------------------------------------------------------
+// The per-setting resolution phases of cli_resolve_settings.  Each is a full
+// subroutine with a PROLOGUE 0 frame record only: it uses only caller-saved
+// registers (x0-x2 plus scratch), so the loop index x19 survives the call
+// untouched and the caller's callee-saved state needs no extra protection.
+// ----------------------------------------------------------------------------
+
+// cli_rs_config() — TC_SET_CONFIG: the CLI --config source, else the
+//   built-in default config path string (TC_SRC_DEFAULT).
+    .p2align 2
+cli_rs_config:
+    PROLOGUE 0
+    LEA x0, cli_given
+    ldrb w1, [x0, #TC_SET_CONFIG]
+    cbz w1, .Lrcfg_default
+    LEA x1, tc_opts
+    mov x2, #TC_SRC_CLI_CONFIG
+    str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
+    EPILOGUE 0
+    ret
+.Lrcfg_default:
+    LEA_OFF x1, tc_opts, TC_O_CONFIG_PATH
+    LEA x0, s_default_config_path
+.Lrcfg_inline:
+    ldrb w2, [x0], #1
+    strb w2, [x1], #1
+    cbnz w2, .Lrcfg_inline
+    LEA x1, tc_opts
+    mov x2, #TC_SRC_DEFAULT
+    str x2, [x1, #TC_O_SRC + TC_SET_CONFIG*8]
+    EPILOGUE 0
+    ret
+
+// cli_rs_color() — TC_SET_COLOR: the CLI --color source, else the auto
+//   default (TC_SRC_DEFAULT + TC_COLOR_AUTO).
+    .p2align 2
+cli_rs_color:
+    PROLOGUE 0
+    LEA x0, cli_given
+    ldrb w1, [x0, #TC_SET_COLOR]
+    cbnz w1, .Lrcol_cli
+    LEA x0, tc_opts
+    mov x1, #TC_SRC_DEFAULT
+    str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
+    mov x1, #TC_COLOR_AUTO
+    str x1, [x0, #TC_O_COLOR_MODE]
+    EPILOGUE 0
+    ret
+.Lrcol_cli:
+    LEA x0, tc_opts
+    mov x1, #TC_SRC_CLI_COLOR
+    str x1, [x0, #TC_O_SRC + TC_SET_COLOR*8]
+    EPILOGUE 0
+    ret
+
+// cli_rs_state() — TC_SET_STATE: the CLI --state maps to its provenance
+//   (live / offline / unknown); unset falls to the generic resolution path.
+    .p2align 2
+cli_rs_state:
+    PROLOGUE 0
+    LEA x0, cli_given
+    ldrb w1, [x0, #TC_SET_STATE]
+    cbz w1, .Lrst_generic
+    LEA x0, cli_state
+    ldr x1, [x0]
+    cmp x1, #TC_ST_LIVE
+    b.eq .Lrst_live
+    cmp x1, #TC_ST_OFFLINE
+    b.eq .Lrst_offline
+    mov x2, #TC_SRC_CLI_UNKNOWN
+    b .Lrst_store
+.Lrst_live:
+    mov x2, #TC_SRC_CLI_LIVE
+    b .Lrst_store
+.Lrst_offline:
+    mov x2, #TC_SRC_CLI_OFFLINE
+.Lrst_store:
+    LEA x0, tc_opts
+    str x2, [x0, #TC_O_SRC + TC_SET_STATE*8]
+    EPILOGUE 0
+    ret
+.Lrst_generic:
+    mov x0, x19
+    bl cli_resolve_one
+    EPILOGUE 0
+    ret
+
+// cli_rs_interval() — TC_SET_INTERVAL: the --watch value wins; the
+//   from-config sentinel is cleared before the generic resolution path.
+    .p2align 2
+cli_rs_interval:
+    PROLOGUE 0
+    LEA x0, tc_opts
+    ldr x1, [x0, #TC_O_FLAGS]
+    tst x1, #TC_F_WATCH_VALUE
+    b.eq .Lrival_generic
+    mov x1, #TC_SRC_CLI_WATCH
+    str x1, [x0, #TC_O_SRC + TC_SET_INTERVAL*8]
+    EPILOGUE 0
+    ret
+.Lrival_generic:
+    LEA x0, cli_given
+    strb wzr, [x0, #TC_SET_INTERVAL]    // ignore the from-config sentinel
+    mov x0, x19
+    bl cli_resolve_one
+    EPILOGUE 0
+    ret
+
+// cli_rs_streamer() — TC_SET_STREAMER_MODE: the CLI --streamer-mode sets
+//   the flag and its source; unset falls to the generic resolution path.
+    .p2align 2
+cli_rs_streamer:
+    PROLOGUE 0
+    LEA x0, cli_given
+    ldrb w1, [x0, #TC_SET_STREAMER_MODE]
+    cbz w1, .Lrsm_generic
+    LEA x0, tc_opts
+    mov x1, #1
+    str x1, [x0, #TC_O_STREAMER_MODE]
+    mov x1, #TC_SRC_CLI_STREAMER
+    str x1, [x0, #TC_O_SRC + TC_SET_STREAMER_MODE*8]
+    EPILOGUE 0
+    ret
+.Lrsm_generic:
+    mov x0, x19
+    bl cli_resolve_one
+    EPILOGUE 0
+    ret
+
+// cli_rs_bcast() — TC_SET_EXCLUDE_BCAST: the CLI --exclude-broadcaster sets
+//   the value and its source; unset falls to the generic resolution path.
+    .p2align 2
+cli_rs_bcast:
+    PROLOGUE 0
+    LEA x0, cli_given
+    ldrb w1, [x0, #TC_SET_EXCLUDE_BCAST]
+    cbz w1, .Lrbc_generic
+    LEA x0, tc_opts
+    mov x1, #1
+    str x1, [x0, #TC_O_EXCL_BCAST_VAL]
+    mov x1, #TC_SRC_CLI_EXCLUDE_BCAST
+    str x1, [x0, #TC_O_SRC + TC_SET_EXCLUDE_BCAST*8]
+    EPILOGUE 0
+    ret
+.Lrbc_generic:
+    mov x0, x19
+    bl cli_resolve_one
+    EPILOGUE 0
+    ret
+
+// cli_rs_highlights() — TC_SET_HIGHLIGHT: [[watch.highlight]] parsing
+//   (cli_resolve_highlights fills TC_O_HL_COUNT / TC_O_HL_ARR; Python
+//   resolve_settings + parse_highlights).
+    .p2align 2
+cli_rs_highlights:
+    PROLOGUE 0
+    bl cli_resolve_highlights
+    EPILOGUE 0
+    ret
+
+// cli_rs_logs_dir() — TC_SET_LOGS_DIR: the generic resolution first, then
+//   the platform's built-in default when nothing set it (source still
+//   TC_SRC_DEFAULT after resolution): the platform default is already
+//   expanded; on a platform with no default (Linux) the value stays empty
+//   and the source stays TC_SRC_DEFAULT, matching Python's None.
+    .p2align 2
+cli_rs_logs_dir:
+    PROLOGUE 0
+    mov x0, x19
+    bl cli_resolve_one
+    LEA x0, tc_opts
+    ldr x1, [x0, #TC_O_SRC + TC_SET_LOGS_DIR*8]
+    cmp x1, #TC_SRC_DEFAULT
+    b.ne .Lrld_done
+    LEA_OFF x0, tc_opts, TC_O_LOGS_DIR
+    mov x1, #TC_O_LOGS_DIR_SZ
+    bl tc_platform_default_logs_dir
+    cbz x0, .Lrld_done
+    LEA x1, tc_opts
+    mov x2, #TC_SRC_DEFAULT_BUILTIN
+    str x2, [x1, #TC_O_SRC + TC_SET_LOGS_DIR*8]
+.Lrld_done:
+    EPILOGUE 0
     ret
 
 // ============================================================================
@@ -2867,27 +2949,51 @@ cli_resolve_err:
     .p2align 2
 cli_resolve_window:
     PROLOGUE 5
-    // ---- end ---------------------------------------------------------------
+    bl cli_win_end_phase             // resolves tc_window end (noreturn on a bad end)
+    bl cli_win_pick_start            // x0 = 0 (earliest/users: window done), 1 (convert)
+    cbz x0, .Lrw_common
+    bl cli_win_convert_phase         // parse begin/since into TC_W_BEGIN_* (noreturn on a bad value)
+.Lrw_check:
+    LEA x0, cli_scratch
+    bl tc_win_begin_after_end_check  // fails with "begin (A) is after end (B)"
+.Lrw_common:
+    LEA x19, tc_opts
+    LEA x20, tc_window
+    ldr x21, [x19, #TC_O_MIN_COUNT]
+    EPILOGUE 5
+    ret
+
+// ----------------------------------------------------------------------------
+// cli_win_end_phase() — the window END: the raw --end string parsed by
+//   tc_parse_datetime, else the current time, written into tc_window
+//   (TC_W_END_YMD / TC_W_END_SOD) with the end's provenance recorded on the
+//   default path.  Exits (noreturn) on an unparseable end via
+//   cli_resolve_err.  Uses x19 (plus caller-saved x0-x4); PROLOGUE 1.
+// ----------------------------------------------------------------------------
+    .p2align 2
+cli_win_end_phase:
+    PROLOGUE 1
     LEA x19, tc_opts
     ldrb w0, [x19, #TC_O_END_RAW]
-    cbz w0, .Lrw_end_default
+    cbz w0, .Lwe_default
     add x0, x19, #TC_O_END_RAW
     mov x1, #1
     bl tc_parse_datetime
-    cbz x2, .Lrw_end_ok
+    cbz x2, .Lwe_ok
     mov x4, x2                      // status (before x2 is reused below)
     // end conversion error
     ldr x1, [x19, #TC_O_SRC + TC_SET_END*8]
     LEA x0, s_flag_end
     mov x2, #P_DATETIME_EOD
     add x3, x19, #TC_O_END_RAW       // the raw end string (display)
-    bl cli_resolve_err
-.Lrw_end_ok:
+    bl cli_resolve_err               // noreturn
+.Lwe_ok:
     LEA x19, tc_window
     str x0, [x19, #TC_W_END_YMD]
     str x1, [x19, #TC_W_END_SOD]
-    b .Lrw_start
-.Lrw_end_default:
+    EPILOGUE 1
+    ret
+.Lwe_default:
     bl cli_now
     LEA x19, tc_window
     str x0, [x19, #TC_W_END_YMD]
@@ -2895,32 +3001,50 @@ cli_resolve_window:
     LEA x19, tc_opts
     mov x0, #TC_SRC_DEFAULT_NOW
     str x0, [x19, #TC_O_SRC + TC_SET_END*8]
-.Lrw_start:
-    // ---- window start ------------------------------------------------------
+    EPILOGUE 1
+    ret
+
+// ----------------------------------------------------------------------------
+// cli_win_pick_start() -> x0 = 0 (the earliest-log or --users start is fully
+//   written: skip the conversion) or 1 (a begin/since start was stashed via
+//   cli_win_set and still needs cli_win_convert_phase).  Resolves the
+//   window-start source in Python resolve_settings order: --users overrides,
+//   then the CLI --begin/--since flags, the TWITCH_BEGIN/TWITCH_SINCE env
+//   vars, the config begin/since keys, else the earliest-log default.
+//   Exits (noreturn) on an env or config begin+since mutex conflict.
+//   Uses x19-x24; PROLOGUE 3.
+// ----------------------------------------------------------------------------
+    .p2align 2
+cli_win_pick_start:
+    PROLOGUE 3
     LEA x0, cli_given
     ldrb w1, [x0, #TC_SET_USERS]
-    cbnz w1, .Lrw_users
+    cbnz w1, .Lwp_users
     LEA x0, tc_opts
     ldr x1, [x0, #TC_O_FLAGS]
     tst x1, #TC_F_BEGIN_GIVEN
-    b.ne .Lrw_cli_begin
+    b.ne .Lwp_cli_begin
     tst x1, #TC_F_SINCE_GIVEN
-    b.ne .Lrw_cli_since
-    b .Lrw_env
-.Lrw_cli_begin:
+    b.ne .Lwp_cli_since
+    b .Lwp_env
+.Lwp_cli_begin:
     mov x0, #TC_SRC_CLI_BEGIN
     LEA_OFF x1, tc_opts, TC_O_BEGIN_RAW
     mov x2, #TC_WIN_BEGIN
     bl cli_win_set
-    b .Lrw_convert
-.Lrw_cli_since:
+    mov x0, #1
+    EPILOGUE 3
+    ret
+.Lwp_cli_since:
     mov x0, #TC_SRC_CLI_SINCE
     LEA_OFF x1, tc_opts, TC_O_SINCE_RAW
     mov x2, #TC_WIN_SINCE
     bl cli_win_set
-    b .Lrw_convert
-.Lrw_env:
-    // .Lrw_env / .Lrw_cfg are intentionally near-duplicated: they differ in
+    mov x0, #1
+    EPILOGUE 3
+    ret
+.Lwp_env:
+    // .Lwp_env / .Lwp_cfg are intentionally near-duplicated: they differ in
     // the getter (tc_env_get vs tc_config_get — different arg counts), the
     // source ids, the mutex strings, and their fall-through targets.  A
     // shared helper would need a function pointer (a pattern this file
@@ -2934,26 +3058,30 @@ cli_resolve_window:
     bl tc_env_get
     mov x23, x0
     mov x24, x1
-    cbnz x21, .Lrw_env_begin_ok
-    cbnz x23, .Lrw_env_since_ok
-    b .Lrw_cfg
-.Lrw_env_begin_ok:
-    cbnz x23, .Lrw_env_both
+    cbnz x21, .Lwp_env_begin_ok
+    cbnz x23, .Lwp_env_since_ok
+    b .Lwp_cfg
+.Lwp_env_begin_ok:
+    cbnz x23, .Lwp_env_both
     mov x0, #TC_SRC_ENV_BEGIN
     mov x1, x22
     mov x2, #TC_WIN_BEGIN
     bl cli_win_set
-    b .Lrw_convert
-.Lrw_env_since_ok:
+    mov x0, #1
+    EPILOGUE 3
+    ret
+.Lwp_env_since_ok:
     mov x0, #TC_SRC_ENV_SINCE
     mov x1, x24
     mov x2, #TC_WIN_SINCE
     bl cli_win_set
-    b .Lrw_convert
-.Lrw_env_both:
+    mov x0, #1
+    EPILOGUE 3
+    ret
+.Lwp_env_both:
     LEA x0, s_mutex_env_begin
-    bl tc_report_fail
-.Lrw_cfg:
+    bl tc_report_fail                // noreturn
+.Lwp_cfg:
     LEA x0, s_key_begin
     mov x1, #TC_SEC_NONE
     bl tc_config_get
@@ -2964,26 +3092,30 @@ cli_resolve_window:
     bl tc_config_get
     mov x23, x0
     mov x24, x1
-    cbnz x21, .Lrw_cfg_begin_ok
-    cbnz x23, .Lrw_cfg_since_ok
-    b .Lrw_earliest
-.Lrw_cfg_begin_ok:
-    cbnz x23, .Lrw_cfg_both
+    cbnz x21, .Lwp_cfg_begin_ok
+    cbnz x23, .Lwp_cfg_since_ok
+    b .Lwp_earliest
+.Lwp_cfg_begin_ok:
+    cbnz x23, .Lwp_cfg_both
     mov x0, #TC_SRC_CONFIG_BEGIN
     mov x1, x22
     mov x2, #TC_WIN_BEGIN
     bl cli_win_set
-    b .Lrw_convert
-.Lrw_cfg_since_ok:
+    mov x0, #1
+    EPILOGUE 3
+    ret
+.Lwp_cfg_since_ok:
     mov x0, #TC_SRC_CONFIG_SINCE
     mov x1, x24
     mov x2, #TC_WIN_SINCE
     bl cli_win_set
-    b .Lrw_convert
-.Lrw_cfg_both:
+    mov x0, #1
+    EPILOGUE 3
+    ret
+.Lwp_cfg_both:
     LEA x0, s_mutex_cfg_begin
-    bl tc_report_fail
-.Lrw_earliest:
+    bl tc_report_fail                // noreturn
+.Lwp_earliest:
     LEA x19, tc_window
     mov x0, #TC_WIN_EARLIEST
     str x0, [x19, #TC_W_KIND]
@@ -2991,8 +3123,10 @@ cli_resolve_window:
     bl tc_source_str
     LEA x1, tc_window
     str x0, [x1, #TC_W_START_SRC]
-    b .Lrw_common
-.Lrw_users:
+    mov x0, #0
+    EPILOGUE 3
+    ret
+.Lwp_users:
     LEA x19, tc_window
     mov x0, #TC_WIN_USERS
     str x0, [x19, #TC_W_KIND]
@@ -3020,8 +3154,22 @@ cli_resolve_window:
     bl cli_opts_off
     LEA x1, tc_window
     str x0, [x1, #TC_W_START_SRC]
-    b .Lrw_common
-.Lrw_convert:
+    mov x0, #0
+    EPILOGUE 3
+    ret
+
+// ----------------------------------------------------------------------------
+// cli_win_convert_phase() — parse the stashed window-start choice
+//   (cli_win_kind / cli_win_raw / cli_win_src, set by cli_win_set during
+//   cli_win_pick_start): a begin becomes TC_W_BEGIN_YMD/SOD directly, a
+//   since becomes begin = end - delta, both with the composed start-source
+//   string written to TC_O_WIN_SRC / TC_W_START_SRC.  Exits (noreturn) on
+//   an unparseable begin/since or a pre-year-1 --since (Python
+//   OverflowError).  Uses x19-x26; PROLOGUE 4.
+// ----------------------------------------------------------------------------
+    .p2align 2
+cli_win_convert_phase:
+    PROLOGUE 4
     LEA x19, cli_win_kind
     ldr x20, [x19]
     LEA x19, cli_win_raw
@@ -3029,19 +3177,19 @@ cli_resolve_window:
     LEA x19, cli_win_src
     ldr x22, [x19]
     cmp x20, #TC_WIN_SINCE
-    b.eq .Lrw_since
+    b.eq .Lwc_since
     // begin
     mov x0, x21
     mov x1, #0
     bl tc_parse_datetime
-    cbz x2, .Lrw_begin_ok
+    cbz x2, .Lwc_begin_ok
     mov x4, x2                      // status (before x2 is reused below)
     LEA x0, s_flag_begin
     mov x1, x22
     mov x2, #P_DATETIME
     mov x3, x21                     // the raw begin string (display)
-    bl cli_resolve_err
-.Lrw_begin_ok:
+    bl cli_resolve_err               // noreturn
+.Lwc_begin_ok:
     LEA x19, tc_window
     str x0, [x19, #TC_W_BEGIN_YMD]
     str x1, [x19, #TC_W_BEGIN_SOD]
@@ -3049,18 +3197,19 @@ cli_resolve_window:
     bl tc_source_str
     LEA x1, tc_window
     str x0, [x1, #TC_W_START_SRC]
-    b .Lrw_check
-.Lrw_since:
+    EPILOGUE 4
+    ret
+.Lwc_since:
     mov x0, x21
     bl tc_parse_duration
-    cbz x1, .Lrw_since_ok
+    cbz x1, .Lwc_since_ok
     mov x4, x1                      // status (before x1 is reused below)
     LEA x0, s_flag_since
     mov x1, x22
     mov x2, #P_DURATION
     mov x3, x21                     // the raw since string (display)
-    bl cli_resolve_err
-.Lrw_since_ok:
+    bl cli_resolve_err               // noreturn
+.Lwc_since_ok:
     mov x25, x0                     // delta seconds (from tc_parse_duration)
     // begin = end - delta
     LEA x19, tc_window
@@ -3079,7 +3228,7 @@ cli_resolve_window:
     // 21000d) is valid and must render like Python.
     ldr x26, =YEAR1_EPOCH           // -62135596800
     cmp x25, x26
-    b.ge .Lrw_since_in_range
+    b.ge .Lwc_since_in_range
     LEA x0, cli_scratch
     mov x26, x0
     LEA x1, s_flag_since
@@ -3093,8 +3242,8 @@ cli_resolve_window:
     mov w1, #0
     strb w1, [x0]
     LEA x0, cli_scratch
-    bl tc_report_fail
-.Lrw_since_in_range:
+    bl tc_report_fail                // noreturn
+.Lwc_since_in_range:
     mov x0, x25
     bl tc_epoch_to_ymd_sod
     LEA x19, tc_window
@@ -3127,15 +3276,7 @@ cli_resolve_window:
     bl cli_opts_off
     LEA x1, tc_window
     str x0, [x1, #TC_W_START_SRC]
-    b .Lrw_check
-.Lrw_check:
-    LEA x0, cli_scratch
-    bl tc_win_begin_after_end_check  // fails with "begin (A) is after end (B)"
-.Lrw_common:
-    LEA x19, tc_opts
-    LEA x20, tc_window
-    ldr x21, [x19, #TC_O_MIN_COUNT]
-    EPILOGUE 5
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
@@ -3758,33 +3899,24 @@ cli_hl_parse_rule:
     LEA x2, s_hl_pat_long
     bl cli_hl_err_rule                   // noreturn
 .Lrh_bad_regex:
-    // "rule {i}: '{pat}' is not a valid regex ({pcre2 msg})"
+    // "rule {i}: '{pat}' is not a valid regex ({pcre2 msg})" — the inner
+    // compose is the shared tc_hl_bad_regex (the cli prefix, written by
+    // cli_hl_begin above, stays cli-local).
     mov x0, x20
     bl cli_hl_begin
     mov x26, x0                         // cursor (error path: x26 is expendable)
-    mov x1, x24
-    bl cli_hl_rule
-    mov x26, x0
-    LEA x1, s_q
-    bl tc_cat_cstr
-    mov x26, x0
-    mov x1, x25                         // the offending pattern text
-    bl tc_cat_cstr
-    mov x26, x0
-    LEA x1, s_hl_bad_regex_mid
-    bl tc_cat_cstr
-    mov x26, x0
+    // fetch the pcre2 error string into cli_scratch2 first: the composer
+    // is pcre2-free and takes the already-fetched message in x3.
     LEA x0, cli_hl_errcode
     ldr w0, [x0]
     LEA x1, cli_scratch2
     mov x2, #SCRATCH_SZ
     bl pcre2_get_error_message_8
-    mov x0, x26
-    LEA x1, cli_scratch2
-    bl tc_cat_cstr
-    mov x26, x0
-    LEA x1, s_hl_bad_regex_post
-    bl tc_cat_cstr
+    mov x0, x26                         // dst = the cursor past the cli prefix
+    mov x1, x24                         // rule index
+    mov x2, x25                         // the offending pattern text
+    LEA x3, cli_scratch2                // the pcre2 error string
+    bl tc_hl_bad_regex
     mov x26, x0
     bl cli_hl_finish                     // noreturn
 .Lrh_color_bad:
@@ -4644,11 +4776,7 @@ cli_lowercase:
 .Llc:
     ldrb w2, [x1]
     cbz w2, .Llc_done
-    cmp w2, #'A'
-    b.lt .Llc_next
-    cmp w2, #'Z'
-    b.gt .Llc_next
-    add w2, w2, #('a' - 'A')
+    LOWER_BYTE w2, .Llc_next
     strb w2, [x1]
 .Llc_next:
     add x1, x1, #1
@@ -7006,8 +7134,6 @@ s_key_seed_lookback:.asciz "seed_lookback"
     s_hl_need_pattern: .asciz "`match` needs at least one pattern"
     s_hl_rule_pre:     .asciz "rule "
     s_hl_rule_mid:     .asciz ": "
-    s_hl_bad_regex_mid:.asciz "' is not a valid regex ("
-    s_hl_bad_regex_post:.asciz ")"
     // layout-cap errors (the contract caps these; Python has
     // no limits, so these texts are additions, documented in the Deviations)
     s_hl_too_many_rules: .asciz "too many highlight rules (max 32)"

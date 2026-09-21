@@ -48,6 +48,10 @@
 //    tc_is_ws(x0=byte)                   -> x0 = 1 for ASCII whitespace
 //    tc_copy_bytes(x0=dst, x1=src, x2=len) -> x0 = dst+len
 //    tc_read_all(x0=path, x1=cap)        -> x0=status, x1=buf, x2=len
+//    tc_hl_bad_regex(x0=dst, x1=rule_idx, x2=pattern, x3=regex_msg) ->
+//        x0 = dst+len; composes "rule <idx>: '<pattern>' is not a valid
+//        regex (<regex_msg>)" for the CLI/watch consumers (pcre2-free: the
+//        caller passes the already-fetched pcre2 error string)
 //
 //  AAPCS64 notes (the rules every later phase must follow)
 //  -------------------------------------------------------
@@ -1769,6 +1773,73 @@ tc_win_begin_after_end_check:
     EPILOGUE 3
     ret
 
+// ----------------------------------------------------------------------------
+// tc_hl_bad_regex(x0=dst, x1=rule_idx, x2=pattern, x3=regex_msg)
+//   -> x0 = dst + len (the cursor AT the terminating NUL)
+//   Composes the shared pcre2 "not a valid regex" message, exactly once for
+//   the CLI and watch consumers (tc_cli.S / tc_watch.S):
+//     rule <idx>: '<pattern>' is not a valid regex (<regex_msg>)
+//   `regex_msg` is the ALREADY-FETCHED pcre2 error string: the caller calls
+//   pcre2_get_error_message_8 itself, because this routine is pcre2-free —
+//   tc_util.S links into every driver and some do not link pcre2.
+//   dst must point to a buffer of at least HL_ERR_BUF (512) bytes — the
+//   size the CLI (SCRATCH_SZ) and watch (watch_errbuf) consumers already
+//   use for this message; the variable-length pattern/regex_msg appends are
+//   bounded by the remaining space, so the compose can never write past dst
+//   (a pattern/msg that does not fit is truncated at the NUL).
+//   The result is NUL-terminated; the returned cursor sits AT the NUL, so
+//   a caller's next append overwrites it (tc_cat_cstr semantics).
+//   Clobbers x0-x17; preserves x19-x28 (PROLOGUE 3).
+// ----------------------------------------------------------------------------
+    .equ HL_ERR_BUF, 512
+    .p2align 2
+    .global tc_hl_bad_regex
+    FUNC_TYPE(tc_hl_bad_regex)
+tc_hl_bad_regex:
+    PROLOGUE 3
+    mov x19, x0                     // dst (start of the buffer)
+    mov x20, x0                     // cursor (advances)
+    mov x21, x1                     // rule_idx
+    mov x22, x2                     // pattern
+    mov x23, x3                     // regex_msg
+    LEA x1, s_hl_bad_regex_pre
+    mov x0, x20
+    bl tc_cat_cstr                  // "rule "
+    mov x20, x0
+    mov x0, x20
+    mov x1, x21
+    bl tc_fmt_u64                   // <idx>
+    mov x20, x0
+    LEA x1, s_hl_bad_regex_open
+    mov x0, x20
+    bl tc_cat_cstr                  // ": '"
+    mov x20, x0
+    sub x9, x20, x19                // bytes used so far
+    mov x10, #HL_ERR_BUF
+    sub x10, x10, x9                // remaining capacity
+    mov x0, x20
+    mov x1, x22
+    mov x2, x10
+    bl tc_cat_cstr_cap              // '<pattern>' (bounded)
+    mov x20, x0
+    LEA x1, s_hl_bad_regex_mid
+    mov x0, x20
+    bl tc_cat_cstr                  // "' is not a valid regex ("
+    mov x20, x0
+    sub x9, x20, x19
+    mov x10, #HL_ERR_BUF
+    sub x10, x10, x9
+    mov x0, x20
+    mov x1, x23
+    mov x2, x10
+    bl tc_cat_cstr_cap              // <regex_msg> (bounded)
+    mov x20, x0
+    LEA x1, s_hl_bad_regex_post
+    mov x0, x20
+    bl tc_cat_cstr                  // ")" (copies the NUL too)
+    EPILOGUE 3
+    ret
+
     RODATA
 // state names indexed by TC_ST_* - 1 (0=live, 1=offline, 2=unknown)
     .p2align 3
@@ -1807,6 +1878,13 @@ tc_str_liveshare: .asciz "live-share"
 // (tc_win_begin_after_end_check; byte-identical to the Python reference).
 s_begin_paren:    .asciz "begin ("
 s_is_after_end:   .asciz ") is after end ("
+// "rule <idx>: '<pattern>' is not a valid regex (<regex_msg>)" — the shared
+// pcre2 bad-regex message parts, composed by tc_hl_bad_regex so the CLI and
+// watch consumers share one copy of each literal.
+s_hl_bad_regex_pre:   .asciz "rule "
+s_hl_bad_regex_open:  .asciz ": '"
+s_hl_bad_regex_mid:   .asciz "' is not a valid regex ("
+s_hl_bad_regex_post:  .asciz ")"
 
 util_month_days:  .byte 31,28,31,30,31,30,31,31,30,31,30,31
     .text
