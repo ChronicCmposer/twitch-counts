@@ -251,9 +251,13 @@ $(BUILD)/$(TC): $(TC_OBJS) $(LIBS)
 	$(LINK) $@ $(TC_OBJS) $(LIBS)
 
 # ./twitch-counts is a copy refreshed by every make (the target is phony so
-# the copy is always current for the platform that last ran make).
+# the copy is always current for the platform that last ran make).  The old
+# copy is removed first: overwriting a signed Mach-O in place after it has
+# been executed leaves the kernel's cached code signature stale, and macOS
+# then SIGKILLs the next run (exit 137) although codesign says it is valid.
 $(TC): $(BUILD)/$(TC)
-	cp -f $< $@
+	rm -f $@
+	cp $< $@
 
 # ---------------------------------------------------------------------------
 # per-module test drivers (check_tc_*.S + the modules under test).  The

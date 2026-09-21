@@ -416,4 +416,21 @@ expect_contains "c19-end-week" "no week 54 in ISO year 2026" -c x -e 2026-W54 -d
 # C20: year 0000 must be rejected like Python.
 expect_contains "c20-year-zero" "unrecognized datetime '0000-01-01'" -c x -b 0000-01-01 -d /nonexistent
 
+# ---------------------------------------------------------------------------
+# argv-table capacity: cli_opt_argv/cli_extras/cli_argstr hold OPT_MAX (256)
+# tokens; more fail loudly (a documented deviation: argparse has no limit).
+# The boundary is exact: 256 tokens parse, 257 are rejected.
+# ---------------------------------------------------------------------------
+echo "-- argv token cap (OPT_MAX = 256) --"
+ARGV256=()
+i=0; while [ "$i" -lt 256 ]; do ARGV256+=(-B); i=$((i + 1)); done
+expect_no_crash "argc-256-ok" "${ARGV256[@]}"
+expect_exit "argc-257-exit2" 2 "${ARGV256[@]}" -B
+expect_contains "argc-257-msg" "too many arguments (max 256)" "${ARGV256[@]}" -B
+# A bundled unknown short option whose "-<rest>" text is longer than the
+# ARGSTR_SZ scratch slot: still the argparse error, copied with a cap.
+LONGREST=$(printf 'Z%.0s' $(seq 1 300))
+expect_exit "bundled-unknown-long-exit2" 2 "-B$LONGREST"
+expect_contains "bundled-unknown-long-msg" "unrecognized arguments: -ZZZZ" "-B$LONGREST"
+
 tc_summary "$DIFF_FAIL"

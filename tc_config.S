@@ -75,6 +75,16 @@
 //    * The exclusion set caps at TC_EX_MAX (512) entries; a full set fails
 //      loudly ("too many excluded logins (max 512)") rather than silently
 //      dropping exclusions.
+//    * cfg_split_names/cfg_split_toml_array (the [exclude] list splitters)
+//      cap their token count at SPLIT_MAX (= TC_EX_MAX, 512) and their flat
+//      NUL-separated arenas (cfg_split_buf, its flat copy cfg_excl_flat, and
+//      cfg_excl_tmp for the always-group name copies) at EXCL_ARENA_SZ
+//      (16384) bytes -- room for
+//      TC_EX_MAX names of up to 25 characters + NUL.  Either cap fails
+//      loudly ("too many excluded logins (max 512)" /
+//      "excluded logins list too long (max 16383 bytes)") instead of
+//      overrunning the arena or silently truncating the list.  Python has
+//      no such limits.
 //    * Error-order corner cases: with BOTH a config-table error and a
 //      resolution error the Python may report the config error first; the
 //      port reports whichever tc_cli reaches first.  With BOTH [watch] and
@@ -113,7 +123,13 @@
     .equ VAL_BUF_SZ,    512          // unquoted-value scratch (x2 buffers)
     .equ CFG_ERRBUF_SZ, 128          // toml_parse error buffer
     .equ EX_GROUP_MAX,  64           // max [exclude] groups / always names
-    .equ SPLIT_MAX,     256          // max names from one split call
+    // cfg_split_buf / cfg_excl_tmp arena size : TC_EX_MAX (512)
+    // logins of up to 25 chars + NUL = 13,312 bytes; rounded up so the
+    // documented cap always fits both arenas.
+    .equ EXCL_ARENA_SZ, 16384
+    .equ SPLIT_MAX,     TC_EX_MAX    // a single split call must never
+                                      // silently truncate below the
+                                      // documented total exclusion cap
 
     // struct stat offsets: ST_MODE/ST_SIZE/ST_MTIM_SEC/ST_MTIM_NSEC and the
     // struct stat buffer size STAT_SZ are per-platform and come from
@@ -153,12 +169,12 @@ cfg_excl_groups:     .skip EX_GROUP_MAX * 24   // {name_ptr, name_len, arr_ptr}
 cfg_excl_group_n:    .skip 8
 cfg_excl_always:     .skip EX_GROUP_MAX * 16   // {name_ptr, name_len}
 cfg_excl_always_n:   .skip 8
-cfg_excl_flat:       .skip 512        // NUL-separated flat names
+cfg_excl_flat:       .skip EXCL_ARENA_SZ  // NUL-separated flat names (same bytes as cfg_split_buf)
 cfg_excl_flat_n:     .skip 8
 cfg_split_tab:       .skip SPLIT_MAX * 16      // {ptr, len}
 cfg_split_n:         .skip 8
-cfg_split_buf:       .skip 1024
-cfg_excl_tmp:        .skip 1024       // stable copies of always names
+cfg_split_buf:       .skip EXCL_ARENA_SZ
+cfg_excl_tmp:        .skip EXCL_ARENA_SZ  // stable copies of always names
 cfg_excl_tmp_cur:    .skip 8
 
     .text
@@ -1722,7 +1738,14 @@ cfg_always_name_store:
     bl tc_strlen
     mov x20, x0                     // len
     LEA x0, cfg_excl_tmp_cur
-    ldr x21, [x0]                   // cursor
+    ldr x21, [x0]                   // cursor (byte offset)
+    // bound check : offset + len + 1 (NUL) must fit the arena;
+    // fail loudly through the module's config-error path instead of
+    // silently overrunning cfg_excl_tmp.
+    add x22, x21, x20
+    add x22, x22, #1
+    cmp x22, #EXCL_ARENA_SZ
+    b.gt .Lans_overflow
     LEA x0, cfg_excl_tmp
     add x21, x0, x21                // dst
     mov x0, x21
@@ -1740,6 +1763,9 @@ cfg_always_name_store:
     mov x0, x21
     EPILOGUE 2
     ret
+.Lans_overflow:
+    LEA x0, s_excl_too_long
+    bl tc_report_fail                   // noreturn, exit 1
 
 // ----------------------------------------------------------------------------
 // cfg_copy_split_to_flat() — copy the current cfg_split_tab/buf names into
@@ -1754,6 +1780,7 @@ cfg_copy_split_to_flat:
     str x19, [x0]
     LEA x0, cfg_excl_flat
     mov x20, x0
+    add x22, x0, #EXCL_ARENA_SZ     // end of the flat arena, exclusive
     mov x21, #0
 .Lcsf_loop:
     cmp x21, x19
@@ -1764,12 +1791,22 @@ cfg_copy_split_to_flat:
     add x0, x0, x1
     ldr x1, [x0]                    // ptr
     ldr x2, [x0, #8]                // len
+    // bound: name + NUL must fit (the split arena is the same size, so this
+    // only trips if the two ever disagree -- fail loudly rather than run
+    // into cfg_excl_flat_n, which sits right behind the arena)
+    add x3, x20, x2
+    add x3, x3, #1
+    cmp x3, x22
+    b.gt .Lcsf_overflow
     mov x0, x20
     bl cfg_copy_n_nul
     mov x20, x0
     add x20, x20, #1                // skip the NUL
     add x21, x21, #1
     b .Lcsf_loop
+.Lcsf_overflow:
+    LEA x0, s_excl_too_long
+    bl tc_report_fail               // noreturn, exit 1
 .Lcsf_done:
     EPILOGUE 2
     ret
@@ -1803,17 +1840,22 @@ cfg_has_token_char:
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_split_names:
-    PROLOGUE 2
+    PROLOGUE 3
     mov x19, x0                     // src
     LEA x0, cfg_split_buf
     mov x20, x0                     // dst
+    add x23, x0, #EXCL_ARENA_SZ     // end of arena, exclusive 
     mov x21, #0                     // count
 .Lsn_skip:
     ldrb w0, [x19]
     cbz w0, .Lsn_done
     bl cfg_is_split_sep
     cbnz x0, .Lsn_skip_adv
-    // start of a token
+    // start of a token: the table holds SPLIT_MAX entries, so a token that
+    // would be the SPLIT_MAX+1th fails loudly instead of silently ending
+    // the list below the documented TC_EX_MAX cap
+    cmp x21, #SPLIT_MAX
+    b.ge .Lsn_too_many
     LEA x0, cfg_split_tab
     mov x1, #16
     mul x1, x21, x1
@@ -1828,11 +1870,15 @@ cfg_split_names:
     cbnz x0, .Lsn_tok_end
     LOWER_BYTE w2, .Lsn_tok_store
 .Lsn_tok_store:
+    cmp x20, x23                    // bound check : arena full?
+    b.ge .Lsn_overflow
     strb w2, [x20], #1
     add x22, x22, #1
     add x19, x19, #1
     b .Lsn_tok
 .Lsn_tok_end:
+    cmp x20, x23                    // bound check: room for the NUL?
+    b.ge .Lsn_overflow
     mov w0, #0
     strb w0, [x20], #1
     LEA x0, cfg_split_tab
@@ -1841,17 +1887,21 @@ cfg_split_names:
     add x0, x0, x1
     str x22, [x0, #8]               // token len
     add x21, x21, #1
-    cmp x21, #SPLIT_MAX
-    b.ge .Lsn_done
     b .Lsn_skip
 .Lsn_skip_adv:
     add x19, x19, #1
     b .Lsn_skip
+.Lsn_overflow:
+    LEA x0, s_excl_too_long
+    bl tc_report_fail                   // noreturn, exit 1
+.Lsn_too_many:
+    LEA x0, s_too_many
+    bl tc_report_fail                   // noreturn, exit 1
 .Lsn_done:
     LEA x0, cfg_split_n
     str x21, [x0]
     mov x0, x21
-    EPILOGUE 2
+    EPILOGUE 3
     ret
 
 // ----------------------------------------------------------------------------
@@ -1860,7 +1910,7 @@ cfg_split_names:
 // ----------------------------------------------------------------------------
     .p2align 2
 cfg_split_toml_array:
-    PROLOGUE 3
+    PROLOGUE 4
     mov x19, x0                     // arr
     bl toml_array_nelem
     mov x20, x0                     // n
@@ -1868,6 +1918,7 @@ cfg_split_toml_array:
     mov x23, #0                     // source index
     LEA x0, cfg_split_buf
     mov x22, x0                     // dst cursor
+    add x25, x0, #EXCL_ARENA_SZ     // end of arena, exclusive 
 .Lsta_loop:
     cmp x23, x20
     b.ge .Lsta_done
@@ -1878,11 +1929,19 @@ cfg_split_toml_array:
     bl cfg_toml_value_to_string         // x0 = string (scratch or raw)
     mov x24, x0
     bl tc_strlen
-    mov x2, x0
+    mov x2, x0                      // len = strlen(string): a safe upper
+                                     // bound on the stripped-copy length
+                                     // (stripping only removes bytes)
+    // bound check : cursor + len must leave room for the NUL
+    add x9, x22, x2
+    cmp x9, x25
+    b.ge .Lsta_overflow
     mov x0, x22
     mov x1, x24
     bl cfg_strip_copy_lower             // x0 = out len
     cbz x0, .Lsta_next              // empty after strip -> skip
+    cmp x21, #SPLIT_MAX             // table full: the SPLIT_MAX+1th name fails loudly
+    b.ge .Lsta_too_many
     LEA x2, cfg_split_tab
     mov x3, #16
     mul x3, x21, x3
@@ -1893,16 +1952,20 @@ cfg_split_toml_array:
     mov w0, #0
     strb w0, [x22], #1
     add x21, x21, #1
-    cmp x21, #SPLIT_MAX
-    b.ge .Lsta_done
 .Lsta_next:
     add x23, x23, #1
     b .Lsta_loop
+.Lsta_overflow:
+    LEA x0, s_excl_too_long
+    bl tc_report_fail                   // noreturn, exit 1
+.Lsta_too_many:
+    LEA x0, s_too_many
+    bl tc_report_fail                   // noreturn, exit 1
 .Lsta_done:
     LEA x0, cfg_split_n
     str x21, [x0]
     mov x0, x21
-    EPILOGUE 3
+    EPILOGUE 4
     ret
 
 // ----------------------------------------------------------------------------
@@ -2663,6 +2726,10 @@ s_always_bad_suf:   .asciz " must be a list of group names"
 s_always_unknown_pre: .asciz "[exclude].always in "
 s_always_unknown_mid: .asciz " names unknown group '"
 s_too_many:         .asciz "too many excluded logins (max 512)"
+// cfg_split_buf / cfg_excl_tmp arena cap (EXCL_ARENA_SZ bytes; see the
+// Module constants and the "Residual diffs vs the Python" header note) --
+// Python has no such limit, so this text is an addition.
+s_excl_too_long:    .asciz "excluded logins list too long (max 16383 bytes)"
 
 s_src_excl_config_label: .asciz "config exclude"
 s_src_excl_always:  .asciz "config always:"

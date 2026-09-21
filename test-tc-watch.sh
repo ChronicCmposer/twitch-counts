@@ -754,4 +754,54 @@ check "ASCII case fold still matches the rule" "255;111;111" "$(row_tints "$DATA
 reset_log
 
 # ---------------------------------------------------------------------------
+echo "== regression: >256 distinct (login,state) pairs in one window (WW_MAX) =="
+# tc_watch.S's window/day record arrays are fixed at WW_MAX=256 (login,state)
+# entries (.equ WW_MAX, 256) with no bounds check on the append paths, while
+# Python's TailReader window()/day() use an unbounded Counter.  A window
+# holding more than 256 distinct users doesn't grow to match: it silently
+# caps out instead (confirmed against this exact fixture shape: the asm
+# driver reports "256 in range" where Python reports "300 of 300", with no
+# crash under the plain allocator -- the same overrun segfaults
+# deterministically under libgmalloc, inside watch_bucket_insert's
+# fold-line path, well before the process ever reaches the window-summary
+# build; see the scratchpad FINDINGS from the crash investigation this test
+# regresses).  300 distinct logins, 2 messages each, all "live", inside the
+# last hour: enough to cross WW_MAX without a slow fixture.
+CAPCH=capch
+mkdir -p "$LOGS/$CAPCH"
+python3 - "$LOGS/$CAPCH" "$CAPCH" <<'PYEOF'
+import datetime, os, sys
+base, ch = sys.argv[1], sys.argv[2]
+now = datetime.datetime.now()
+lines = [f"[00:00:00] {ch} is live!"]
+for i in range(1, 301):
+    login = f"user{i:04d}"
+    t = now - datetime.timedelta(seconds=(i % 295) + 2)
+    lines.append(f"[{t:%H:%M:%S}] {login}: hi")
+    lines.append(f"[{t:%H:%M:%S}] {login}: hi again")
+lines.sort(key=lambda l: l[1:9])
+path = os.path.join(base, f"{ch}-{now:%Y-%m-%d}.log")
+with open(path, "w") as f:
+    f.write("\n".join(lines) + "\n")
+PYEOF
+CAPBASE=( -c "$CAPCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache -S 1h )
+run_pty "$DATA/cap_asm.out" 4 1.0 -1 "" "$BIN" "${CAPBASE[@]}"
+CAPRC=$(cat "$DATA/cap_asm.out.rc")
+check "WW_MAX regression: driver survives >256 distinct users (SIGINT exit code)" "0" "$CAPRC"
+tc_strip_ansi "$DATA/cap_asm.out" > "$DATA/cap_asm.plain"
+first_frame "$DATA/cap_asm.plain" > "$DATA/cap_asm.frame"
+
+run_pty "$DATA/cap_py.out" 4 1.0 -1 "" "$PY" "$PYSCRIPT" "${CAPBASE[@]}"
+tc_strip_ansi "$DATA/cap_py.out" > "$DATA/cap_py.plain"
+first_frame "$DATA/cap_py.plain" > "$DATA/cap_py.frame"
+
+if diff -u "$DATA/cap_py.frame" "$DATA/cap_asm.frame" > "$DATA/cap_frame.diff"; then
+    ok "WW_MAX regression: first frame matches Python byte-for-byte (>256 users)"
+else
+    bad "WW_MAX regression: first frame matches Python byte-for-byte (>256 users)"
+    sed 's/^/    /' "$DATA/cap_frame.diff" | head -20
+fi
+rm -rf "$LOGS/$CAPCH"
+
+# ---------------------------------------------------------------------------
 tc_summary

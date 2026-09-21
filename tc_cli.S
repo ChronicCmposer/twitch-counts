@@ -240,7 +240,7 @@ tc_listing:         .skip TC_L_HEADER_SZ
     .p2align 4
 cli_opt_argv:        .skip 8 * OPT_MAX
 cli_extras:          .skip 8 * OPT_MAX
-cli_argstr:          .skip OPT_MAX * ARGSTR_SZ
+cli_argstr:          .skip (OPT_MAX + 1) * ARGSTR_SZ  // slot = 1-based argv index (cli_pp_slot)
 cli_scratch:         .skip SCRATCH_SZ
 help_text:          .skip HELP_TEXT_SZ  // "--config" help line before wrapping
 help_line:          .skip HELP_LINE_SZ  // one wrapped line
@@ -1659,12 +1659,36 @@ cli_emit_msg_body:
 
 // ============================================================================
 // cli_prepass(x0=argc, x1=argv) — cleaned argv + extras.  Exits 2 on errors.
+//
+//   Documented deviation (layout cap): more than OPT_MAX (256) argv tokens
+//   after argv[0] fails loudly ("too many arguments (max 256)") rather than
+//   overrunning cli_opt_argv/cli_extras (OPT_MAX slots each) or cli_argstr
+//   (OPT_MAX + 1 slots: it is addressed by the 1-based argv position).
+//   Python's argparse has no such limit.  A bundled unknown short option's
+//   "-<rest>" text (.Lps_unknown in cli_pp_short) is also bounded to the
+//   ARGSTR_SZ scratch slot via tc_copy_str_cap, truncating an absurdly long
+//   token instead of overrunning the slot; it is only ever used in the
+//   "unrecognized arguments" message.
 // ============================================================================
     .p2align 2
 cli_prepass:
     PROLOGUE 5
     mov x19, x0                     // argc
     mov x20, x1                     // argv
+
+    // Capacity guard: every token after argv[0] lands in exactly one of
+    // cli_opt_argv/cli_extras (OPT_MAX slots each) and owns the cli_argstr
+    // scratch slot of its 1-based argv position (OPT_MAX + 1 slots), so
+    // bounding the token count here bounds every later store into those
+    // tables.  Python's argparse has no argument-count limit; this port
+    // fails loudly instead of silently overrunning the fixed tables.
+    sub x0, x19, #1                 // tokens after argv[0]
+    cmp x0, #OPT_MAX
+    b.le .Lpp_argc_ok
+    LEA x0, s_too_many_args
+    bl cli_arg_error                 // exit 2, noreturn
+.Lpp_argc_ok:
+
     LEA x0, cli_argc_saved
     str x19, [x0]
     LEA x0, cli_argv_saved
@@ -2158,18 +2182,22 @@ cli_pp_short:
     LEA x0, cli_scratch2
     bl cli_arg_error
 .Lps_unknown:
-    // remainder "-<rest>" is unrecognized
+    // remainder "-<rest>" is unrecognized.  Bounded copy: the
+    // slot is ARGSTR_SZ bytes; tc_copy_str_cap caps at cap-1 bytes + NUL, so
+    // '-' (1 byte, written directly) + tc_copy_str_cap(cap=ARGSTR_SZ-1)
+    // fits exactly: '-' + up to ARGSTR_SZ-2 bytes + NUL.  This text is only
+    // used in the "unrecognized arguments" message, so truncating an
+    // absurdly long bundled token here is acceptable.
     mov x0, x20
     bl cli_pp_slot
     mov x26, x0                     // slot base
     mov x27, x26                    // cursor
     mov w1, #'-'
     strb w1, [x27], #1
-    add x2, x21, x22
-.Lps_unknown_copy:
-    ldrb w3, [x2], #1
-    strb w3, [x27], #1
-    cbnz w3, .Lps_unknown_copy
+    add x1, x21, x22                // src: rest of the bundled token
+    mov x0, x27
+    mov x2, #(ARGSTR_SZ - 1)
+    bl tc_copy_str_cap
     mov x0, x26
     bl cli_pp_extra
     add x0, x20, #1
@@ -5868,6 +5896,10 @@ s_colon_space:  .asciz ": "
 s_colon_err:    .asciz ": error: "
 s_usage_prefix: .asciz "usage: "
 s_unrecognized: .asciz "unrecognized arguments:"
+// argv-table capacity cap (OPT_MAX slots for cli_opt_argv/cli_extras/
+// cli_argstr; see the cli_prepass header comment) -- Python argparse has no
+// argument-count limit, so this text is an addition.
+s_too_many_args: .asciz "too many arguments (max 256)"
 s_ambiguous_prefix: .asciz "ambiguous option: "
 s_ambiguous_mid:    .asciz " could match "
 s_arg_prefix:   .asciz "argument "

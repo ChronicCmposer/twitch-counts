@@ -516,4 +516,36 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Exclusion-list capacity (documented deviations, Python has no limits):
+# a split of more than SPLIT_MAX (= TC_EX_MAX, 512) names fails loudly with
+# the existing max-512 error, and a list whose stripped names exceed the
+# EXCL_ARENA_SZ (16384-byte) arena fails with its own message.  Boundary:
+# exactly 512 names parse.
+# ---------------------------------------------------------------------------
+echo "-- [exclude] list caps (SPLIT_MAX / EXCL_ARENA_SZ) --"
+awk 'BEGIN { printf "channel = \"c\"\nexclude = ["; for (i = 1; i <= 512; i++) printf "%s\"u%d\"", (i > 1 ? ", " : ""), i; print "]" }' > "$TMP/excl512.toml"
+expect_ok  "ex1-512-names-ok" --config "$TMP/excl512.toml" -c c -e 2026-09-01 -b 2026-09-01
+awk 'BEGIN { printf "channel = \"c\"\nexclude = ["; for (i = 1; i <= 513; i++) printf "%s\"u%d\"", (i > 1 ? ", " : ""), i; print "]" }' > "$TMP/excl513.toml"
+expect_err "ex2-513-names-too-many" "too many excluded logins (max 512)" \
+    --config "$TMP/excl513.toml" -c c -e 2026-09-01 -b 2026-09-01
+awk 'BEGIN { printf "channel = \"c\"\nexclude = ["; for (i = 1; i <= 100; i++) { printf "%s\"", (i > 1 ? ", " : ""); for (j = 0; j < 200; j++) printf "x"; printf "%d\"", i }; print "]" }' > "$TMP/excllong.toml"
+expect_err "ex3-arena-overflow-array" "excluded logins list too long (max 16383 bytes)" \
+    --config "$TMP/excllong.toml" -c c -e 2026-09-01 -b 2026-09-01
+# the string form (TWITCH_EXCLUDE, split by cfg_split_names): same caps
+ENV513=$(awk 'BEGIN { for (i = 1; i <= 513; i++) printf "%su%d", (i > 1 ? ", " : ""), i }')
+OUT=$(TWITCH_EXCLUDE="$ENV513" "$BIN" --config "$FLAT" -c c -e 2026-09-01 -b 2026-09-01 2>&1); RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qF "too many excluded logins (max 512)"; then
+    ok "ex4-513-names-env-too-many"
+else
+    bad "ex4-513-names-env-too-many: want exit 1 + max-512 error (got rc=$RC, out: $(echo "$OUT" | tail -1))"
+fi
+ENVLONG=$(awk 'BEGIN { for (i = 1; i <= 100; i++) { printf "%s", (i > 1 ? ", " : ""); for (j = 0; j < 200; j++) printf "x"; printf "%d", i } }')
+OUT=$(TWITCH_EXCLUDE="$ENVLONG" "$BIN" --config "$FLAT" -c c -e 2026-09-01 -b 2026-09-01 2>&1); RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qF "excluded logins list too long (max 16383 bytes)"; then
+    ok "ex5-arena-overflow-env"
+else
+    bad "ex5-arena-overflow-env: want exit 1 + arena error (got rc=$RC, out: $(echo "$OUT" | tail -1))"
+fi
+
+# ---------------------------------------------------------------------------
 tc_summary "$DIFF_FAIL"

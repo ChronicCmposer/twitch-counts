@@ -224,7 +224,13 @@
     .equ MT_RULE,        34
     .equ MT_SZ,          40
 
-    // window/day record (WW_SZ 40): {login[26], state u8, n u64}
+    // window/day record (WW_SZ 40): {login[26], state u8, n u64}, keyed by
+    // (login, state).  WW arrays have no fixed capacity: each allocation
+    // site (watch_reader_window, watch_reader_day) sizes the block to an
+    // exact, provably sufficient capacity for what it is about to build,
+    // always zero-fills it, and a record with an empty login terminates
+    // the live records as an end sentinel.  Scanners walk to that sentinel
+    // instead of a compile-time bound.
     .equ WW_LOGIN,       0
     .equ WW_STATE,       26
     .equ WW_N,           32
@@ -252,10 +258,21 @@
     .equ PV_COUNT,       32
     .equ PV_SZ,          40
 
-    .equ TINT_MAX,       256
-    .equ PREV_MAX,       256
+    // Carried tints (watch_tints) and previous-frame counts (watch_prev /
+    // watch_replay_map) are keyed by login, one record per user tracked in a
+    // frame.  Python uses unbounded Counters; this port keeps fixed tables and
+    // silently drops users past the cap (a cosmetic loss -- only rise/fall
+    // tinting is affected, never counts or ranking).  256 was reachable in
+    // practice (a busy channel's --users window holds a few hundred distinct
+    // logins -- e.g. ~280 for the author's real config), so the cap is 4096:
+    // far past any realistic distinct-user count for one terminal, while the
+    // tables stay .bss (demand-zero, no on-disk or steady-state cost).  The
+    // only cost that scales with it is the per-replay-step memset of
+    // watch_replay_map in watch_launch_tints, a one-time few-ms launch cost.
+    .equ TINT_MAX,       4096
+    .equ PREV_MAX,       4096
     .equ FRAME_LINE_SZ,  2048
-    .equ WW_MAX,         256             // max entries in a window/day record
+    .equ FOLD_WINS_MAX,  256             // watch_fold's memo of window pointers
     .equ BK_INIT,        64
     .equ MT_INIT,        32
     .equ READER_INIT,    8
@@ -474,7 +491,7 @@ watch_list_have:  .skip 8
 watch_fold_n:     .skip 8
 watch_fold_shape: .skip 8             // state_filter
 watch_fold_sqlite:.skip 8
-watch_fold_wins:  .skip 256 * 8
+watch_fold_wins:  .skip FOLD_WINS_MAX * 8  // memo of the pointer list (see watch_fold)
 
     // current gather windows list
 watch_wins:       .skip 8             // ptr to malloc'd ptr array
@@ -1402,6 +1419,8 @@ watch_build_listing:
     mov x0, x21
     bl tc_strlen
     mov x22, x0                       // name len
+    cmp x22, #(TC_L_ENTRY_SZ - TC_L_NAME - 1)  // 63: longer names do not fit
+    b.gt .Lwbl_list                   // the entry; skip like core_build_listing
     mov x0, x21
     mov x1, x22
     bl tc_parse_log_filename_n       // x0 = ymd or 0
@@ -1840,6 +1859,8 @@ watch_bucket_find:
 
 // watch_bucket_insert(rd, second, login, len, state) -> x0 = bucket ptr.
 //   Appends or binary-search inserts, keeping (second, login, state) order.
+//   Returns the record BASE (like watch_bucket_find) with BK_N == 0: the
+//   caller's increment counts the message that created the bucket.
     .p2align 2
 watch_bucket_insert:
     PROLOGUE 5
@@ -1966,12 +1987,15 @@ watch_bucket_insert:
     mov w14, #0
     strb w14, [x12]
     strb w23, [x10, #(BK_STATE - BK_LOGIN)]
-    mov x12, #1
-    str x12, [x10, #(BK_N - BK_LOGIN)]
+    str xzr, [x10, #(BK_N - BK_LOGIN)]  // 0: the caller increments it to 1
     ldr x12, [x19, #RD_BUCKET_N]
     add x12, x12, #1
     str x12, [x19, #RD_BUCKET_N]
-    mov x0, x10
+    sub x0, x10, #BK_LOGIN             // record base (x10 is the login field):
+                                       // returning x10 made the caller's BK_N
+                                       // update land 8 bytes into the NEXT
+                                       // slot -- past the block when the
+                                       // insert filled the array exactly
     EPILOGUE 5
     ret
 .Lwbi_oom:
@@ -3469,28 +3493,42 @@ watch_reader_window:
     ldr x0, [x19, #RD_WINDOW]
     b .Lwrw_out
 .Lwrw_changed:
-    // clone the held record into a zero-filled block: the ww helpers scan up
-    // to WW_MAX records and treat an empty slot (login == 0) as the end, so
-    // everything past the copied n records must be zeroed, not malloc junk.
+    // clone the held record into a zero-filled block: the ww helpers scan
+    // until the empty-login sentinel, so everything past the copied n
+    // records must be zeroed, not malloc junk.  Capacity: watch_ww_sub
+    // never appends and watch_ww_add appends at most once per added
+    // bucket, so cap = n_old + (added_last - added_first) + 1 records is
+    // exactly sufficient (n_old = RD_WIN_N; added span = x26/x27).
     ldr x28, [x19, #RD_WINDOW]
     ldr x9, [x19, #RD_WIN_N]
-    mov x23, x9
-    mov x0, #WW_MAX
-    mov x1, #WW_SZ
-    mul x0, x0, x1
+    mov x23, x9                        // n_old
+    sub x9, x27, x26
+    add x9, x9, x23
+    add x9, x9, #1                     // cap = n_old + added + 1
+    str x9, [x19, #RD_WIN_CAP]
+    mov x0, #WW_SZ
+    mul x0, x9, x0
     bl malloc
     cbz x0, .Lwrw_oom
     mov x22, x0
     mov x1, #0
-    mov x2, #WW_MAX
+    ldr x2, [x19, #RD_WIN_CAP]
     mov x9, #WW_SZ
     mul x2, x2, x9
     bl memset
     mov x0, x22
     mov x1, x28
     mov x2, #WW_SZ
-    mul x2, x23, x2
+    mul x2, x23, x2                    // copy exactly n_old records
     bl tc_copy_bytes
+    // free the old block: tc_copy_bytes above was its last read and x28 is
+    // reused as the drop/add cursor below.  Same malloc-before-free order as
+    // .Lwrw_build (x22 was already allocated), so freeing here can't hand a
+    // later allocation the same address and fool the fold's pointer-identity
+    // "unchanged" check.  Previously dropped: it leaked once per tick while
+    // the window slid with an unchanged revision (a quiet channel).
+    mov x0, x28
+    bl free
     // drop: out[(login,state)] -= n.  The cursor is re-derived from the
     // callee-saved index x28 each pass: x9/x10 die in watch_ww_sub.
     mov x28, x24
@@ -3505,6 +3543,7 @@ watch_reader_window:
     add x1, x9, #BK_LOGIN
     ldrb w2, [x9, #BK_STATE]
     ldr x3, [x9, #BK_N]
+    mov x4, x23                        // live count (n_old): scan bound
     bl watch_ww_sub                    // subtract (removes at zero)
     add x28, x28, #1
     b .Lwrw_drop
@@ -3546,10 +3585,14 @@ watch_reader_window:
     // allocator that recycles a just-freed block of the same size (Darwin's
     // does; musl's happened not to) would otherwise hand back the same
     // address and the fold would see "unchanged" after an append.
-    mov x9, #WW_MAX
+    // Capacity: the sum walks buckets [first,last) and each bucket yields
+    // at most one NEW record (an existing (login,state) pair just adds
+    // into its slot), so cap = (last - first) + 1 records is exactly
+    // sufficient for the sum plus the sentinel.
+    sub x23, x25, x24
+    add x23, x23, #1                   // cap (x23 free: n starts below)
     mov x0, #WW_SZ
-    mul x0, x9, x0
-    mov x23, x0                        // total bytes (x23 free: n starts below)
+    mul x0, x23, x0
     bl malloc
     cbz x0, .Lwrw_oom
     mov x22, x0
@@ -3559,10 +3602,10 @@ watch_reader_window:
 .Lwrw_build_zero:
     mov x0, x22
     mov x1, #0
-    mov x2, x23
+    mov x2, #WW_SZ
+    mul x2, x23, x2
     bl memset
-    mov x9, #WW_MAX
-    str x9, [x19, #RD_WIN_CAP]
+    str x23, [x19, #RD_WIN_CAP]
     b .Lwrw_build_use
 .Lwrw_build_use:
     mov x23, #0                        // n
@@ -3682,14 +3725,12 @@ watch_ww_add:
     mov x20, x1                        // login
     mov x21, x2                        // state
     mov x22, x3                        // n
-    // find the count (records are NUL-terminated; scan until n is unknown —
-    // the caller passes the record count implicitly via the trim; here we
-    // scan a fixed max and rely on the trailing sentinel: a record with an
-    // empty login and n == 0 marks the end)
+    // find the record (records are NUL-terminated; the array is always
+    // allocated with capacity for one more record than it currently holds,
+    // so scanning until the empty-login sentinel is safe and needs no
+    // bound check)
     mov x23, #0
 .Lwwa_find:
-    cmp x23, #WW_MAX
-    b.ge .Lwwa_append
     mov x9, #WW_SZ
     mul x9, x23, x9
     add x9, x19, x9
@@ -3722,8 +3763,11 @@ watch_ww_add:
     EPILOGUE 3
     ret
 
-// watch_ww_sub(win, login, state, n) — subtract n; a record reaching 0 is
-//   left in place (watch_ww_trim compacts it away, Python's out += Counter()).
+// watch_ww_sub(win, login, state, n, count) — subtract n; a record reaching
+//   0 is left in place (watch_ww_trim compacts it away, Python's
+//   out += Counter()).  count is the live record count: watch_ww_find has
+//   no sentinel check of its own, so it must be told exactly how far to
+//   scan.
     .p2align 2
 watch_ww_sub:
     PROLOGUE 2
@@ -3732,7 +3776,7 @@ watch_ww_sub:
     mov x21, x2                        // state
     mov x22, x3                        // n
     mov x0, x19
-    mov x1, #WW_MAX                    // scan the full record block
+    mov x1, x4                         // live record count
     mov x2, x20
     mov x3, x21
     bl watch_ww_find
@@ -3756,11 +3800,11 @@ watch_ww_trim:
     mov x20, #0                        // out index
     mov x21, #0                        // i
 .Lwwt_loop:
-    cmp x21, #WW_MAX
-    b.ge .Lwwt_done
     mov x9, #WW_SZ
     mul x9, x21, x9
     add x9, x19, x9
+    ldrb w10, [x9, #WW_LOGIN]
+    cbz w10, .Lwwt_done                // empty login: sentinel, stop
     ldr x10, [x9, #WW_N]
     cbz x10, .Lwwt_next
     cmp x20, x21
@@ -3778,6 +3822,17 @@ watch_ww_trim:
     add x21, x21, #1
     b .Lwwt_loop
 .Lwwt_done:
+    // zero [out, i) so a stale duplicate of a record copied down earlier
+    // doesn't linger between the new sentinel (at out) and the old scan
+    // position (i, where the empty-login sentinel was found above).
+    mov x0, #WW_SZ
+    mul x0, x20, x0
+    add x0, x19, x0                    // dst = win + out*WW_SZ
+    mov x1, #0
+    sub x2, x21, x20
+    mov x9, #WW_SZ
+    mul x2, x2, x9                     // len = (i - out) * WW_SZ
+    bl memset
     mov x0, x20
     EPILOGUE 2
     ret
@@ -3856,24 +3911,41 @@ watch_reader_day:
     cmp x10, x11
     b.eq .Lwday_have
 .Lwday_build:
-    // sum every bucket into the day record
+    // sum every bucket into the day record.  Needed cap = one record per
+    // bucket, plus the sentinel.  A held block that is big enough is
+    // rebuilt in place; a smaller one is replaced by a block of at least
+    // twice its capacity.  The old block is NOT freed: watch_memo_put
+    // stores this pointer as DM_COUNTS, so a memo entry may still alias it
+    // (the same ownership rule watch_memo_retain follows).
+    ldr x22, [x19, #RD_BUCKET_N]
+    add x24, x22, #1                    // needed (x24 free: i starts below)
+    ldr x20, [x19, #RD_DAY]             // day buf, 0 if never built
+    cbz x20, .Lwday_new
     ldr x9, [x19, #RD_DAY_CAP]
-    cbz x9, .Lwday_new
-    ldr x0, [x19, #RD_DAY]
-    cbz x0, .Lwday_new
-    b .Lwday_use
+    cmp x9, x24
+    b.ge .Lwday_zero                    // held block already big enough
+    lsl x9, x9, #1                      // grow geometrically: max(needed, 2*cap)
+    cmp x24, x9
+    csel x24, x24, x9, gt
 .Lwday_new:
-    mov x9, #WW_MAX
     mov x0, #WW_SZ
-    mul x0, x9, x0
+    mul x0, x24, x0
     bl malloc
     cbz x0, .Lwday_oom
-    mov x9, #WW_MAX                    // malloc() clobbers x9: recompute
-    str x9, [x19, #RD_DAY_CAP]
+    mov x20, x0                         // day buf
+    str x24, [x19, #RD_DAY_CAP]
+.Lwday_zero:
+    // always clear the block before the rebuild: consumers scan until the
+    // empty-login sentinel, so a reused block must be zero-filled
+    // uniformly rather than relying on RD_DAY_N alone.
+    mov x0, x20
+    mov x1, #0
+    ldr x2, [x19, #RD_DAY_CAP]
+    mov x9, #WW_SZ
+    mul x2, x2, x9
+    bl memset
 .Lwday_use:
-    mov x20, x0                        // day buf
     mov x21, #0                        // n
-    ldr x22, [x19, #RD_BUCKET_N]
     ldr x23, [x19, #RD_BUCKETS]
     mov x24, #0                        // i
 .Lwday_loop:
@@ -4714,8 +4786,6 @@ watch_fold:
     // iterate the WW record: each {login, state, n}
     mov x26, #0                        // record index (scan until empty)
 .Lwf_ww:
-    cmp x26, #WW_MAX
-    b.ge .Lwf_apply_next
     mov x9, #WW_SZ
     mul x9, x26, x9
     add x27, x24, x9
@@ -4746,6 +4816,11 @@ watch_fold:
     LEA x9, watch_fold_sqlite
     str x20, [x9]
     LEA x9, watch_fold_n
+    // more windows than the memo holds (a range spanning > FOLD_WINS_MAX
+    // daily files): remember nothing, so the next tick rebuilds instead of
+    // copying past watch_fold_wins into watch_wins/watch_win_n
+    cmp x21, #FOLD_WINS_MAX
+    b.gt .Lwf_no_memo
     str x21, [x9]
     LEA x9, watch_fold_wins
     LEA x10, watch_wins
@@ -4758,6 +4833,8 @@ watch_fold:
     str x23, [x9, x22, lsl #3]
     add x22, x22, #1
     b .Lwf_copy
+.Lwf_no_memo:
+    str xzr, [x9]
 .Lwf_done:
     EPILOGUE 5
     ret
@@ -6359,7 +6436,9 @@ watch_launch_tints:
     LEA x9, watch_replay_map
     mov x0, x9
     mov x1, #0
-    mov x2, #(PREV_MAX * PV_SZ)
+    mov x2, #PREV_MAX                   // PREV_MAX * PV_SZ exceeds a mov
+    mov x3, #PV_SZ                      // immediate at this cap: compute it
+    mul x2, x2, x3
     bl memset
     mov x9, #0                         // replay map count (x9 = caller-saved...
     // reader loop counter: x19 (callee-saved; x19 is dead after mov x24,x19)
@@ -6387,8 +6466,6 @@ watch_launch_tints:
     mov x14, x0                        // win
     mov x15, #0                        // rec index
 .Lwlt_ww:
-    cmp x15, #WW_MAX
-    b.ge .Lwlt_rd_next
     mov x9, #WW_SZ
     mul x9, x15, x9
     add x16, x14, x9
@@ -7407,6 +7484,7 @@ watch_build_status:
     mov x0, x19
     bl tc_strlen
     add x19, x19, x0
+    mov x0, x19                        // cursor (x0 still held the length)
     LEA x1, s_ms
     bl tc_cat_cstr
     mov x19, x0
