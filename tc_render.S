@@ -221,6 +221,7 @@ policy_names:
 s_p_at_least:       .asciz "at-least"
 s_p_at_most:        .asciz "at-most"
 s_p_nearest:        .asciz "nearest"
+    .p2align 3
 // metric headers indexed by TC_M_* (the names come from tc_util.S)
 metric_headers:
     .quad h_m_count

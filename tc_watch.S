@@ -598,6 +598,7 @@ s_watch_flag:       .asciz "--watch"
 s_min_interval_flag:.asciz "watch.min_interval"
 fmt_g:              .asciz "%g"
 fmt_0f:             .asciz "%.0f"
+    .p2align 3
 dbl_nanosec:        .double 1000000000.0
 
 // config keys / sections for re-resolution
