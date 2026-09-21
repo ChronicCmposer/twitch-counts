@@ -101,7 +101,17 @@ endif
 # The vendored C (toml/sqlite3/pcre2) is compiled for the host CPU
 # (TC_MARCH above); the hand-written tc_*.S objects stay at baseline
 # ARMv8-a, so this split keeps -march/-mcpu scoped to the C compiles only.
-VENDOR_CFLAGS := $(CFLAGS) $(TC_MARCH)
+#
+# Size flags.  -Os shrinks the vendored objects, which are the bulk of the
+# static binary.  It also fixes a latent pcre2 bug: the configure line below
+# passes CFLAGS="$(VENDOR_CFLAGS)" with no -O at all, so pcre2 was built at
+# the autoconf default -O0 and inflated ~2.5x; -Os here is the only
+# optimization flag pcre2 ever sees.  -fno-asynchronous-unwind-tables
+# -fno-unwind-tables (together) drop the .eh_frame the C compiles would
+# otherwise emit (~89 KB in the old binary; the hand-written .S modules
+# generate none).  The tc_*.S objects are deliberately NOT size-optimized:
+# they compile with no -O so the hand-written code stays exactly as written.
+VENDOR_CFLAGS := $(CFLAGS) $(TC_MARCH) -Os -fno-asynchronous-unwind-tables -fno-unwind-tables
 
 # The harness scripts find their drivers through this.
 export TC_BUILD := $(BUILD)
@@ -171,7 +181,10 @@ $(MUSL_GCC):
 # pcre2-8 static library, built per platform with the platform's compiler
 # (a musl-built or a Darwin-built .a is not usable by the other).  The
 # tarball is fetched once into third_party/; the source is extracted and
-# built under build/<os>/ and only libpcre2-8.a is kept.
+# built under build/<os>/ and only libpcre2-8.a is kept.  The configure is
+# passed CFLAGS="$(VENDOR_CFLAGS)", so pcre2 inherits -Os (fixing the -O0
+# inflation above) and the no-unwind-tables flags from the same source as
+# the toml/sqlite3 compiles.
 $(PCRE2_TAR):
 	@echo "==> fetching pcre2 $(PCRE2_VER)"
 	curl -fsSL $(PCRE2_URL) -o $@
@@ -188,10 +201,22 @@ $(PCRE2_LIB): $(PCRE2_TAR) | $(BUILD) $(TOOLCHAIN_DEP)
 # vendored C sources compiled with the platform's compiler
 # ---------------------------------------------------------------------------
 $(TOML_O): $(TOML)/toml.c $(TOML)/toml.h | $(BUILD) $(TOOLCHAIN_DEP)
-	$(CC) -std=c99 -O2 $(VENDOR_CFLAGS) -c $< -o $@
+	$(CC) -std=c99 -Os $(VENDOR_CFLAGS) -c $< -o $@
+
+# sqlite3 compile flags.  The rollup cache (tc_cache.S) only uses the core
+# API (open/prepare/step/finalize/bind/column plus PRAGMA journal_mode=WAL),
+# so the SQLITE_OMIT_* set compiles unused features out to shrink the
+# object.  Deliberately NOT omitted: SQLITE_OMIT_TRIGGER (the cache schema
+# would not compile with it) and SQLITE_OMIT_WAL (tc_cache.S issues
+# PRAGMA journal_mode=WAL at runtime; omitting WAL breaks the cache path).
+SQLITE_OMIT := -DSQLITE_OMIT_JSON -DSQLITE_OMIT_FOREIGN_KEY \
+               -DSQLITE_OMIT_AUTOVACUUM -DSQLITE_OMIT_EXPLAIN \
+               -DSQLITE_OMIT_UTF16 -DSQLITE_OMIT_SHARED_CACHE \
+               -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_LOOKASIDE \
+               -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_PROGRESS_CALLBACK
 
 $(SQLITE_O): $(SQLITE)/sqlite3.c $(SQLITE)/sqlite3.h | $(BUILD) $(TOOLCHAIN_DEP)
-	$(CC) -O2 -DSQLITE_THREADSAFE=0 $(VENDOR_CFLAGS) -c $< -o $@
+	$(CC) -Os -DSQLITE_THREADSAFE=0 $(SQLITE_OMIT) $(VENDOR_CFLAGS) -c $< -o $@
 
 third-party: $(LIBS)
 
