@@ -20,27 +20,31 @@ Hand-written **ARMv8-A / ARMv8.6-A AArch64 assembly** project. Two deliverables,
 - **`fibonacci`** — pure Linux syscalls, no libc (`as` + `ld`); Linux-only.
 
 ### Repo layout
-- `tc_*.S`, `tc_platform.h`, `tc_layout.inc` — the assembly modules.  The
-  `twitch-counts` module set (the Makefile's `TC_MODS`) is:
-  - `tc_main.S` — `main()` dispatch/orchestration
-  - `tc_util.S` — shared helpers (`tc_puts`, `tc_fail`, `tc_fmt_u64`,
-    `tc_read_all`, `tc_hl_bad_regex`, ...) and the Wave-1 shared constants
-  - `tc_cli.S` — CLI parsing, resolves `[[watch.highlight]]`
-  - `tc_config.S` — config / env / exclusions
-  - `tc_core.S` — the counting core
-  - `tc_cache.S` — the SQLite rollup cache
-  - `tc_render.S` — output formatting
-  - `tc_json.S` — the JSON report
-  - `tc_misc.S` — `--manual` / `--fish` / `--complete`
-  - `tc_watch.S` — watch mode
-- `*.inc` (`tc_manual.inc`, `tc_fish.inc`, `tc_json_schema.inc`) — committed
-  generated blobs (regenerate only with `make gen-inc`).  `tc_parse_facts.inc`
-  is NOT generated: it is a hand-maintained shared include (marker strings
-  the core and cache modules both embed) with no generator.
+- `asm/` — every assembly source, shared header, and include lives here:
+  - `tc_*.S` — the assembly modules.  The `twitch-counts` module set (the
+    Makefile's `TC_MODS`) is:
+    - `tc_main.S` — `main()` dispatch/orchestration
+    - `tc_util.S` — shared helpers (`tc_puts`, `tc_fail`, `tc_fmt_u64`,
+      `tc_read_all`, `tc_hl_bad_regex`, ...) and the Wave-1 shared constants
+    - `tc_cli.S` — CLI parsing, resolves `[[watch.highlight]]`
+    - `tc_config.S` — config / env / exclusions
+    - `tc_core.S` — the counting core
+    - `tc_cache.S` — the SQLite rollup cache
+    - `tc_render.S` — output formatting
+    - `tc_json.S` — the JSON report
+    - `tc_misc.S` — `--manual` / `--fish` / `--complete`
+    - `tc_watch.S` — watch mode
+  - `tc_platform.h`, `tc_layout.inc` — the shared header (macros) and layout
+    constants; every module `#include`s them from asm/.
+  - `*.inc` (`tc_manual.inc`, `tc_fish.inc`, `tc_json_schema.inc`) — committed
+    generated blobs (regenerate only with `make gen-inc`).  `tc_parse_facts.inc`
+    is NOT generated: it is a hand-maintained shared include (marker strings
+    the core and cache modules both embed) with no generator.
+  - `check_tc_*.S` — the per-module test drivers.
 - `build/<os>/` — per-platform objects, drivers, third-party build products (never share objects between Linux/macOS).
 - `third_party/` — vendored C (toml, sqlite3), bootstrapped musl, fetched pcre2 tarball.
-- `check_tc_*.S` + `test-tc-*.sh` — per-module test drivers and harnesses.
-- `gen-tc-*.sh` — regenerate the `.inc` blobs.
+- `test-tc-*.sh` — per-module test harnesses (at the repo root).
+- `gen-tc-*.sh` — regenerate the `.inc` blobs (into `asm/`).
 - `check-isa.sh`, `check-clobbers.sh` — the two assembly checker scripts (at the repo root; see [Checkers](#checkers)).
 - `scripts/` — the Ghidra analysis scripts invoked by the Makefile analysis targets.
 
@@ -232,18 +236,18 @@ manually (not yet wired into the Makefile).
 #### `check-isa.sh` — ISA compliance
 
 ```sh
-./check-isa.sh tc_*.S              # files or a directory
-./check-isa.sh -I . tc_core.S      # add include dirs (needed for tc_platform.h)
-./check-isa.sh --strict-blacklist-update -I . tc_*.S   # blacklist self-check
+./check-isa.sh asm/tc_*.S                # files or a directory
+./check-isa.sh -I asm asm/tc_core.S      # add include dirs (needed for tc_platform.h)
+./check-isa.sh --strict-blacklist-update -I asm asm/tc_*.S   # blacklist self-check
 ```
 
 What it does: (1) rejects any `.arch` above its configured ceiling (default
 `armv8-a`, matching this repo's declared baseline; `--arch` overrides) and
-any `.arch_extension` (and any `.cpu`); (2) assembles the module (`-I.` is
-added by default so modules can `#include tc_platform.h` / `tc_layout.inc`)
-and disassembles the object; (3) scans the disassembly for instructions or
-registers that require a higher ISA (pointer-auth, `bti`, `ssbb`/`pssbb`,
-SVE/SVE2 `z`/`p` registers, bf16/i8mm/dotprod, memtag).
+any `.arch_extension` (and any `.cpu`); (2) assembles the module (`-I asm`
+is added by default so modules can `#include tc_platform.h` / `tc_layout.inc`
+from asm/) and disassembles the object; (3) scans the disassembly for
+instructions or registers that require a higher ISA (pointer-auth, `bti`,
+`ssbb`/`pssbb`, SVE/SVE2 `z`/`p` registers, bf16/i8mm/dotprod, memtag).
 
 **Green** = directive scan clean, object assembles, disassembly scan clean.
 **Red** (non-zero exit, `file:line` printed) = a `.arch`/`.arch_extension`
@@ -262,14 +266,14 @@ mnemonics (st2g/stz2g/cosp) are skipped, not failed.
 `core/controller/asm/` playbook project and has been adapted to this repo —
 it now enforces this repo's declared `.arch armv8-a` baseline (the playbook
 project enforced armv8.2-a), matches `tc_*.S` / `check_tc_*.S` /
-`fibonacci.S` in directory mode, and adds `-I.` by default. `tc_util.S`,
+`fibonacci.S` in directory mode, and adds `-I asm` by default. `tc_util.S`,
 `tc_core.S`, `fibonacci.S`, and the other modules pass GREEN.
 
 #### `check-clobbers.sh` — clobber discipline (AAPCS64 callee-saved)
 
 ```sh
-./check-clobbers.sh tc_*.S          # raw + preprocessed, always
-./check-clobbers.sh -I . tc_core.S  # add include dirs (needed for tc_platform.h)
+./check-clobbers.sh asm/tc_*.S            # raw + preprocessed, always
+./check-clobbers.sh -I asm asm/tc_core.S  # add include dirs (needed for tc_platform.h)
 ```
 
 What it does: for EVERY function — exported `tc_*:` and local helper
@@ -301,7 +305,7 @@ header in the script for a full precision statement.
 `core/controller/asm/` playbook project and has been adapted to this repo —
 it now detects functions by any non-`.L` label (so both exported `tc_*`
 symbols and module-local helpers are analyzed), matches `tc_*.S` /
-`check_tc_*.S` / `fibonacci.S` in directory mode, adds `-I.` by default, and
+`check_tc_*.S` / `fibonacci.S` in directory mode, adds `-I asm` by default, and
 adds x30 (Rule 0) checking. The current modules pass GREEN with real
 coverage (a non-zero function count).
 
@@ -312,7 +316,7 @@ deterministic and catches the wrong-link bug (a `ret` after a `bl`/`blr` with no
 x30 restore) and local-helper clobbers; `check-isa.sh` catches silent
 >armv8-a instructions. A "garbage x0 / runaway writes" symptom is most often
 a clobbered x30 or a caller-saved register across a call — check
-`./check-clobbers.sh .` and `./check-isa.sh -I . tc_*.S` first, then gdb
+`./check-clobbers.sh asm/` and `./check-isa.sh -I asm asm/tc_*.S` first, then gdb
 only after both are green and a real logic bug remains.
 
 ### What "green" means
@@ -325,17 +329,18 @@ only after both are green and a real logic bug remains.
 
 ### Module layout (created in Gate 1, one per module)
 
-- `tc_<module>.S` — the assembly module (what the checkers inspect).
-- `tc_layout.inc` — shared constants and exported-symbol declarations (CPP
+- `asm/tc_<module>.S` — the assembly module (what the checkers inspect).
+- `asm/tc_layout.inc` — shared constants and exported-symbol declarations (CPP
   macros / layout), included by the modules.
-- `tc_platform.h` — the shared header: platform selection plus the macro set
+- `asm/tc_platform.h` — the shared header: platform selection plus the macro set
   (PROLOGUE/EPILOGUE, LEA family, FUNC_TYPE, RODATA, PAGE/LO12, MOV_*,
   SWAR masks, LOAD_ST_*).
 - Makefile wiring — `TC_MODS` and the per-driver object lists; the module is
   compiled through the C compiler preprocessor (`tc_platform.h`), never bare
   `as`.
-- `check_tc_<module>.S` + `test-tc-<module>.sh` — driver harness and
-  differential test (created with the first function, Gate 3).
+- `asm/check_tc_<module>.S` + `test-tc-<module>.sh` — driver harness (in
+  `asm/`) and differential test (at the repo root; created with the first
+  function, Gate 3).
 
 ### Human code-review checklist (the real gate)
 
@@ -375,8 +380,8 @@ The Makefile exposes five analysis targets. See `scripts/` for the Ghidra script
 | Command | Tool | When to use |
 |---|---|---|
 | `make analyze` | GCC `-fanalyzer` | Bug-finding over the **vendored C** (UAF, leaks, OOB, taint, null-deref). Runs through `musl-gcc` so it sees the same musl headers the build uses. **Linux only** (macOS uses clang, no `-fanalyzer`). Default = `toml.c` only — this box has ~6GB RAM, so the 250k-line sqlite3 amalgamation is opt-in: `make analyze ANALYZE_SRCS="...sqlite3.c"`. |
-| `make mca` | `llvm-mca` | **Instruction-level** throughput/scheduling of one hand-written `.S` module: `make mca MCA_SRC=tc_core.S MCA_CPU=neoverse-v2`. The `.S` is preprocessed first so `llvm-mca` sees real instructions. Best-effort (some assembler directives it can't parse surface as errors). |
-| `make check-darwin-align` | clang cross-assembler + llvm-readobj relocation scan | **Catch Mach-O 8-byte-pointer-alignment link failures on any host** (ld64's "pointer not aligned": a `.quad` pointer table misaligned after a run of `.asciz` strings). Cross-assembles every repo-root `.S` for `arm64-apple-darwin` with clang's integrated assembler and scans each object for `ARM64_RELOC_UNSIGNED` (8-byte) relocations at non-8-byte-aligned addresses in data sections. Needs `clang` + `llvm-readobj` (falls back to `llvm-objdump -r`, coarser: no length field) + `python3`; missing tools fail loud. `fibonacci.S` is SKIPPED (Linux-only, ELF-only `.section .rodata`, never linked on Darwin); any other module that cannot cross-assemble is RED. |
+| `make mca` | `llvm-mca` | **Instruction-level** throughput/scheduling of one hand-written `.S` module: `make mca MCA_SRC=asm/tc_core.S MCA_CPU=neoverse-v2`. The `.S` is preprocessed first so `llvm-mca` sees real instructions. Best-effort (some assembler directives it can't parse surface as errors). |
+| `make check-darwin-align` | clang cross-assembler + llvm-readobj relocation scan | **Catch Mach-O 8-byte-pointer-alignment link failures on any host** (ld64's "pointer not aligned": a `.quad` pointer table misaligned after a run of `.asciz` strings). Cross-assembles every `asm/` `.S` for `arm64-apple-darwin` with clang's integrated assembler and scans each object for `ARM64_RELOC_UNSIGNED` (8-byte) relocations at non-8-byte-aligned addresses in data sections. Needs `clang` + `llvm-readobj` (falls back to `llvm-objdump -r`, coarser: no length field) + `python3`; missing tools fail loud. `fibonacci.S` is SKIPPED (Linux-only, ELF-only `.section .rodata`, never linked on Darwin); any other module that cannot cross-assemble is RED. |
 | `make disasm` | Ghidra (headless) | **Disassembly of one function** from a built binary: `make disasm BIN=./twitch-counts FUNC=main` (or `FUNC=0x...`). Pure-Java — works everywhere. **Use this for Ghidra work on aarch64.** |
 | `make decompile` | Ghidra (headless) | **Decompile one function to C**: `make decompile BIN=... FUNC=...`. **Unavailable on aarch64 Linux** — Ghidra ships no native decompiler for that host, so the target exits early and tells you to use `make disasm`. |
 

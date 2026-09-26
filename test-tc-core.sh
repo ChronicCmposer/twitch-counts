@@ -619,7 +619,7 @@ except SystemExit as e:
     sys.exit(e.code)
 " 2>&1 >/dev/null)
     py_lin_rc=$?
-    driver_str=$(sed -n 's/^s_logs_dir_unsupported: *\.asciz "\(.*\)"$/\1/p' "$TC_HERE/tc_core.S")
+    driver_str=$(sed -n 's/^s_logs_dir_unsupported: *\.asciz "\(.*\)"$/\1/p' "$TC_HERE/asm/tc_core.S")
     ok=0
     [ "$py_lin_rc" -eq 1 ] && \
     [ "$py_lin_err" = "error: $driver_str" ] && ok=1

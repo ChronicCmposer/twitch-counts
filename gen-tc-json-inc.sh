@@ -1,9 +1,9 @@
 #!/bin/sh
 # ============================================================================
-# gen-tc-json-inc.sh — regenerate tc_json_schema.inc from twitch-counts.py
+# gen-tc-json-inc.sh — regenerate asm/tc_json_schema.inc from twitch-counts.py
 # (tc_main.S integration).
 #
-#   tc_json_schema.inc: the embedded JSON Schema for the report document —
+#   asm/tc_json_schema.inc: the embedded JSON Schema for the report document —
 #   json.dumps(report_schema(), indent=2) re-indented +2 under the report's
 #   "schema" key, outer braces absorbed into the framing  "schema": {  and
 #   },  lines, exactly as json.dump(build_report(report), indent=2) would
@@ -18,6 +18,10 @@
 # ============================================================================
 set -eu
 cd "$(dirname "$0")"
+
+# Output dir for the generated blob; open(path, "w") below never creates
+# intermediate directories, so guarantee it exists before the Python runs.
+mkdir -p asm
 
 python3 - <<'PY'
 import importlib.util
@@ -34,9 +38,9 @@ inner = [("  " + ln if ln else ln) for ln in lines[1:-1]]
 blob = '  "schema": {\n' + "\n".join(inner) + "\n  },\n"
 data = blob.encode("utf-8")
 
-path = "tc_json_schema.inc"
+path = "asm/tc_json_schema.inc"
 with open(path, "w", encoding="ascii") as f:
-    f.write("// tc_json_schema.inc - the embedded JSON Schema for the report document.\n")
+    f.write(f"// {path} - the embedded JSON Schema for the report document.\n")
     f.write("// Generated from twitch-counts.py report_schema() with json.dumps(indent=2),\n")
     f.write("// indented +2 to sit under the report's \"schema\" key, exactly as\n")
     f.write("// json.dump(build_report(report), indent=2) would emit it. The schema's\n")

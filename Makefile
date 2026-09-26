@@ -39,6 +39,10 @@ os      := $(shell uname -s | tr A-Z a-z)
 BUILD   := build/$(os)
 NPROC   := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 
+# All assembly sources, shared headers/includes and committed .inc blobs live
+# under asm/; one variable drives every path to them.
+ASM     := asm
+
 AS      := as
 LD      := ld
 
@@ -127,7 +131,7 @@ TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
 
 # Generated .inc blobs — COMMITTED sources (generated but part of the
 # deliverable); regenerated only by an explicit `make gen-inc`.
-GEN_INCS   := tc_manual.inc tc_fish.inc tc_json_schema.inc
+GEN_INCS   := $(ASM)/tc_manual.inc $(ASM)/tc_fish.inc $(ASM)/tc_json_schema.inc
 
 .PHONY: all run test clean third-party gen-inc drivers analyze mca check-darwin-align decompile disasm exports $(TC) $(addprefix check-,$(HARNESSES))
 
@@ -148,7 +152,7 @@ ifeq ($(OS),Linux)
 $(FIB): $(BUILD)/fibonacci.o
 	$(LD) $< -o $@
 
-$(BUILD)/fibonacci.o: fibonacci.S | $(BUILD)
+$(BUILD)/fibonacci.o: $(ASM)/fibonacci.S | $(BUILD)
 	$(AS) $< -o $@
 
 # Usage: make run ARGS="10"
@@ -227,6 +231,7 @@ third-party: $(LIBS)
 # mtime-driven rule would silently rewrite committed sources on a build.
 # ---------------------------------------------------------------------------
 gen-inc:
+	mkdir -p $(ASM)
 	./gen-tc-misc-inc.sh
 	./gen-tc-json-inc.sh
 	@echo "regenerated: $(GEN_INCS)"
@@ -236,13 +241,13 @@ gen-inc:
 # through the C preprocessor — tc_platform.h selects the platform — so they
 # are assembled with the compiler driver, never with bare `as`.
 # ---------------------------------------------------------------------------
-$(BUILD)/%.o: %.S tc_platform.h tc_layout.inc | $(BUILD) $(TOOLCHAIN_DEP)
-	$(CC) -I. -c $< -o $@
+$(BUILD)/%.o: $(ASM)/%.S $(ASM)/tc_platform.h $(ASM)/tc_layout.inc | $(BUILD) $(TOOLCHAIN_DEP)
+	$(CC) -I$(ASM) -c $< -o $@
 
 # The embedded blobs are inputs to these objects: an .inc change must
 # rebuild them.
-$(BUILD)/tc_misc.o: tc_manual.inc tc_fish.inc
-$(BUILD)/tc_json.o: tc_json_schema.inc
+$(BUILD)/tc_misc.o: $(ASM)/tc_manual.inc $(ASM)/tc_fish.inc
+$(BUILD)/tc_json.o: $(ASM)/tc_json_schema.inc
 
 # ---------------------------------------------------------------------------
 # twitch-counts
@@ -318,11 +323,11 @@ $(DRIVERS): $(BUILD)/tc-%-test: $$(addprefix $(BUILD)/,$$($$*_OBJS)) $$(or $$($$
 # by the test's database.  A cache FORMAT change bumps the parts in
 # tc_parse_facts.inc (every consumer rebuilds); a version bump here alone
 # only invalidates old rows.
-$(BUILD)/tc_cache_bump.S: tc_cache.S | $(BUILD)
+$(BUILD)/tc_cache_bump.S: $(ASM)/tc_cache.S | $(BUILD)
 	sed 's/tc-cache-fp-v1/tc-cache-fp-v2/' $< > $@
 
-$(BUILD)/tc_cache_bump.o: $(BUILD)/tc_cache_bump.S tc_platform.h tc_layout.inc | $(TOOLCHAIN_DEP)
-	$(CC) -I. -c $< -o $@
+$(BUILD)/tc_cache_bump.o: $(BUILD)/tc_cache_bump.S $(ASM)/tc_platform.h $(ASM)/tc_layout.inc | $(TOOLCHAIN_DEP)
+	$(CC) -I$(ASM) -c $< -o $@
 
 drivers: $(DRIVERS)
 
@@ -366,18 +371,18 @@ analyze:
 	@echo "analyze: -fanalyzer is GCC-only; this platform assembles with $(CC)"; exit 1
 endif
 
-# `make mca MCA_SRC=tc_core.S MCA_CPU=neoverse-v2` — llvm-mca throughput
+# `make mca MCA_SRC=asm/tc_core.S MCA_CPU=neoverse-v2` — llvm-mca throughput
 # analysis of one module's AArch64 instructions.  The .S files are run through
 # the C preprocessor first (tc_platform.h/tc_layout.inc), so the analyzer sees
 # exactly the instructions this platform assembles.  Best-effort: directives
 # llvm-mca's parser does not understand surface as errors.
-MCA_SRC ?= tc_core.S
+MCA_SRC ?= $(ASM)/tc_core.S
 MCA_CPU ?= neoverse-v2
 
 mca: $(TOOLCHAIN_DEP)
 	@command -v llvm-mca >/dev/null || { echo "mca: llvm-mca not on PATH"; exit 1; }
 	@test -f $(MCA_SRC) || { echo "mca: no such source: $(MCA_SRC)"; exit 1; }
-	$(CC) -I. -E $(MCA_SRC) | llvm-mca -mtriple=aarch64-linux-gnu -mcpu=$(MCA_CPU)
+	$(CC) -I$(ASM) -E $(MCA_SRC) | llvm-mca -mtriple=aarch64-linux-gnu -mcpu=$(MCA_CPU)
 
 # `make check-darwin-align` — catch Mach-O 8-byte-pointer-alignment link
 # failures on ANY host.  ld64 rejects a pointer relocation
@@ -391,7 +396,7 @@ mca: $(TOOLCHAIN_DEP)
 # (not $(CC)) because $(CC) is musl-gcc on Linux and cannot emit Mach-O;
 # on macOS the same triple is the native one, so the target works there too.
 #
-# Module set: every repo-root .S (find, maxdepth 1), so new modules are
+# Module set: every asm/ .S (find, maxdepth 1), so new modules are
 # covered automatically.  fibonacci.S is SKIPPED with a note: it is Linux-only
 # (ELF-only .section .rodata, never linked on Darwin), so the Darwin
 # pointer-alignment check does not apply.  Any OTHER module that fails to
@@ -466,7 +471,7 @@ check-darwin-align:
 'if __name__ == "__main__":' \
 '    sys.exit(main(sys.argv))' \
 	; } > "$$anal"; \
-	mods=$$(find . -maxdepth 1 -name '*.S' -not -path './build/*' | sort); \
+	mods=$$(find $(ASM) -maxdepth 1 -name '*.S' | sort); \
 	rc=0; n=0; \
 	for mod in $$mods; do \
 		name=$$(basename "$$mod"); \
@@ -476,7 +481,7 @@ check-darwin-align:
 		fi; \
 		obj="$$tmp/$${name%.S}.o"; \
 		n=$$((n+1)); \
-		if ! clang --target=arm64-apple-darwin -I. -c "$$mod" -o "$$obj" 2> "$$tmp/$${name%.S}.err"; then \
+		if ! clang --target=arm64-apple-darwin -I$(ASM) -c "$$mod" -o "$$obj" 2> "$$tmp/$${name%.S}.err"; then \
 			echo "check-darwin-align: RED $$mod -- cannot cross-assemble for arm64-apple-darwin (fail-loud: unverifiable)"; \
 			sed 's/^/    /' "$$tmp/$${name%.S}.err"; \
 			rc=1; \
@@ -548,3 +553,4 @@ exports: $(TC_OBJS)
 clean:
 	rm -rf build
 	rm -f $(FIB) $(TC)
+	rm -f *.o tc-*-test twitch-counts-full

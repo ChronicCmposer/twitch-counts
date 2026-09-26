@@ -86,16 +86,16 @@
 #     (no flag)     analyze the RAW source AND the preprocessed text (default)
 #     --preprocess  accepted for compatibility (prints a one-line note); raw +
 #                   preprocessed are always checked, so the flag is a no-op
-#     -I <dir>       add an include dir for preprocessing (repeatable); -I.
-#                    (repo root) is always added first so modules can #include
-#                    tc_platform.h
+#     -I <dir>       add an include dir for preprocessing (repeatable); -I asm
+#                    is always added first so modules can #include tc_platform.h
+#                    from asm/
 #   Exit 0 = GREEN (no findings). Exit 1 = RED (findings, printed file:line).
 #   Exit 2 = usage error.
 #
 # EXAMPLES
-#   ./check-clobbers.sh tc_util.S tc_core.S
-#   ./check-clobbers.sh -I . tc_*.S
-#   ./check-clobbers.sh -I . .                 # whole repo (directory mode)
+#   ./check-clobbers.sh asm/tc_util.S asm/tc_core.S
+#   ./check-clobbers.sh -I asm asm/tc_*.S
+#   ./check-clobbers.sh -I asm asm/             # whole repo (directory mode)
 #
 set -euo pipefail
 
@@ -510,12 +510,12 @@ analyze_one() {
   # raw pass
   if ! python3 "$ANALYZER" "$f" "$f"; then RC=1; fi
   # preprocessed pass (always on: registers hidden inside CPP macros are the
-  # documented blind spot; the raw scan alone would miss them). -I. is added
-  # by default so modules can #include tc_platform.h from the repo root;
+  # documented blind spot; the raw scan alone would miss them). -I asm is
+  # added by default so modules can #include tc_platform.h from asm/;
   # user -I dirs follow it.
   local tmp="$TMPD/$(basename "$f").pp.S"
   local err="$TMPD/$(basename "$f").pp.err"
-  if ! cc -E -P -x assembler-with-cpp -I. "${INCLUDES[@]}" -o "$tmp" "$f" 2>"$err"; then
+  if ! cc -E -P -x assembler-with-cpp -I asm "${INCLUDES[@]}" -o "$tmp" "$f" 2>"$err"; then
     echo "$f: ERROR: preprocessing failed (non-ISA); cannot verify the macro-expanded form" >&2
     cat "$err" >&2
     RC=1

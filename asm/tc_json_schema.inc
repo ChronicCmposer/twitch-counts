@@ -1,4 +1,4 @@
-// tc_json_schema.inc - the embedded JSON Schema for the report document.
+// asm/tc_json_schema.inc - the embedded JSON Schema for the report document.
 // Generated from twitch-counts.py report_schema() with json.dumps(indent=2),
 // indented +2 to sit under the report's "schema" key, exactly as
 // json.dump(build_report(report), indent=2) would emit it. The schema's

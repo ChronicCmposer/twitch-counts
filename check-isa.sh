@@ -22,9 +22,9 @@
 #          project convention forbids ALL of them);
 #        - any `.cpu` directive (can silently enable features).
 #   2. ASSEMBLY GATE: assemble the module through the C compiler
-#      (`cc -c -x assembler-with-cpp`, matching production). The repo root is
-#      added to the include path by default (-I.) so modules can #include
-#      tc_platform.h / tc_layout.inc from the repo root. Under armv8-a the
+#      (`cc -c -x assembler-with-cpp`, matching production). asm/ is
+#      added to the include path by default (-I asm) so modules can #include
+#      tc_platform.h / tc_layout.inc from asm/. Under armv8-a the
 #      assembler rejects most >armv8-a instructions (bfdot, smmla, sdot,
 #      ldraa, stg, retaa, ...). Such REJECTIONS are RED (fail-loud): the
 #      module does not build under the baseline ISA and "a warning is not
@@ -66,17 +66,17 @@
 #                    (st2g/stz2g/cosp) are skipped, not failed.
 #     --blacklist-arch <x>
 #                    arch used by the blacklist self-check (default armv9-a)
-#     -I <dir>       add an include dir for assembly (repeatable); -I. is
-#                    always added first (modules #include repo-root headers)
+#     -I <dir>       add an include dir for assembly (repeatable); -I asm is
+#                    always added first (modules #include the asm/ headers)
 #   Exit 0 = GREEN (verified). Exit 1 = RED (violations, file:line).
 #   Exit 2 = usage error.
 #
 # EXAMPLES
-#   ./check-isa.sh -I . tc_util.S tc_core.S fibonacci.S
-#   ./check-isa.sh -I . tc_*.S
-#   ./check-isa.sh -I . .                 # whole repo (directory mode)
-#   ./check-isa.sh --arch armv8.2-a -I . tc_core.S   # enforce another ceiling
-#   ./check-isa.sh --strict-blacklist-update -I . tc_*.S  # blacklist self-check
+#   ./check-isa.sh -I asm asm/tc_util.S asm/tc_core.S asm/fibonacci.S
+#   ./check-isa.sh -I asm asm/tc_*.S
+#   ./check-isa.sh -I asm asm/                 # whole repo (directory mode)
+#   ./check-isa.sh --arch armv8.2-a -I asm asm/tc_core.S   # enforce another ceiling
+#   ./check-isa.sh --strict-blacklist-update -I asm asm/tc_*.S  # blacklist self-check
 #
 set -euo pipefail
 
@@ -375,10 +375,10 @@ check_module() {
   # 1. directive scan (primary)
   python3 "$ANALYZER" directives "$f" "$ARCH" || mod_rc=1
 
-  # 2+3. assembly gate, then disassembly scan. -I. is added by default so
-  # modules can #include tc_platform.h / tc_layout.inc from the repo root;
+  # 2+3. assembly gate, then disassembly scan. -I asm is added by default so
+  # modules can #include tc_platform.h / tc_layout.inc from asm/;
   # user -I / ASM_INCLUDES dirs follow it.
-  if cc -g -c -x assembler-with-cpp -I. "${EXTRA_INC[@]}" "${INCLUDES[@]}" \
+  if cc -g -c -x assembler-with-cpp -I asm "${EXTRA_INC[@]}" "${INCLUDES[@]}" \
        -o "$obj" "$f" 2> "$asm_err"; then
     objdump -d "$obj" > "$dis"
     python3 "$ANALYZER" disasm "$dis" "$obj" "$ARCH" "$f" || mod_rc=1

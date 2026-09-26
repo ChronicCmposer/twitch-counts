@@ -1,13 +1,13 @@
 #!/bin/sh
 # ============================================================================
-# gen-tc-misc-inc.sh — regenerate tc_manual.inc and tc_fish.inc from
+# gen-tc-misc-inc.sh — regenerate asm/tc_manual.inc and asm/tc_fish.inc from
 # twitch-counts.py (tc_misc.S).
 #
-#   tc_manual.inc: the --manual body — the module docstring with the
+#   asm/tc_manual.inc: the --manual body — the module docstring with the
 #       {{ENVIRONMENT}} placeholder replaced by environment_manual(), plus
 #       the trailing newline print() emits (Python main():  print(
 #       __doc__.strip().replace(ENVIRONMENT_PLACEHOLDER, environment_manual())))
-#   tc_fish.inc:   the --emit-fish-completions body — fish_completions(
+#   asm/tc_fish.inc:   the --emit-fish-completions body — fish_completions(
 #       command="twitch-counts") plus print()'s trailing newline.
 #
 # Both are byte-exact snapshots of the Python module's own output, embedded
@@ -20,6 +20,10 @@
 # ============================================================================
 set -eu
 cd "$(dirname "$0")"
+
+# Output dir for the generated blobs; open(path, "w") below never creates
+# intermediate directories, so guarantee it exists before the Python runs.
+mkdir -p asm
 
 python3 - <<'PY'
 import importlib.util
@@ -51,7 +55,7 @@ def emit(path, symbol, text):
     print(f"{path}: {len(data)} bytes")
 
 
-emit("tc_manual.inc", "tc_manual_text", manual)
+emit("asm/tc_manual.inc", "tc_manual_text", manual)
 
 # fish_completions() embeds shorten_path(DEFAULT_CONFIG_PATH) (line 3954),
 # a value the Python computes at runtime for the machine it runs on.  The
@@ -84,5 +88,5 @@ def emit2(path, parts):
             print(f"{path}: {symbol} {len(data)} bytes")
 
 
-emit2("tc_fish.inc", [("tc_fish_text_a", fish_a), ("tc_fish_text_b", fish_b)])
+emit2("asm/tc_fish.inc", [("tc_fish_text_a", fish_a), ("tc_fish_text_b", fish_b)])
 PY
