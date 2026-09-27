@@ -1629,13 +1629,20 @@ typedef struct {
     cli_tuple t[ACTION_MAX];
 } cli_tuple_list;
 
-static const char *s_argv[OPT_MAX];  /* tokens after argv[0] */
-static int s_n_tokens;
-static cli_tuple_list s_opt_lists[OPT_MAX];
-static char s_patterns[OPT_MAX];
+/* One cli_parse_argv run's scratch.  The arrays are sized to the actual
+   argv token count (<= OPT_MAX) and heap-owned so a fixed 256-slot table
+   never occupies .bss; the whole state lives only for the parse call. */
+typedef struct {
+    const char **argv;            /* tokens after argv[0] (into argv[]) */
+    cli_tuple_list *opt_lists;    /* per-token option tuples */
+    char *patterns;               /* per-token 'A'/'O'/'-' class */
+    char (*extras_scratch)[ARGSTR_SZ]; /* bundled unknown-token copies */
+    int n_tokens;
+    int scratch_slots;            /* extras_scratch slot count (>= 1) */
+} cli_parse_state;
 
-static const char *s_argv_token(int i) {
-    return s_argv[i];
+static const char *cli_argv_token(const cli_parse_state *ps, int i) {
+    return ps->argv[i];
 }
 
 static int find_action_exact(const char *s) {
@@ -2153,10 +2160,10 @@ static void cli_store_value(cli_parsed *parsed, int action_idx,
 /* Consume the optional at start_index; returns the next start index.  The
    argparse bundling loop for a no-argument short option with a tail lives
    here. */
-static int cli_consume_optional(int start_index, cli_parsed *parsed,
-                                char **extras, int *extras_n,
-                                cli_seen *seen, int *rc) {
-    const cli_tuple_list *tuples = &s_opt_lists[start_index];
+static int cli_consume_optional(cli_parse_state *ps, int start_index,
+                                cli_parsed *parsed, char **extras,
+                                int *extras_n, cli_seen *seen, int *rc) {
+    const cli_tuple_list *tuples = &ps->opt_lists[start_index];
     int action_idx;
     const char *opt_str;
     char sep;
@@ -2168,7 +2175,7 @@ static int cli_consume_optional(int start_index, cli_parsed *parsed,
         char *m = msg;
         int k;
         m = tc_cat_cstr(m, "ambiguous option: ");
-        m = tc_cat_cstr(m, s_argv_token(start_index));
+        m = tc_cat_cstr(m, cli_argv_token(ps, start_index));
         m = tc_cat_cstr(m, " could match ");
         for (k = 0; k < tuples->count; k++) {
             if (k > 0) {
@@ -2244,17 +2251,17 @@ static int cli_consume_optional(int start_index, cli_parsed *parsed,
                        slot owns its scratch so two of them cannot collide
                        (mirrors the asm cli_argstr layout) */
                     {
-                        static char scratch[OPT_MAX][ARGSTR_SZ];
-                        char *m = scratch[*extras_n % OPT_MAX];
+                        char *slot = ps->extras_scratch[
+                            *extras_n % ps->scratch_slots];
+                        char *m = slot;
                         const char *q = explicit;
                         *m++ = '-';
                         while (*q != '\0'
-                               && (size_t)(m - scratch[*extras_n % OPT_MAX])
-                                  < ARGSTR_SZ - 1) {
+                               && (size_t)(m - slot) < ARGSTR_SZ - 1) {
                             *m++ = *q++;
                         }
                         *m = '\0';
-                        extras[*extras_n] = scratch[*extras_n % OPT_MAX];
+                        extras[*extras_n] = slot;
                         (*extras_n)++;
                     }
                     return start_index + 1;
@@ -2284,10 +2291,10 @@ static int cli_consume_optional(int start_index, cli_parsed *parsed,
 
         /* no explicit argument: consume following tokens per the nargs */
         if (act->kind == OPT_VALUE || act->kind == OPT_APPEND) {
-            if (start_index + 1 < s_n_tokens
-                && s_patterns[start_index + 1] == 'A') {
+            if (start_index + 1 < ps->n_tokens
+                && ps->patterns[start_index + 1] == 'A') {
                 const char *args[1];
-                args[0] = s_argv_token(start_index + 1);
+                args[0] = cli_argv_token(ps, start_index + 1);
                 cli_store_value(parsed, action_idx, args, 1, seen, rc);
                 if (*rc != TC_EXIT_OK) {
                     return start_index + 1;
@@ -2306,10 +2313,10 @@ static int cli_consume_optional(int start_index, cli_parsed *parsed,
             }
         }
         if (act->kind == OPT_OPTIONAL) {
-            if (start_index + 1 < s_n_tokens
-                && s_patterns[start_index + 1] == 'A') {
+            if (start_index + 1 < ps->n_tokens
+                && ps->patterns[start_index + 1] == 'A') {
                 const char *args[1];
-                args[0] = s_argv_token(start_index + 1);
+                args[0] = cli_argv_token(ps, start_index + 1);
                 cli_store_value(parsed, action_idx, args, 1, seen, rc);
                 if (*rc != TC_EXIT_OK) {
                     return start_index + 1;
@@ -2331,66 +2338,65 @@ static int cli_consume_optional(int start_index, cli_parsed *parsed,
     }
 }
 
-/* The argparse pre-pass + consume loop; returns TC_EXIT_OK/TC_EXIT_PARSE. */
-static int cli_parse_argv(int argc, char **argv, cli_parsed *parsed,
-                          cli_seen *seen) {
+/* The argparse pre-pass + consume loop; returns TC_EXIT_OK/TC_EXIT_PARSE.
+   The caller (tc_cli_parse) has already sized ps to the token count and
+   rejected anything over OPT_MAX. */
+static int cli_parse_argv(cli_parse_state *ps, int argc, char **argv,
+                          cli_parsed *parsed, cli_seen *seen) {
     int n = argc - 1;
     int i, ti = 0;
     char *extras_store[OPT_MAX];
     int extras_n = 0;
     int rc = TC_EXIT_OK;
 
-    if (n > OPT_MAX) {
-        return cli_arg_error("too many arguments (max 256)");
-    }
-    s_n_tokens = n;
+    ps->n_tokens = n;
     for (i = 0; i < n; i++) {
-        s_argv[i] = argv[i + 1];
+        ps->argv[i] = argv[i + 1];
     }
 
     /* Pre-pass: classify every token into 'A'/'O'/'-' and remember the
        option tuples at each 'O'. */
     for (i = 0; i < n; i++) {
-        const char *arg = s_argv[i];
+        const char *arg = ps->argv[i];
         if (strcmp(arg, "--") == 0) {
-            s_patterns[ti] = '-';
-            s_opt_lists[ti].count = 0;
+            ps->patterns[ti] = '-';
+            ps->opt_lists[ti].count = 0;
             ti++;
             for (i++; i < n; i++) {
-                s_patterns[ti] = 'A';
-                s_opt_lists[ti].count = 0;
+                ps->patterns[ti] = 'A';
+                ps->opt_lists[ti].count = 0;
                 ti++;
             }
             break;
         }
-        if (cli_parse_optional(arg, &s_opt_lists[ti])) {
-            s_patterns[ti] = 'O';
+        if (cli_parse_optional(arg, &ps->opt_lists[ti])) {
+            ps->patterns[ti] = 'O';
         } else {
-            s_patterns[ti] = 'A';
-            s_opt_lists[ti].count = 0;
+            ps->patterns[ti] = 'A';
+            ps->opt_lists[ti].count = 0;
         }
         ti++;
     }
-    s_n_tokens = ti;
+    ps->n_tokens = ti;
 
     /* The main loop: consume optionals left to right; tokens that are not
        an option and not consumed by one become extras. */
     {
         int start = 0;
         int max_opt = -1;
-        for (i = 0; i < s_n_tokens; i++) {
-            if (s_patterns[i] == 'O') {
+        for (i = 0; i < ps->n_tokens; i++) {
+            if (ps->patterns[i] == 'O') {
                 max_opt = i;
             }
         }
         while (start <= max_opt) {
             int next_opt = start;
-            while (next_opt <= max_opt && s_patterns[next_opt] != 'O') {
+            while (next_opt <= max_opt && ps->patterns[next_opt] != 'O') {
                 next_opt++;
             }
             if (start < next_opt) {
                 for (i = start; i < next_opt; i++) {
-                    extras_store[extras_n] = (char *)s_argv[i];
+                    extras_store[extras_n] = (char *)ps->argv[i];
                     extras_n++;
                 }
                 start = next_opt;
@@ -2398,14 +2404,14 @@ static int cli_parse_argv(int argc, char **argv, cli_parsed *parsed,
             if (start > max_opt) {
                 break;
             }
-            start = cli_consume_optional(start, parsed, extras_store,
+            start = cli_consume_optional(ps, start, parsed, extras_store,
                                          &extras_n, seen, &rc);
             if (rc != TC_EXIT_OK) {
                 return rc;
             }
         }
-        for (i = start; i < s_n_tokens; i++) {
-            extras_store[extras_n] = (char *)s_argv[i];
+        for (i = start; i < ps->n_tokens; i++) {
+            extras_store[extras_n] = (char *)ps->argv[i];
             extras_n++;
         }
     }
@@ -2988,9 +2994,46 @@ static char *week_error_body(char *dst, const char *raw) {
 // ----------------------------------------------------------------------------
 // tc_cli_parse — the entry point.
 // ----------------------------------------------------------------------------
+
+/* Heap-own the parse arrays, sized to the actual argv token count.  A fixed
+   OPT_MAX-slot table would cost ~300 KB of .bss for a parse that never sees
+   more than a handful of tokens; the whole state is freed once the argv
+   pass completes (parsed values point into argv[], not into this state). */
+static cli_parse_state *cli_parse_state_alloc(int n) {
+    cli_parse_state *ps;
+    size_t slots = n > 0 ? (size_t)n : 1;
+    ps = malloc(sizeof(*ps));
+    if (ps == NULL) {
+        tc_fail("out of memory");
+    }
+    ps->argv = malloc(slots * sizeof(*ps->argv));
+    ps->opt_lists = malloc(slots * sizeof(*ps->opt_lists));
+    ps->patterns = malloc(slots);
+    ps->extras_scratch = malloc(slots * ARGSTR_SZ);
+    ps->n_tokens = 0;
+    ps->scratch_slots = (int)slots;
+    if (ps->argv == NULL || ps->opt_lists == NULL || ps->patterns == NULL
+        || ps->extras_scratch == NULL) {
+        tc_fail("out of memory");
+    }
+    return ps;
+}
+
+static void cli_parse_state_free(cli_parse_state *ps) {
+    if (ps == NULL) {
+        return;
+    }
+    free(ps->argv);
+    free(ps->opt_lists);
+    free(ps->patterns);
+    free(ps->extras_scratch);
+    free(ps);
+}
+
 int tc_cli_parse(int argc, char **argv, tc_opts *opts, tc_window *window) {
     cli_parsed parsed;
     cli_seen seen;
+    cli_parse_state *ps;
     int rc = TC_EXIT_OK;
     int i;
 
@@ -3004,12 +3047,20 @@ int tc_cli_parse(int argc, char **argv, tc_opts *opts, tc_window *window) {
         tc_copy_str_cap(s_prog_name, base, sizeof(s_prog_name));
     }
 
+    /* argparse's argv cap, rejected before the (heap) parse arrays are
+       sized, so the usage error keeps the real prog name. */
+    if (argc - 1 > OPT_MAX) {
+        return cli_arg_error("too many arguments (max 256)");
+    }
+    ps = cli_parse_state_alloc(argc - 1);
+
     memset(&parsed, 0, sizeof(parsed));
     memset(&seen, 0, sizeof(seen));
     memset(opts, 0, sizeof(tc_opts));
     memset(window, 0, sizeof(tc_window));
 
-    rc = cli_parse_argv(argc, argv, &parsed, &seen);
+    rc = cli_parse_argv(ps, argc, argv, &parsed, &seen);
+    cli_parse_state_free(ps);
     if (rc != TC_EXIT_OK) {
         return rc;
     }

@@ -82,10 +82,12 @@
 enum {
     CFG_PATH_SZ   = TC_PATH_SZ,       /* resolved config path buffer */
     CFG_ERRBUF_SZ = 128,              /* toml_parse error buffer */
+    CFG_MSG_SZ    = 1024,             /* error-message composition scratch */
     VAL_BUF_SZ    = 512,              /* unquoted-value scratch (x2 buffers) */
     EX_GROUP_MAX  = 64,               /* max [exclude] groups / always names */
     EXCL_ARENA_SZ = 16384,            /* split/flat/tmp arena bytes */
     SPLIT_MAX     = TC_EX_MAX,        /* a single split never exceeds 512 */
+    SRC_SLOT_MAX  = EX_GROUP_MAX * 2 + 1, /* dynamic source labels */
     LOGIN_CAP     = TC_LOGIN_SZ - 1   /* 25: the Twitch login limit */
 };
 
@@ -96,7 +98,10 @@ enum cfg_state {
 };
 
 // ----------------------------------------------------------------------------
-// Static session — the asm port's .bss (see the header comment).
+// Static session — the asm port's .bss (see the header comment).  The
+// session and the scratch arenas below are heap-owned: .bss is NOBITS RAM
+// that is never reclaimed, while the config session lives only as long as
+// the process and the exclusion arenas only as long as one build call.
 // ----------------------------------------------------------------------------
 static tc_opts *s_opts;
 static struct {
@@ -107,41 +112,85 @@ static struct {
     int explicit;                     /* path from --config / TWITCH_COUNTS_CONFIG */
     int64_t size_snapshot;            /* st_size at load time */
     int64_t mtime_ns_snapshot;        /* st_mtime_ns at load time */
-} s_cfg;
+} *s_cfg;
 
-static char s_scratch[1024];          /* error-message composition */
-static char s_scratch2[1024];         /* secondary composition (errno detail) */
-static char s_val_a[VAL_BUF_SZ];      /* unquoted config values: two buffers */
-static char s_val_b[VAL_BUF_SZ];      /* so begin+since can both stay valid */
+/* The config session is process-lifetime state; allocate it once on first
+   use so its ~1 KB (two path buffers + the load snapshot) never sits in
+   .bss. */
+static void cfg_session_init(void) {
+    if (s_cfg == NULL) {
+        s_cfg = malloc(sizeof(*s_cfg));
+        if (s_cfg == NULL) {
+            tc_fail("out of memory");
+        }
+        memset(s_cfg, 0, sizeof(*s_cfg));
+    }
+}
+
+static char *s_val_a;                 /* unquoted config values: two buffers */
+static char *s_val_b;                 /* so begin+since can both stay valid */
 static int s_val_toggle;
-static char s_errbuf[CFG_ERRBUF_SZ];  /* toml_parse error text */
 
 // ----------------------------------------------------------------------------
-// Exclusion scratch (transient: rebuilt by every tc_build_exclusions call).
+// Exclusion scratch (transient: rebuilt by every tc_build_exclusions call;
+// the split/flat/tmp arenas are heap-allocated per call and freed at its
+// end — the merged set copies every login out of them, so nothing escapes.
+// s_src_slots is the exception: its labels are stored in tc_excl_set.sources
+// and read by the renderer, so it is a one-time process-lifetime allocation).
 // ----------------------------------------------------------------------------
-static char s_split_buf[EXCL_ARENA_SZ];
+static char *s_split_buf;
 static struct {
     char *ptr;
     size_t len;
-} s_split_tab[SPLIT_MAX];
+} *s_split_tab;
 static size_t s_split_n;
-static char s_excl_flat[EXCL_ARENA_SZ];   /* NUL-separated flat names */
+static char *s_excl_flat;             /* NUL-separated flat names */
 static size_t s_excl_flat_n;
-static char s_excl_tmp[EXCL_ARENA_SZ];    /* stable copies of always names */
+static char *s_excl_tmp;              /* stable copies of always names */
 static size_t s_excl_tmp_cur;
 static struct {
     const char *name;
     size_t name_len;
     toml_array_t *arr;
-} s_groups[EX_GROUP_MAX];
+} *s_groups;
 static size_t s_group_n;
 static struct {
     const char *name;
     size_t name_len;
-} s_always[EX_GROUP_MAX];
+} *s_always;
 static size_t s_always_n;
-static char s_src_slots[EX_GROUP_MAX * 2 + 1][64];  /* dynamic source labels */
+static char (*s_src_slots)[64];       /* dynamic source labels */
 static size_t s_src_slot_cur;
+
+/* Allocate the per-call exclusion arenas; fails loudly (the process exits)
+   on any OOM rather than letting a NULL arena walk. */
+static void cfg_excl_alloc(void) {
+    s_split_buf = malloc(EXCL_ARENA_SZ);
+    s_excl_flat = malloc(EXCL_ARENA_SZ);
+    s_excl_tmp = malloc(EXCL_ARENA_SZ);
+    s_split_tab = malloc(SPLIT_MAX * sizeof(*s_split_tab));
+    s_groups = malloc(EX_GROUP_MAX * sizeof(*s_groups));
+    s_always = malloc(EX_GROUP_MAX * sizeof(*s_always));
+    if (s_split_buf == NULL || s_excl_flat == NULL || s_excl_tmp == NULL
+        || s_split_tab == NULL || s_groups == NULL || s_always == NULL) {
+        tc_fail("out of memory");
+    }
+}
+
+static void cfg_excl_free(void) {
+    free(s_split_buf);
+    free(s_excl_flat);
+    free(s_excl_tmp);
+    free(s_split_tab);
+    free(s_groups);
+    free(s_always);
+    s_split_buf = NULL;
+    s_excl_flat = NULL;
+    s_excl_tmp = NULL;
+    s_split_tab = NULL;
+    s_groups = NULL;
+    s_always = NULL;
+}
 
 /* Number of live records in tc_excl_set.sources[].  Exported (not part of the
    header's public API) because the struct itself carries no count — this is
@@ -263,6 +312,13 @@ static void cfg_fail_too_long(void) {
 // outstanding config values stay valid (the Python reads begin+since).
 // ----------------------------------------------------------------------------
 static char *cfg_value_buf(void) {
+    if (s_val_a == NULL) {
+        s_val_a = malloc(VAL_BUF_SZ);
+        s_val_b = malloc(VAL_BUF_SZ);
+        if (s_val_a == NULL || s_val_b == NULL) {
+            tc_fail("out of memory");
+        }
+    }
     s_val_toggle ^= 1;
     return s_val_toggle ? s_val_b : s_val_a;
 }
@@ -306,6 +362,7 @@ static int cfg_aliases_scalar_ok(const char *raw) {
 static void cfg_resolve_path(void) {
     const char *src = NULL;
     int explicit = 0;
+    cfg_session_init();
     if (s_opts != NULL && (s_opts->flags & TC_F_CONFIG_GIVEN)) {
         src = s_opts->config_path;
         explicit = 1;
@@ -317,30 +374,35 @@ static void cfg_resolve_path(void) {
         }
     }
     if (src != NULL) {
-        cfg_expanduser(src, s_cfg.path, sizeof(s_cfg.path));
+        cfg_expanduser(src, s_cfg->path, sizeof(s_cfg->path));
     } else {
-        size_t len = tc_default_config_path(s_cfg.path, sizeof(s_cfg.path));
-        if (len == 0 || len >= sizeof(s_cfg.path)) {
-            s_cfg.path[0] = '\0';
+        size_t len = tc_default_config_path(s_cfg->path, sizeof(s_cfg->path));
+        if (len == 0 || len >= sizeof(s_cfg->path)) {
+            s_cfg->path[0] = '\0';
         }
     }
-    s_cfg.explicit = explicit;
-    cfg_shorten_path(s_cfg.path, s_cfg.where, sizeof(s_cfg.where));
+    s_cfg->explicit = explicit;
+    cfg_shorten_path(s_cfg->path, s_cfg->where, sizeof(s_cfg->where));
     if (s_opts != NULL) {
         snprintf(s_opts->config_path, sizeof(s_opts->config_path), "%s",
-                 s_cfg.path);
+                 s_cfg->path);
     }
 }
 
 static void cfg_errno_fail(int err) {
-    snprintf(s_scratch2, sizeof(s_scratch2), "[Errno %d] %s: '%s'", err,
-             strerror(err), s_cfg.path);
-    snprintf(s_scratch, sizeof(s_scratch), "could not read config %s: %s",
-             s_cfg.path, s_scratch2);
-    tc_fail(s_scratch);
+    char detail[CFG_MSG_SZ];
+    char msg[CFG_MSG_SZ];
+    cfg_session_init();
+    snprintf(detail, sizeof(detail), "[Errno %d] %s: '%s'", err,
+             strerror(err), s_cfg->path);
+    snprintf(msg, sizeof(msg), "could not read config %s: %s",
+             s_cfg->path, detail);
+    tc_fail(msg);
 }
 
 static void cfg_check_aliases(toml_table_t *root) {
+    char msg[CFG_MSG_SZ];
+    cfg_session_init();
     if (toml_table_in(root, "aliases") != NULL) {
         return;
     }
@@ -358,55 +420,61 @@ static void cfg_check_aliases(toml_table_t *root) {
             return;                   /* "" / 0 / 0.0 / false count as absent */
         }
     }
-    snprintf(s_scratch, sizeof(s_scratch),
-             "[aliases] in %s must be a table of name = channel", s_cfg.where);
-    tc_fail(s_scratch);
+    snprintf(msg, sizeof(msg),
+             "[aliases] in %s must be a table of name = channel",
+             s_cfg->where);
+    tc_fail(msg);
 }
 
 static void cfg_check_section_table(toml_table_t *root, const char *key) {
+    char msg[CFG_MSG_SZ];
+    cfg_session_init();
     if (toml_table_in(root, key) != NULL) {
         return;
     }
     if (toml_array_in(root, key) != NULL || toml_raw_in(root, key) != NULL) {
-        snprintf(s_scratch, sizeof(s_scratch), "[%s] in %s must be a table",
-                 key, s_cfg.where);
-        tc_fail(s_scratch);
+        snprintf(msg, sizeof(msg), "[%s] in %s must be a table",
+                 key, s_cfg->where);
+        tc_fail(msg);
     }
 }
 
 /* stat/open/read/toml_parse + the load-time table checks.  Sets s_cfg.state
    to CFG_ST_LOADED or CFG_ST_NOLOAD; fails loudly on any error. */
 static void cfg_do_load(void) {
+    char errbuf[CFG_ERRBUF_SZ];       /* toml_parse error text */
+    char msg[CFG_MSG_SZ];
     struct stat st;
-    if (stat(s_cfg.path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        if (s_cfg.explicit) {
-            snprintf(s_scratch, sizeof(s_scratch), "config file not found: %s",
-                     s_cfg.path);
-            tc_fail(s_scratch);
+    cfg_session_init();
+    if (stat(s_cfg->path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        if (s_cfg->explicit) {
+            snprintf(msg, sizeof(msg), "config file not found: %s",
+                     s_cfg->path);
+            tc_fail(msg);
         }
-        s_cfg.state = CFG_ST_NOLOAD;
+        s_cfg->state = CFG_ST_NOLOAD;
         return;
     }
-    FILE *fp = fopen(s_cfg.path, "rb");
+    FILE *fp = fopen(s_cfg->path, "rb");
     if (fp == NULL) {
         cfg_errno_fail(errno);
     }
-    toml_table_t *root = toml_parse_file(fp, s_errbuf, sizeof(s_errbuf));
+    toml_table_t *root = toml_parse_file(fp, errbuf, sizeof(errbuf));
     fclose(fp);
     if (root == NULL) {
-        snprintf(s_scratch, sizeof(s_scratch), "could not read config %s: %s",
-                 s_cfg.path, s_errbuf);
-        tc_fail(s_scratch);
+        snprintf(msg, sizeof(msg), "could not read config %s: %s",
+                 s_cfg->path, errbuf);
+        tc_fail(msg);
     }
     /* The Python checks these in build_inputs before any setting resolves:
        [aliases] first, then the [watch]/[tail] section shapes. */
     cfg_check_aliases(root);
     cfg_check_section_table(root, "watch");
     cfg_check_section_table(root, "tail");
-    s_cfg.root = root;
-    s_cfg.state = CFG_ST_LOADED;
-    s_cfg.size_snapshot = (int64_t)st.st_size;
-    s_cfg.mtime_ns_snapshot = (int64_t)TC_ST_MTIME_SEC(st) * TC_NANOSEC
+    s_cfg->root = root;
+    s_cfg->state = CFG_ST_LOADED;
+    s_cfg->size_snapshot = (int64_t)st.st_size;
+    s_cfg->mtime_ns_snapshot = (int64_t)TC_ST_MTIME_SEC(st) * TC_NANOSEC
         + (int64_t)TC_ST_MTIME_NSEC(st);
     if (s_opts != NULL) {
         s_opts->config_loaded = 1;
@@ -417,12 +485,13 @@ static void cfg_do_load(void) {
    errors surface before any env/config value is consumed (the Python's
    build_inputs ordering). */
 static void cfg_ensure_loaded(void) {
-    if (s_cfg.state != CFG_ST_NONE) {
+    cfg_session_init();
+    if (s_cfg->state != CFG_ST_NONE) {
         return;
     }
     cfg_resolve_path();
     if (s_opts != NULL && (s_opts->flags & TC_F_NO_CONFIG)) {
-        s_cfg.state = CFG_ST_NOLOAD;
+        s_cfg->state = CFG_ST_NOLOAD;
         return;
     }
     cfg_do_load();
@@ -459,7 +528,7 @@ int tc_config_get(const char *key, int section_id, const char **value_out,
     cfg_ensure_loaded();
     *value_out = NULL;
     *source_out = TC_SRC_NONE;
-    if (s_cfg.state != CFG_ST_LOADED || s_cfg.root == NULL) {
+    if (s_cfg->state != CFG_ST_LOADED || s_cfg->root == NULL) {
         return 0;
     }
     const char *sect = NULL;
@@ -471,7 +540,7 @@ int tc_config_get(const char *key, int section_id, const char **value_out,
         sect_src = TC_SRC_CONFIG_TAIL;
     }
     if (sect != NULL) {
-        toml_table_t *tab = toml_table_in(s_cfg.root, sect);
+        toml_table_t *tab = toml_table_in(s_cfg->root, sect);
         if (tab != NULL) {
             const char *raw = toml_raw_in(tab, key);
             if (raw != NULL) {
@@ -481,7 +550,7 @@ int tc_config_get(const char *key, int section_id, const char **value_out,
             }
         }
     }
-    const char *raw = toml_raw_in(s_cfg.root, key);
+    const char *raw = toml_raw_in(s_cfg->root, key);
     if (raw != NULL) {
         *value_out = cfg_toml_value_to_string(raw);
         *source_out = TC_SRC_CONFIG;
@@ -510,20 +579,21 @@ static const char *cfg_source_label(int id) {
 }
 
 void tc_aliases_apply(tc_opts *opts) {
+    char msg[CFG_MSG_SZ];
     s_opts = opts;
     cfg_ensure_loaded();
     /* "no channel given" guard — fires when the channel never resolved
        (source id still TC_SRC_DEFAULT), NOT when it resolved to "". */
     if (opts->src[TC_SET_CHANNEL] == TC_SRC_DEFAULT) {
-        snprintf(s_scratch, sizeof(s_scratch),
+        snprintf(msg, sizeof(msg),
                  "no channel given -- pass --channel, set TWITCH_CHANNEL, "
-                 "or add channel = \"...\" to %s", s_cfg.where);
-        tc_fail(s_scratch);
+                 "or add channel = \"...\" to %s", s_cfg->where);
+        tc_fail(msg);
     }
-    if (s_cfg.state != CFG_ST_LOADED || s_cfg.root == NULL) {
+    if (s_cfg->state != CFG_ST_LOADED || s_cfg->root == NULL) {
         return;
     }
-    toml_table_t *aliases = toml_table_in(s_cfg.root, "aliases");
+    toml_table_t *aliases = toml_table_in(s_cfg->root, "aliases");
     if (aliases == NULL) {
         return;
     }
@@ -724,15 +794,17 @@ static void cfg_copy_split_to_flat(void) {
 /* Python config_exclusions: fills s_groups/s_always/s_excl_flat from the
    root "exclude" key.  Fails loudly on the four documented shape errors. */
 static void cfg_build_groups(void) {
-    if (s_cfg.state != CFG_ST_LOADED || s_cfg.root == NULL) {
+    char msg[CFG_MSG_SZ];
+    cfg_session_init();
+    if (s_cfg->state != CFG_ST_LOADED || s_cfg->root == NULL) {
         return;
     }
-    toml_table_t *root = s_cfg.root;
+    toml_table_t *root = s_cfg->root;
     if (toml_raw_in(root, "exclude") != NULL) {
-        snprintf(s_scratch, sizeof(s_scratch),
+        snprintf(msg, sizeof(msg),
                  "`exclude` in %s must be a list of logins or a table of groups",
-                 s_cfg.where);
-        tc_fail(s_scratch);
+                 s_cfg->where);
+        tc_fail(msg);
     }
     toml_array_t *arr = toml_array_in(root, "exclude");
     if (arr != NULL) {
@@ -756,10 +828,10 @@ static void cfg_build_groups(void) {
         }
         toml_array_t *members = toml_array_in(tab, name);
         if (members == NULL) {
-            snprintf(s_scratch, sizeof(s_scratch),
+            snprintf(msg, sizeof(msg),
                      "[exclude].%s in %s must be a list of logins", name,
-                     s_cfg.where);
-            tc_fail(s_scratch);
+                     s_cfg->where);
+            tc_fail(msg);
         }
         if (s_group_n >= EX_GROUP_MAX) {
             continue;
@@ -781,11 +853,11 @@ static void cfg_build_groups(void) {
             if (cfg_group_index_of(aname) < 0) {
                 char sorted[512];
                 cfg_sort_groups_join(sorted, sizeof(sorted));
-                snprintf(s_scratch, sizeof(s_scratch),
+                snprintf(msg, sizeof(msg),
                          "[exclude].always in %s names unknown group '%s'; "
                          "defined groups: %s",
-                         s_cfg.where, aname, sorted);
-                tc_fail(s_scratch);
+                         s_cfg->where, aname, sorted);
+                tc_fail(msg);
             }
             const char *stable = cfg_always_name_store(aname);
             if (s_always_n < EX_GROUP_MAX) {
@@ -796,25 +868,26 @@ static void cfg_build_groups(void) {
         }
     } else if (toml_raw_in(tab, "always") != NULL
                || toml_table_in(tab, "always") != NULL) {
-        snprintf(s_scratch, sizeof(s_scratch),
+        snprintf(msg, sizeof(msg),
                  "[exclude].always in %s must be a list of group names",
-                 s_cfg.where);
-        tc_fail(s_scratch);
+                 s_cfg->where);
+        tc_fail(msg);
     }
 }
 
 /* Python exclusion_layers: every --exclude-group name must name a group. */
 static void cfg_excl_validate_groups(const tc_opts *opts) {
+    char msg[CFG_MSG_SZ];
     for (int i = 0; i < opts->excl_group_count; i++) {
         if (cfg_group_index_of(opts->excl_group_list[i]) >= 0) {
             continue;
         }
         char sorted[512];
         cfg_sort_groups_join(sorted, sizeof(sorted));
-        snprintf(s_scratch, sizeof(s_scratch),
+        snprintf(msg, sizeof(msg),
                  "unknown exclude group '%s'; defined groups: %s",
                  opts->excl_group_list[i], sorted);
-        tc_fail(s_scratch);
+        tc_fail(msg);
     }
 }
 
@@ -834,7 +907,16 @@ static int cfg_source_add(tc_excl_set *set, const char *ptr, size_t len) {
 }
 
 static char *cfg_src_slot_alloc(void) {
-    if (s_src_slot_cur >= sizeof(s_src_slots) / sizeof(s_src_slots[0])) {
+    if (s_src_slots == NULL) {
+        /* One-time process-lifetime allocation: the renderer reads the
+           stored labels after tc_build_exclusions returns, so the slots
+           must outlive the build call. */
+        s_src_slots = malloc(SRC_SLOT_MAX * 64);
+        if (s_src_slots == NULL) {
+            tc_fail("out of memory");
+        }
+    }
+    if (s_src_slot_cur >= SRC_SLOT_MAX) {
         tc_fail("too many exclusion sources (internal cap)");
     }
     return s_src_slots[s_src_slot_cur++];
@@ -1021,6 +1103,7 @@ static void cfg_excl_subtract_include(tc_excl_set *set, const tc_opts *opts) {
 }
 
 static void cfg_noexclude_conflict(const tc_opts *opts) {
+    char msg[CFG_MSG_SZ];
     const char *parts[4];
     int n = 0;
     if (opts->flags & TC_F_EXCL_GIVEN) {
@@ -1038,8 +1121,8 @@ static void cfg_noexclude_conflict(const tc_opts *opts) {
     if (n == 0) {
         return;
     }
-    char *p = s_scratch;
-    char *end = s_scratch + sizeof(s_scratch);
+    char *p = msg;
+    char *end = msg + sizeof(msg);
     p = cfg_cat(p, end, "--no-exclude cannot be combined with ");
     for (int i = 0; i < n; i++) {
         if (i > 0) {
@@ -1050,7 +1133,7 @@ static void cfg_noexclude_conflict(const tc_opts *opts) {
     if (p < end) {
         *p = '\0';
     }
-    tc_fail(s_scratch);
+    tc_fail(msg);
 }
 
 int tc_build_exclusions(const tc_opts *opts, tc_excl_set *set) {
@@ -1058,15 +1141,18 @@ int tc_build_exclusions(const tc_opts *opts, tc_excl_set *set) {
     cfg_ensure_loaded();
     set->count = 0;
     tc_excl_src_count = 0;
+    if (opts->flags & TC_F_NO_EXCLUDE) {
+        cfg_noexclude_conflict(opts);   /* fails loudly on any conflict */
+        return TC_EXIT_OK;
+    }
+    /* The transient arenas are heap-owned for the length of this call; the
+       merged set copies every login out of them before they are freed. */
+    cfg_excl_alloc();
     s_group_n = 0;
     s_always_n = 0;
     s_excl_flat_n = 0;
     s_excl_tmp_cur = 0;
     s_src_slot_cur = 0;
-    if (opts->flags & TC_F_NO_EXCLUDE) {
-        cfg_noexclude_conflict(opts);   /* fails loudly on any conflict */
-        return TC_EXIT_OK;
-    }
     cfg_build_groups();
     cfg_excl_validate_groups(opts);
     cfg_excl_layer_flat(set);
@@ -1076,6 +1162,7 @@ int tc_build_exclusions(const tc_opts *opts, tc_excl_set *set) {
     cfg_excl_layer_cli(set, opts);
     cfg_excl_layer_broadcaster(set, opts);
     cfg_excl_subtract_include(set, opts);
+    cfg_excl_free();
     return TC_EXIT_OK;
 }
 
@@ -1087,50 +1174,53 @@ size_t tc_config_identity(char *dst, size_t cap) {
     if (cap == 0) {
         return 0;
     }
+    cfg_session_init();
     dst[0] = '\0';
     if (s_opts != NULL && (s_opts->flags & TC_F_NO_CONFIG)) {
         return (size_t)snprintf(dst, cap, "(none)");
     }
     cfg_resolve_path();
-    if (s_cfg.path[0] == '\0') {
+    if (s_cfg->path[0] == '\0') {
         return (size_t)snprintf(dst, cap, "(none)");
     }
     struct stat st;
-    if (stat(s_cfg.path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        return (size_t)snprintf(dst, cap, "%s", s_cfg.path);
+    if (stat(s_cfg->path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return (size_t)snprintf(dst, cap, "%s", s_cfg->path);
     }
     int64_t mtime_ns = (int64_t)TC_ST_MTIME_SEC(st) * TC_NANOSEC
         + (int64_t)TC_ST_MTIME_NSEC(st);
-    return (size_t)snprintf(dst, cap, "%s:%lld:%lld", s_cfg.path,
+    return (size_t)snprintf(dst, cap, "%s:%lld:%lld", s_cfg->path,
                             (long long)st.st_size, (long long)mtime_ns);
 }
 
 int tc_config_changed(void) {
-    if (s_cfg.state != CFG_ST_LOADED) {
+    cfg_session_init();
+    if (s_cfg->state != CFG_ST_LOADED) {
         return 0;                     /* never loaded: memoized unchanged */
     }
     struct stat st;
-    if (stat(s_cfg.path, &st) != 0) {
+    if (stat(s_cfg->path, &st) != 0) {
         return 1;                     /* vanished -> changed */
     }
-    if ((int64_t)st.st_size != s_cfg.size_snapshot) {
+    if ((int64_t)st.st_size != s_cfg->size_snapshot) {
         return 1;
     }
     int64_t mtime_ns = (int64_t)TC_ST_MTIME_SEC(st) * TC_NANOSEC
         + (int64_t)TC_ST_MTIME_NSEC(st);
-    if (mtime_ns != s_cfg.mtime_ns_snapshot) {
+    if (mtime_ns != s_cfg->mtime_ns_snapshot) {
         return 1;
     }
     return 0;
 }
 
 void tc_config_reload(void) {
-    if (s_cfg.state != CFG_ST_LOADED || s_cfg.root == NULL) {
+    cfg_session_init();
+    if (s_cfg->state != CFG_ST_LOADED || s_cfg->root == NULL) {
         return;
     }
-    toml_free(s_cfg.root);
-    s_cfg.root = NULL;
-    s_cfg.state = CFG_ST_NONE;
+    toml_free(s_cfg->root);
+    s_cfg->root = NULL;
+    s_cfg->state = CFG_ST_NONE;
     if (s_opts != NULL) {
         s_opts->config_loaded = 0;
     }

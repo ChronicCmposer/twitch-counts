@@ -428,17 +428,24 @@ size_t tc_expanduser(const char *src, char *dst, size_t cap) {
 
 /* Python shorten_path: home = expanduser("~"); path.replace(home, "~", 1)
    when path.startswith(home), else path.  The result is either the input
-   pointer or a module-owned buffer. */
-static char s_shorten_buf[TC_PATH_SZ + 1];
+   pointer or a module-owned buffer (heap, sized to the path cap, allocated
+   once: callers copy the result before any other shorten_path call). */
+static char *s_shorten_buf;
 
 const char *tc_shorten_path(const char *path) {
-    static char home_buf[TC_PATH_SZ + 1];
+    char home_buf[TC_PATH_SZ + 1];
     size_t home_len = tc_expanduser("~", home_buf, sizeof(home_buf));
     size_t path_len = strlen(path);
     if (home_len > 0 && path_len >= home_len
         && memcmp(path, home_buf, home_len) == 0) {
         size_t rest = path_len - home_len;
-        if (rest + 2 <= sizeof(s_shorten_buf)) {
+        if (rest + 2 <= (size_t)TC_PATH_SZ + 1) {
+            if (s_shorten_buf == NULL) {
+                s_shorten_buf = malloc(TC_PATH_SZ + 1);
+                if (s_shorten_buf == NULL) {
+                    tc_fail("out of memory");
+                }
+            }
             s_shorten_buf[0] = '~';
             memcpy(s_shorten_buf + 1, path + home_len, rest + 1);
             return s_shorten_buf;
