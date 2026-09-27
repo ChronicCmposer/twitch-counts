@@ -149,11 +149,15 @@ static size_t s_src_slot_cur;
 int64_t tc_excl_src_count;
 
 // ----------------------------------------------------------------------------
-// mtime access: musl and Apple expose the timespec form directly; glibc
-// (used only for ad-hoc syntax checks) hides st_mtim behind feature macros,
-// so fall back to the legacy seconds/nanoseconds fields there.
+// mtime access: musl exposes the timespec form as st_mtim; Apple/Darwin
+// exposes it as st_mtimespec; glibc (used only for ad-hoc syntax checks)
+// hides st_mtim behind feature macros, so fall back to the legacy
+// seconds/nanoseconds fields there.
 // ----------------------------------------------------------------------------
-#if defined(__GLIBC__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
+#if defined(__APPLE__)
+#define TC_ST_MTIME_SEC(s)  ((s).st_mtimespec.tv_sec)
+#define TC_ST_MTIME_NSEC(s) ((s).st_mtimespec.tv_nsec)
+#elif defined(__GLIBC__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
 #define TC_ST_MTIME_SEC(s)  ((s).st_mtime)
 #define TC_ST_MTIME_NSEC(s) ((s).st_mtimensec)
 #else

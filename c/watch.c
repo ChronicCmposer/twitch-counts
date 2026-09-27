@@ -65,9 +65,13 @@
 #include <sys/event.h>
 #endif
 
-/* mtime access — same pattern as core.c/config.c (musl/Apple expose the
-   timespec fields directly; glibc hides st_mtim behind feature macros). */
-#if defined(__GLIBC__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
+/* mtime access — same pattern as core.c/config.c (musl exposes st_mtim;
+   Apple/Darwin exposes st_mtimespec; glibc hides st_mtim behind feature
+   macros). */
+#if defined(__APPLE__)
+#define TC_ST_MTIME_SEC(s)  ((s).st_mtimespec.tv_sec)
+#define TC_ST_MTIME_NSEC(s) ((s).st_mtimespec.tv_nsec)
+#elif defined(__GLIBC__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
 #define TC_ST_MTIME_SEC(s)  ((s).st_mtime)
 #define TC_ST_MTIME_NSEC(s) ((s).st_mtimensec)
 #else
@@ -2690,10 +2694,16 @@ static void watch_screen_free(tc_screen *screen) {
     memset(screen, 0, sizeof(*screen));
 }
 
-/* Python clip: cut a line to a visible width, keeping escape sequences. */
+/* Python clip: cut a line to a visible width, keeping escape sequences.
+   Visible width counts *codepoints*, not bytes: a UTF-8 continuation byte
+   (10xxxxxx, e.g. the 2nd/3rd byte of the "…" ellipsis login_cell emits)
+   must not add to the column count, or a line containing one gets measured
+   as wider than it actually displays and the tail (here, the count column)
+   gets clipped off. */
 static void watch_clip(char *dst, size_t cap, const char *text, int width) {
-    size_t shown = 0;
+    size_t out = 0;
     size_t i = 0;
+    size_t vis = 0;
     int had_esc = 0;
 
     if (cap == 0) {
@@ -2702,7 +2712,7 @@ static void watch_clip(char *dst, size_t cap, const char *text, int width) {
     /* measure the visible width first */
     {
         size_t j = 0;
-        size_t vis = 0;
+        size_t v = 0;
         while (text[j] != '\0') {
             if (text[j] == '\033') {
                 had_esc = 1;
@@ -2716,15 +2726,17 @@ static void watch_clip(char *dst, size_t cap, const char *text, int width) {
                 }
                 continue;
             }
-            vis++;
+            if (((unsigned char)text[j] & 0xC0) != 0x80) {
+                v++;
+            }
             j++;
         }
-        if ((int)vis <= width) {
+        if ((int)v <= width) {
             tc_copy_str_cap(dst, text, cap);
             return;
         }
     }
-    while (text[i] != '\0' && shown < (size_t)width && shown + 1 < cap) {
+    while (text[i] != '\0' && vis < (size_t)width && out + 1 < cap) {
         if (text[i] == '\033') {
             size_t start = i;
             while (text[i] != '\0'
@@ -2737,21 +2749,24 @@ static void watch_clip(char *dst, size_t cap, const char *text, int width) {
             }
             {
                 size_t len = i - start;
-                if (shown + len + 2 >= cap) {
+                if (out + len + 2 >= cap) {
                     break;
                 }
-                memcpy(dst + shown, text + start, len);
-                shown += len;
+                memcpy(dst + out, text + start, len);
+                out += len;
             }
             continue;
         }
-        dst[shown++] = text[i++];
+        if (((unsigned char)text[i] & 0xC0) != 0x80) {
+            vis++;
+        }
+        dst[out++] = text[i++];
     }
-    if (had_esc && shown + strlen(WATCH_ANSI_RESET) + 1 < cap) {
-        memcpy(dst + shown, WATCH_ANSI_RESET, strlen(WATCH_ANSI_RESET));
-        shown += strlen(WATCH_ANSI_RESET);
+    if (had_esc && out + strlen(WATCH_ANSI_RESET) + 1 < cap) {
+        memcpy(dst + out, WATCH_ANSI_RESET, strlen(WATCH_ANSI_RESET));
+        out += strlen(WATCH_ANSI_RESET);
     }
-    dst[shown] = '\0';
+    dst[out] = '\0';
 }
 
 /* Python Screen.paint: emit the whole frame on a full repaint, else only the
@@ -3340,6 +3355,8 @@ int tc_watch_run(const tc_opts *opts, const tc_inputs *inputs) {
     if (s->win_kind == TC_WIN_USERS) {
         s->start_source = opts->win_src;
         watch_size_users(s, win);
+        s->begin_ymd = win->begin_ymd;
+        s->begin_sod = win->begin_sod;
     } else if (s->win_kind == TC_WIN_EARLIEST) {
         s->start_source = "default: earliest log file";
         if (s->listing.count > 0) {

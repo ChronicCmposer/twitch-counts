@@ -71,12 +71,18 @@
 
 /* POSIX/glibc feature macros before ANY system header (tc_platform.h pulls
    in <time.h>): clock_gettime needs _POSIX_C_SOURCE, readdir's d_type and
-   st_mtim need _DEFAULT_SOURCE (config.c / core.c pattern). */
+   st_mtim need _DEFAULT_SOURCE (config.c / core.c pattern). Darwin's headers
+   gate d_type/DT_DIR and other BSD extensions behind _DARWIN_C_SOURCE, and
+   defining _POSIX_C_SOURCE without it drops into strict-POSIX mode and hides
+   them, so skip these feature macros entirely on Apple platforms (its libc
+   exposes everything needed by default). */
+#if !defined(__APPLE__)
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE 1
+#endif
 #endif
 
 #include "tc_platform.h"

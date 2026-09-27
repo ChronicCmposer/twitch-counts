@@ -736,7 +736,7 @@ decompile:
 # `make disasm BIN=./twitch-counts FUNC=main` — Ghidra headless DISASSEMBLY of
 # one function.  Pure-Java, no native decompiler needed, so it works on aarch64
 # Linux where `make decompile` cannot.
-disasm: 
+disasm:
 	@test -x $(GHIDRA_ANALYZE) || { echo "disasm: analyzeHeadless not found at $(GHIDRA_ANALYZE)"; exit 1; }
 	@test -f $(DECOMP_BIN) || { echo "disasm: $(DECOMP_BIN) not found (build it first)"; exit 1; }
 	@mkdir -p $(GHIDRA_PROJ)

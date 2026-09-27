@@ -44,9 +44,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-/* mtime access — same pattern as config.c (musl/Apple expose the timespec
-   fields directly; glibc hides st_mtim behind feature macros). */
-#if defined(__GLIBC__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
+/* mtime access — same pattern as config.c (musl exposes st_mtim; Apple/Darwin
+   exposes st_mtimespec; glibc hides st_mtim behind feature macros). */
+#if defined(__APPLE__)
+#define TC_ST_MTIME_SEC(s)  ((s).st_mtimespec.tv_sec)
+#define TC_ST_MTIME_NSEC(s) ((s).st_mtimespec.tv_nsec)
+#elif defined(__GLIBC__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
 #define TC_ST_MTIME_SEC(s)  ((s).st_mtime)
 #define TC_ST_MTIME_NSEC(s) ((s).st_mtimensec)
 #else

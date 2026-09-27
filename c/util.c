@@ -19,9 +19,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#ifdef __linux__
 #include <sys/ioctl.h>
-#endif
 
 // ----------------------------------------------------------------------------
 // The selected platform (mirrors Python's PLATFORM singleton).
