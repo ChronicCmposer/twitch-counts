@@ -1,0 +1,11 @@
+chr · 2026-07-01..2026-08-01 · >=1 · live 1,384 offline 97 unknown 4 · -2 excl · 3/11 rows
+
+user        count
+----------  -----
+alice         410
+eve           160
+frank         158
++ 8 others    757
+----------  -----
+3 of 11 user(s) above threshold (11 in range); 728 of 1,485 message(s) in range
+excluded 2 user(s), 64 message(s) not counted

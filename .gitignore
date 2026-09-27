@@ -1,6 +1,7 @@
 # Build artifacts (do not commit)
 fibonacci
 twitch-counts
+twitch-counts-asm
 twitch-counts-full
 *.o
 

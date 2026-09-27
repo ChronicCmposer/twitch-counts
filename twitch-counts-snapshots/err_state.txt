@@ -1,0 +1,1 @@
+error: --offline counts one state only, so per-state columns and sorts would be degenerate -- drop the state filter to compare states

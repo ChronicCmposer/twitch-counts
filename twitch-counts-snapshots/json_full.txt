@@ -1,0 +1,312 @@
+{
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:twitch-counts:report:2",
+    "title": "twitch-counts report",
+    "description": "Per-user Twitch chat message counts for one channel over a time range, derived from Chatterino logs.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "generated_at",
+      "query",
+      "totals",
+      "rows"
+    ],
+    "properties": {
+      "schema": {
+        "type": "object",
+        "description": "This schema, embedded so the document explains itself."
+      },
+      "schema_version": {
+        "type": "string",
+        "description": "Semantic version of this report format."
+      },
+      "generated_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the report was produced."
+      },
+      "query": {
+        "type": "object",
+        "description": "What was asked for, and where each setting came from.",
+        "additionalProperties": false,
+        "required": [
+          "channel",
+          "begin",
+          "end",
+          "min_count",
+          "top",
+          "state",
+          "excluded",
+          "sort",
+          "share_floor",
+          "sources"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Channel whose logs were counted."
+          },
+          "begin": {
+            "type": "string",
+            "description": "Inclusive start of the counted range.",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "description": "Inclusive end of the counted range.",
+            "format": "date-time"
+          },
+          "min_count": {
+            "type": "integer",
+            "description": "Minimum messages required to appear in rows."
+          },
+          "top": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Row cap applied, or null when unlimited."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stream-state filter applied (live, offline, unknown), or null for none."
+          },
+          "excluded": {
+            "type": "array",
+            "description": "Logins excluded from the counts.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sort": {
+            "type": "string",
+            "description": "Metric the rows are ordered by, descending."
+          },
+          "share_floor": {
+            "type": "object",
+            "description": "The --share-floor filter. Keys: requested (integer) -- the value resolved from flag, environment, config or built-in default; and applied (boolean) -- false when no share was shown or sorted by, so the floor had nothing to act on, or when it was set to 0. How many users it dropped is totals.users_below_share_floor. Reporting both is what tells a floor nobody asked for apart from one that was asked for and silently did nothing."
+          },
+          "sources": {
+            "type": "object",
+            "description": "Where each setting came from: a flag, an environment variable, the config file, or a default."
+          }
+        }
+      },
+      "totals": {
+        "type": "object",
+        "description": "Counts describing the range and what was withheld.",
+        "additionalProperties": false,
+        "required": [
+          "users_shown",
+          "users_above_threshold",
+          "users_in_range",
+          "users_excluded",
+          "messages_shown",
+          "messages_in_range",
+          "messages_hidden",
+          "messages_excluded",
+          "truncated",
+          "states",
+          "log_files",
+          "users_below_share_floor",
+          "cache",
+          "unreadable"
+        ],
+        "properties": {
+          "users_shown": {
+            "type": "integer",
+            "description": "Users present in rows."
+          },
+          "users_above_threshold": {
+            "type": "integer",
+            "description": "Users meeting min_count, before any row cap."
+          },
+          "users_in_range": {
+            "type": "integer",
+            "description": "Users with any message in range, after exclusions."
+          },
+          "users_excluded": {
+            "type": "integer",
+            "description": "Excluded logins that actually appeared in range."
+          },
+          "messages_shown": {
+            "type": "integer",
+            "description": "Messages attributed to users in rows."
+          },
+          "messages_in_range": {
+            "type": "integer",
+            "description": "Messages in range after exclusions and the state filter."
+          },
+          "messages_hidden": {
+            "type": "integer",
+            "description": "Messages held by users the row cap dropped."
+          },
+          "messages_excluded": {
+            "type": "integer",
+            "description": "Messages removed by exclusions."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the row cap dropped users."
+          },
+          "states": {
+            "type": "object",
+            "description": "Messages in range by stream state, before the state filter. Keys are live, offline and unknown; absent keys mean zero."
+          },
+          "log_files": {
+            "type": "integer",
+            "description": "Log files covering the range."
+          },
+          "users_below_share_floor": {
+            "type": "integer",
+            "description": "Users meeting min_count but dropped by the share floor."
+          },
+          "cache": {
+            "type": "object",
+            "description": "Whether the day-rollup cache served this query. Keys: used (boolean), days_reused (integer), and problem (string or null) naming the step that failed when the cache could not be opened and every file had to be parsed instead."
+          },
+          "unreadable": {
+            "type": "array",
+            "description": "Log files inside the range that could not be read and were skipped, each an object with 'file' and 'problem'. Empty on a complete count. A non-empty list means these numbers omit whole days, and that chat after each gap may read as 'unknown' because the stream state could not be carried across it.",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "rows": {
+        "type": "array",
+        "description": "Users ordered by query.sort descending, ties broken by login.",
+        "items": {
+          "type": "object",
+          "description": "One user's message count.",
+          "additionalProperties": false,
+          "required": [
+            "login",
+            "count",
+            "states"
+          ],
+          "properties": {
+            "login": {
+              "type": "string",
+              "description": "Twitch login, lowercased."
+            },
+            "count": {
+              "type": "integer",
+              "description": "Messages sent in range."
+            },
+            "states": {
+              "type": "object",
+              "description": "This user's messages by stream state. Keys are live, offline and unknown; absent keys mean zero. Shares are left to the consumer: offline share is states.offline / count."
+            }
+          }
+        }
+      }
+    }
+  },
+  "schema_version": "2.1.0",
+  "generated_at": "<normalized>",
+  "query": {
+    "channel": "spaghettieframe",
+    "begin": "<normalized>",
+    "end": "<normalized>",
+    "min_count": 1,
+    "top": null,
+    "state": null,
+    "excluded": [
+      "fossabot",
+      "nightbot",
+      "streamelements",
+      "supibot"
+    ],
+    "sort": "count",
+    "share_floor": {
+      "requested": 10,
+      "applied": false
+    },
+    "sources": {
+      "begin": "<normalized>",
+      "channel": "--channel",
+      "end": "<normalized>",
+      "exclude": "config always:bots",
+      "header": "default",
+      "logs_dir": "env TWITCH_LOGS_DIR",
+      "min_count": "--min-count",
+      "share_floor": "built-in default",
+      "state": "not filtered",
+      "top": "unlimited for --json"
+    }
+  },
+  "totals": {
+    "users_shown": 5,
+    "users_above_threshold": 5,
+    "users_in_range": 5,
+    "users_excluded": 0,
+    "messages_shown": 460,
+    "messages_in_range": 460,
+    "messages_hidden": 0,
+    "messages_excluded": 0,
+    "truncated": false,
+    "states": {
+      "live": 394,
+      "offline": 64,
+      "unknown": 2
+    },
+    "log_files": 32,
+    "users_below_share_floor": 0,
+    "cache": {
+      "used": true,
+      "days_reused": "<normalized>",
+      "problem": null
+    },
+    "unreadable": []
+  },
+  "rows": [
+    {
+      "login": "regular",
+      "count": 191,
+      "states": {
+        "live": 160,
+        "offline": 31
+      }
+    },
+    {
+      "login": "lurker",
+      "count": 159,
+      "states": {
+        "live": 128,
+        "offline": 31
+      }
+    },
+    {
+      "login": "occasional",
+      "count": 66,
+      "states": {
+        "live": 64,
+        "offline": 1,
+        "unknown": 1
+      }
+    },
+    {
+      "login": "sparse",
+      "count": 32,
+      "states": {
+        "live": 32
+      }
+    },
+    {
+      "login": "rare",
+      "count": 12,
+      "states": {
+        "live": 10,
+        "offline": 1,
+        "unknown": 1
+      }
+    }
+  ]
+}

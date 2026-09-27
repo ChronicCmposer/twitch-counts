@@ -1,0 +1,21 @@
+channel:      bon                                               [--channel]
+logs dir:     <fixture>/Logs/Twitch/Channels  [env TWITCH_LOGS_DIR]
+begin: <normalized>
+end: <normalized>
+threshold:    >= 1 message(s)                                   [built-in default]
+state:        live 758 / offline 95 / unknown 2                 [not filtered]
+exclude:      4 login(s), 0 in range: fossabot, nightbot, streamelements, +1 more  [config always:bots]
+columns:      count, live, offline, offline-share, unknown      [--by-state, --show]
+share floor:  >= 10 message(s), 0 user(s) dropped               [built-in default]
+config:       ~/.config/twitch-counts.toml                      [loaded]
+cache: <normalized>
+top:          2 row(s), 6 hidden                                [--top]
+files:        32 log file(s) in range
+
+user        count  live  offline  offline%  unknown
+----------  -----  ----  -------  --------  -------
+mike          128    95       32     25.0%        1
+nina          128    95       32     25.0%        1
++ 6 others    599   568       31      5.2%        0
+----------  -----  ----  -------  --------  -------
+2 of 8 user(s) above threshold (8 in range); 256 of 855 message(s) in range

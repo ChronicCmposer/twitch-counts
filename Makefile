@@ -1,32 +1,45 @@
-# Makefile for twitch-counts (tc_*.S) and fibonacci.S — AArch64 assembly.
+# Makefile for twitch-counts — C port (primary) and the legacy ARMv8-a
+# assembly build.
 #
-#   twitch-counts: the port of twitch-counts.py — hand-written ARMv8-a
-#       assembly linked against libc and the vendored libraries in
+#   twitch-counts: the C reimplementation of twitch-counts.py — the c/*.c
+#       modules linked against libc and the vendored libraries in
 #       third_party/ (tomlc99, sqlite3 amalgamation, pcre2-8).  It builds on
-#       two platforms from the same sources (tc_platform.h selects):
+#       two platforms from the same sources (c/tc_platform.h selects):
 #         Linux   static, musl libc (a musl toolchain is built from source
 #                 into third_party/musl by the bootstrap rule below; no root)
 #         macOS   arm64 Mach-O, dynamically linked against libSystem (Apple
 #                 ships no static libc); Apple clang from Xcode / the CLT
-#       All vendored C is compiled with the same compiler that assembles the
-#       .S files, so the two never disagree about the ABI.
+#       All vendored C is compiled with the same compiler that compiles the
+#       C port, so the two never disagree about the ABI.
+#   twitch-counts-asm: the LEGACY hand-written ARMv8-a assembly port
+#       (asm/tc_*.S).  Opt-in only, via `make asm`: it builds under
+#       build/<os>/asm/ so its objects and product can never collide with the
+#       C build's, and its test battery is `make test-asm`.
 #   fibonacci: pure Linux syscalls, no libc (as + ld); Linux-only, not built
 #       on macOS.
 #
 # Layout: every object, driver, third-party object and the pcre2 build live
 # under build/<os>/ (build/linux, build/darwin) so a tree shared between a
 # Mac and a Linux VM never hands one platform's objects to the other's
-# linker.  The final binary is copied to ./twitch-counts for convenience;
-# the harnesses run the copy under build/<os>/.
+# linker.  The C binary is copied to ./twitch-counts and the legacy asm
+# binary to ./twitch-counts-asm for convenience; the harnesses run the copies
+# under build/<os>/.
 #
 # Entry points:
-#   make twitch-counts        build (and refresh ./twitch-counts)
-#   make all                  + the Linux-only fibonacci on Linux
-#   make drivers              the per-module test drivers (build/<os>/tc-*-test)
-#   make test                 every harness for this platform
-#   make check-<harness>      one harness, e.g. check-tc-watch
+#   make twitch-counts        build the C port (and refresh ./twitch-counts)
+#   make all                  the C port + the Linux-only fibonacci on Linux
+#   make asm                  build the legacy assembly port (./twitch-counts-asm)
+#   make drivers              the C per-module test drivers (build/<os>/tc-*-test)
+#   make drivers-asm          the legacy asm per-module drivers (build/<os>/asm/tc-*-test)
+#   make test                 the C battery: fibonacci (Linux), every
+#                             test-tc-*.sh harness, and the
+#                             twitch-counts-test.py snapshot oracle
+#   make test-asm             the legacy asm battery against build/<os>/asm/
+#   make check-<harness>      one C harness, e.g. check-tc-watch
+#   make check-twitch-counts-py  the snapshot oracle against the C binary
 #   make third-party        just the vendored libraries
-#   make gen-inc            force-regenerate the committed .inc blobs
+#   make gen-inc            force-regenerate the committed .inc blobs (asm
+#                           and the C string constants under c/)
 #   make analyze            GCC -fanalyzer over the vendored C (Linux only)
 #   make mca                llvm-mca throughput analysis of one .S module
 #   make check-darwin-align cross-assemble + scan Mach-O pointer alignment (any host)
@@ -43,11 +56,26 @@ NPROC   := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 # under asm/; one variable drives every path to them.
 ASM     := asm
 
+# All C port sources and the shared c/tc_platform.h live under c/.
+C_DIR   := c
+
 AS      := as
 LD      := ld
 
 FIB     := fibonacci
+# TC is the C product (and the root copy name); TC_ASM is the legacy asm
+# product (and its root copy name).
 TC      := twitch-counts
+TC_ASM  := twitch-counts-asm
+
+# `all` is the default goal: the C port plus the Linux-only fibonacci on
+# Linux.  The legacy asm port is opt-in (`make asm`).
+ifeq ($(OS),Linux)
+LINUX_ONLY  := $(FIB)
+LINUX_TESTS := ./test.sh
+endif
+
+all: $(LINUX_ONLY) $(TC)
 
 # ---- third-party paths ------------------------------------------------------
 THIRD      := third_party
@@ -71,13 +99,14 @@ SQLITE_O   := $(BUILD)/sqlite3.o
 LIBS       := $(TOML_O) $(SQLITE_O) $(PCRE2_LIB)
 
 # ---- per-platform toolchain -------------------------------------------------
-# Dead-code elimination.  The vendored C (toml/sqlite3/pcre2) is compiled with
-# -ffunction-sections/-fdata-sections so each function/data becomes its own
-# section, then the final link garbage-collects unreferenced sections.  The
-# hand-written tc_*.S objects are NOT split this way (their functions share one
-# .text section per module), so gc can only drop whole unused modules — it will
-# not reclaim individual assembly functions.  musl is built by its own Makefile
-# (see bootstrap) and is left un-split, so its code is also kept whole.
+# Dead-code elimination.  The vendored C (toml/sqlite3/pcre2) and the C port
+# are compiled with -ffunction-sections/-fdata-sections so each function/data
+# becomes its own section, then the final link garbage-collects unreferenced
+# sections.  The hand-written tc_*.S objects are NOT split this way (their
+# functions share one .text section per module), so gc can only drop whole
+# unused modules — it will not reclaim individual assembly functions.  musl is
+# built by its own Makefile (see bootstrap) and is left un-split, so its code
+# is also kept whole.
 #
 # Platform notes:
 #   Linux  (musl-gcc, GNU ld):   -Wl,--gc-sections + -s (strip symbol table)
@@ -117,32 +146,98 @@ endif
 # they compile with no -O so the hand-written code stays exactly as written.
 VENDOR_CFLAGS := $(CFLAGS) $(TC_MARCH) -Os -fno-asynchronous-unwind-tables -fno-unwind-tables
 
-# The harness scripts find their drivers through this.
+# The harness scripts find their drivers through this.  `make test-asm`
+# overrides it per-command with TC_BUILD=$(BUILD)/asm so the same harnesses
+# resolve the legacy asm drivers and binary.
 export TC_BUILD := $(BUILD)
 
-# Object files for twitch-counts.  The full module inventory: util, the
-# main() orchestrator, the CLI (which also resolves [[watch.highlight]]),
-# config/env/exclusions, the counting core, the SQLite rollup cache, the
-# renderer, the JSON report, the --manual/--fish/--complete module and watch
-# mode.
-TC_MODS := tc_util tc_main tc_cli tc_config tc_core tc_cache tc_render \
-           tc_json tc_misc tc_watch
-TC_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(TC_MODS)))
+# Per-module harnesses.  `make test` runs the C battery: the Linux-only
+# fibonacci harness, every test-tc-*.sh harness against the C drivers, and
+# the twitch-counts-test.py snapshot oracle against the C binary.  `make
+# test-asm` runs the legacy asm battery: the same per-module harnesses plus
+# test-twitch-counts.sh (the original whole-binary harness), all against
+# build/<os>/asm/.
+C_HARNESSES := tc-cli tc-config tc-core tc-cache tc-render tc-json tc-misc tc-watch
+ASM_HARNESSES := twitch-counts $(C_HARNESSES)
+
+# ---------------------------------------------------------------------------
+# C port (primary).  The compile recipe:
+#   -std=c99 -Os -ffunction-sections -fdata-sections
+#   -fno-asynchronous-unwind-tables -fno-unwind-tables -I$(C_DIR)
+# (identical dead-section/unwind discipline to the vendored C, minus the
+# -march tuning — a micro-architecture codegen knob, not an ABI concern).
+# The link goes through $(LINK) and inherits the platform's dead-code
+# stripping (-static -Wl,--gc-sections -s on Linux, -Wl,-dead_strip on
+# macOS).
+#
+# C_SRCS uses $(wildcard), so the rules work as soon as any c/*.c exists
+# (a parallel agent is creating the module set); a completely empty c/ trips
+# the fail-loud guard in the link recipe instead of silently producing a
+# library-only binary.
+C_SRCS := $(filter-out $(C_DIR)/check_%.c,$(wildcard $(C_DIR)/*.c))
+C_OBJS := $(patsubst $(C_DIR)/%.c,$(BUILD)/%.o,$(C_SRCS))
+
+# The C modules compiled into the per-module test drivers: everything except
+# the orchestrator (c/main.c -> $(BUILD)/main.o), which defines the real
+# main() the check_<name>.c drivers replace.  Each driver links every other
+# module (the link-time gc drops what the driver never calls).
+C_DRIVER_MODS := $(filter-out $(BUILD)/main.o,$(C_OBJS))
+
+C_CFLAGS := -std=c99 -Os $(CFLAGS) -fno-asynchronous-unwind-tables -fno-unwind-tables -I$(C_DIR)
+
+$(BUILD)/%.o: $(C_DIR)/%.c $(C_DIR)/tc_platform.h | $(BUILD) $(TOOLCHAIN_DEP)
+	$(CC) $(C_CFLAGS) -c $< -o $@
+
+# c/watch.c is the only C module that #includes the pcre2 header (by relative
+# path into the per-platform pcre2 build tree).  Order-only on the configured
+# header: only the header must exist to compile, the .a is a link
+# prerequisite.  (See the pcre2 extract+configure rule above.)
+$(BUILD)/watch.o: | $(PCRE2_SRC)/src/pcre2.h
+
+# The generated string blobs are inputs to these objects: an .inc change (a
+# `make gen-inc` regeneration) must rebuild them, or the object keeps the old
+# text.  Mirror of the asm tc_misc.o/tc_json.o .inc dependencies above.
+$(BUILD)/misc.o: $(C_DIR)/tc_manual.inc $(C_DIR)/tc_fish.inc
+$(BUILD)/json.o: $(C_DIR)/tc_json_schema.inc
+
+$(BUILD)/$(TC): $(C_OBJS) $(LIBS)
+	@test -n "$(C_SRCS)" || { echo "Makefile: no C sources in $(C_DIR)/ -- the C skeleton is not in place yet"; exit 1; }
+	$(LINK) $@ $(C_OBJS) $(LIBS)
+
+# ./twitch-counts is a copy refreshed by every make (the target is phony so
+# the copy is always current for the platform that last ran make).  The old
+# copy is removed first: overwriting a signed Mach-O in place after it has
+# been executed leaves the kernel's cached code signature stale, and macOS
+# then SIGKILLs the next run (exit 137) although codesign says it is valid.
+$(TC): $(BUILD)/$(TC)
+	rm -f $@
+	cp $< $@
+
+# ---------------------------------------------------------------------------
+# asm module inventory.  The full module set: util, the main() orchestrator,
+# the CLI (which also resolves [[watch.highlight]]), config/env/exclusions,
+# the counting core, the SQLite rollup cache, the renderer, the JSON report,
+# the --manual/--fish/--complete module and watch mode.
+ASM_MODS := tc_util tc_main tc_cli tc_config tc_core tc_cache tc_render \
+            tc_json tc_misc tc_watch
+ASM_OBJS := $(addprefix $(BUILD)/asm/,$(addsuffix .o,$(ASM_MODS)))
+ASM_BIN  := $(BUILD)/asm/$(TC_ASM)
 
 # Generated .inc blobs — COMMITTED sources (generated but part of the
-# deliverable); regenerated only by an explicit `make gen-inc`.
+# deliverable); regenerated only by an explicit `make gen-inc`.  The asm/
+# blobs feed the legacy assembly; the c/ headers are the same text as C
+# string constants for the C port (see gen-tc-c-inc.sh).
 GEN_INCS   := $(ASM)/tc_manual.inc $(ASM)/tc_fish.inc $(ASM)/tc_json_schema.inc
+C_GEN_INCS := $(C_DIR)/tc_manual.inc $(C_DIR)/tc_fish.inc $(C_DIR)/tc_json_schema.inc
 
-.PHONY: all run test clean third-party gen-inc drivers analyze mca check-darwin-align decompile disasm exports $(TC) $(addprefix check-,$(HARNESSES))
-
-ifeq ($(OS),Linux)
-LINUX_ONLY  := $(FIB)
-LINUX_TESTS := ./test.sh
-endif
-
-all: $(LINUX_ONLY) $(TC)
+.PHONY: all run test test-asm asm drivers drivers-asm clean third-party gen-inc \
+        analyze mca check-darwin-align decompile disasm exports \
+        check-twitch-counts-py $(TC) $(TC_ASM) $(addprefix check-,$(C_HARNESSES))
 
 $(BUILD):
+	mkdir -p $@
+
+$(BUILD)/asm: | $(BUILD)
 	mkdir -p $@
 
 # ---------------------------------------------------------------------------
@@ -193,10 +288,20 @@ $(PCRE2_TAR):
 	@echo "==> fetching pcre2 $(PCRE2_VER)"
 	curl -fsSL $(PCRE2_URL) -o $@
 
-$(PCRE2_LIB): $(PCRE2_TAR) | $(BUILD) $(TOOLCHAIN_DEP)
+# The pcre2 header is consumed directly by the C port: c/watch.c includes
+# ../build/<os>/pcre2-10.48/src/pcre2.h by relative path (only that module
+# does).  The real pcre2.h does not ship in the tarball — ./configure
+# generates it from src/pcre2.h.in — so the extract+configure step is its
+# own rule and the object compile order-only-depends on the configured
+# header, instead of waiting for the whole configure+make+install chain that
+# produces the .a (and instead of failing on a clean tree, where the
+# previous single rule only extracted pcre2 when the LINK ran).
+$(PCRE2_SRC)/src/pcre2.h: $(PCRE2_TAR) | $(BUILD) $(TOOLCHAIN_DEP)
 	rm -rf $(PCRE2_SRC)
 	tar xzf $(PCRE2_TAR) -C $(BUILD)
 	cd $(PCRE2_SRC) && ./configure --disable-shared --enable-static CC=$(CC) CFLAGS="$(VENDOR_CFLAGS)" > configure.log
+
+$(PCRE2_LIB): $(PCRE2_SRC)/src/pcre2.h | $(BUILD) $(TOOLCHAIN_DEP)
 	$(MAKE) -C $(PCRE2_SRC) -j$(NPROC) libpcre2-8.la > /dev/null
 	mkdir -p $(PCRE2_DIR)/lib
 	cp $(PCRE2_SRC)/.libs/libpcre2-8.a $(PCRE2_LIB)
@@ -207,12 +312,12 @@ $(PCRE2_LIB): $(PCRE2_TAR) | $(BUILD) $(TOOLCHAIN_DEP)
 $(TOML_O): $(TOML)/toml.c $(TOML)/toml.h | $(BUILD) $(TOOLCHAIN_DEP)
 	$(CC) -std=c99 -Os $(VENDOR_CFLAGS) -c $< -o $@
 
-# sqlite3 compile flags.  The rollup cache (tc_cache.S) only uses the core
-# API (open/prepare/step/finalize/bind/column plus PRAGMA journal_mode=WAL),
-# so the SQLITE_OMIT_* set compiles unused features out to shrink the
-# object.  Deliberately NOT omitted: SQLITE_OMIT_TRIGGER (the cache schema
-# would not compile with it) and SQLITE_OMIT_WAL (tc_cache.S issues
-# PRAGMA journal_mode=WAL at runtime; omitting WAL breaks the cache path).
+# sqlite3 compile flags.  The rollup cache only uses the core API
+# (open/prepare/step/finalize/bind/column plus PRAGMA journal_mode=WAL), so
+# the SQLITE_OMIT_* set compiles unused features out to shrink the object.
+# Deliberately NOT omitted: SQLITE_OMIT_TRIGGER (the cache schema would not
+# compile with it) and SQLITE_OMIT_WAL (the cache path issues PRAGMA
+# journal_mode=WAL at runtime; omitting WAL breaks it).
 SQLITE_OMIT := -DSQLITE_OMIT_JSON -DSQLITE_OMIT_FOREIGN_KEY \
                -DSQLITE_OMIT_AUTOVACUUM -DSQLITE_OMIT_EXPLAIN \
                -DSQLITE_OMIT_UTF16 -DSQLITE_OMIT_SHARED_CACHE \
@@ -229,50 +334,118 @@ third-party: $(LIBS)
 # `make gen-inc`: the blobs embed text the Python renders for the machine
 # it runs on, and a fresh checkout gives every file the same mtime, so an
 # mtime-driven rule would silently rewrite committed sources on a build.
+# gen-tc-misc-inc.sh and gen-tc-json-inc.sh emit the asm/ blobs;
+# gen-tc-c-inc.sh emits the same text as C string constants under c/.
 # ---------------------------------------------------------------------------
 gen-inc:
-	mkdir -p $(ASM)
+	mkdir -p $(ASM) $(C_DIR)
 	./gen-tc-misc-inc.sh
 	./gen-tc-json-inc.sh
-	@echo "regenerated: $(GEN_INCS)"
+	./gen-tc-c-inc.sh
+	@echo "regenerated: $(GEN_INCS) $(C_GEN_INCS)"
 
 # ---------------------------------------------------------------------------
-# assembly: the tc_*.S sources (and the stubs and harness drivers) go
+# legacy assembly: the tc_*.S sources (and the stubs and harness drivers) go
 # through the C preprocessor — tc_platform.h selects the platform — so they
-# are assembled with the compiler driver, never with bare `as`.
+# are assembled with the compiler driver, never with bare `as`.  Everything
+# builds under build/<os>/asm/ so it can never collide with the C build.
 # ---------------------------------------------------------------------------
-$(BUILD)/%.o: $(ASM)/%.S $(ASM)/tc_platform.h $(ASM)/tc_layout.inc | $(BUILD) $(TOOLCHAIN_DEP)
+$(BUILD)/asm/%.o: $(ASM)/%.S $(ASM)/tc_platform.h $(ASM)/tc_layout.inc | $(BUILD)/asm $(TOOLCHAIN_DEP)
 	$(CC) -I$(ASM) -c $< -o $@
 
 # The embedded blobs are inputs to these objects: an .inc change must
 # rebuild them.
-$(BUILD)/tc_misc.o: $(ASM)/tc_manual.inc $(ASM)/tc_fish.inc
-$(BUILD)/tc_json.o: $(ASM)/tc_json_schema.inc
+$(BUILD)/asm/tc_misc.o: $(ASM)/tc_manual.inc $(ASM)/tc_fish.inc
+$(BUILD)/asm/tc_json.o: $(ASM)/tc_json_schema.inc
 
-# ---------------------------------------------------------------------------
-# twitch-counts
-# ---------------------------------------------------------------------------
-$(BUILD)/$(TC): $(TC_OBJS) $(LIBS)
-	$(LINK) $@ $(TC_OBJS) $(LIBS)
+$(ASM_BIN): $(ASM_OBJS) $(LIBS)
+	$(LINK) $@ $(ASM_OBJS) $(LIBS)
 
-# ./twitch-counts is a copy refreshed by every make (the target is phony so
-# the copy is always current for the platform that last ran make).  The old
-# copy is removed first: overwriting a signed Mach-O in place after it has
-# been executed leaves the kernel's cached code signature stale, and macOS
-# then SIGKILLs the next run (exit 137) although codesign says it is valid.
-$(TC): $(BUILD)/$(TC)
+# ./twitch-counts-asm is a copy refreshed by every `make asm` (same
+# remove-then-copy dance as ./twitch-counts, for the same macOS code-signing
+# reason).
+$(TC_ASM): $(ASM_BIN)
 	rm -f $@
 	cp $< $@
 
+asm: $(TC_ASM)
+
 # ---------------------------------------------------------------------------
-# per-module test drivers (check_tc_*.S + the modules under test).  The
-# Makefile owns every driver link; the test-tc-*.sh harnesses only run
-# them (they find $(BUILD) through $TC_BUILD).  One object list per driver
-# (the check_tc_<name>.o driver first, then the modules), one static
-# pattern rule for all of them.  tc-cli-test and tc-core-test use the
-# config stub instead of tc_config.o; every driver that links tc_cli.o
-# also links toml.o and libpcre2-8.a because tc_cli resolves
-# [[watch.highlight]] through them.
+# C per-module test drivers (check_<name>.c + the C modules under test).
+# The Makefile owns every driver link; the test-tc-*.sh harnesses only run
+# them (they find $(BUILD) through $TC_BUILD).  One rule drives every
+# driver: check_<name>.c is compiled (through the shared c/%.o rule) and
+# linked against every C module except the orchestrator (main.o) plus the
+# vendored libs.  The link-time gc drops the modules a driver never calls,
+# so a single module list stays correct as the C sources evolve.
+#
+# A parallel agent owns the C sources, including the check_<name>.c drivers.
+# Until a given check_<name>.c lands, the fallback rule below builds a stub
+# driver that FAILS loudly, so `make drivers`/`make test` never hard-errors
+# on a missing source and never silently skips the harness.
+# ---------------------------------------------------------------------------
+DRIVER_NAMES := cli config core cache cache-bump render misc watch json
+
+DRIVERS := $(foreach n,$(DRIVER_NAMES),$(BUILD)/tc-$(n)-test)
+
+# The check_<name>.c driver sources land as the parallel agent implements
+# them, so the wildcard is re-read on every make: a driver flips from the
+# failing stub to the real driver the moment its source exists.
+REAL_NAMES := $(filter $(DRIVER_NAMES),$(patsubst $(C_DIR)/check_%.c,%,$(wildcard $(C_DIR)/check_*.c)))
+STUB_NAMES := $(filter-out $(REAL_NAMES),$(DRIVER_NAMES))
+REAL_DRIVERS := $(foreach n,$(REAL_NAMES),$(BUILD)/tc-$(n)-test)
+STUB_DRIVERS := $(foreach n,$(STUB_NAMES),$(BUILD)/tc-$(n)-test)
+
+# Real drivers: one static pattern rule per existing check_<name>.c, which is
+# compiled (through the shared c/%.o rule) and linked against every C module
+# except the orchestrator (main.o) plus the vendored libs.  The link-time gc
+# drops the modules a driver never calls, so a single module list stays
+# correct as the C sources evolve.  These are STATIC pattern rules (explicit
+# rules), so make never runs an implicit-rule search for a driver: that search
+# would prefer the stub rule below whenever the shared module objects already
+# exist (their prerequisites are all present while the real rule's
+# check_<name>.o would still need building) and would silently link failing
+# stubs from a clean build.
+$(REAL_DRIVERS): $(BUILD)/tc-%-test: $(BUILD)/check_%.o $(C_DRIVER_MODS) $(LIBS)
+	$(LINK) $@ $(C_DRIVER_MODS) $< $(LIBS)
+
+# Fallback for a missing c/check_<name>.c: link a stub whose main() prints a
+# descriptive failure and exits 2, so the harness run fails loudly instead of
+# the whole make run dying on a missing source.  Two guards keep the stub
+# honest across source edits:
+#   - the phony force prerequisite re-links the stub on every make, so a real
+#     driver whose source later disappears cannot linger as an up-to-date
+#     stale artifact, and
+#   - the recipe drops any stale check_<name>.o (built while the source
+#     existed), so when the source comes back the real rule must rebuild it
+#     and the driver flips back to the real link.
+# Both live only on the stub rule: the moment the source lands and the driver
+# moves to the real rule above, normal incremental builds resume.
+.PHONY: drivers-stub-force
+drivers-stub-force:
+$(STUB_DRIVERS): $(BUILD)/tc-%-test: drivers-stub-force $(C_DRIVER_MODS) $(LIBS)
+	@echo "==> c/check_$*.c not found: linking a FAILING stub driver $@"
+	@rm -f "$(BUILD)/check_$*.o"
+	@printf '%s\n' \
+		'/* GENERATED by the Makefile: c/check_$*.c is missing. */' \
+		'#include <stdio.h>' \
+		'int main(void) {' \
+		'    fprintf(stderr, "FAIL: c/check_$*.c missing: this driver is a stub, so the harness fails loudly. Add the check source or drop it from DRIVER_NAMES.\n");' \
+		'    return 2;' \
+		'}' > "$(BUILD)/check_$*_stub.c"
+	$(CC) $(C_CFLAGS) -c "$(BUILD)/check_$*_stub.c" -o "$(BUILD)/check_$*_stub.o"
+	$(LINK) $@ $(C_DRIVER_MODS) "$(BUILD)/check_$*_stub.o" $(LIBS)
+
+drivers: $(DRIVERS)
+
+# ---------------------------------------------------------------------------
+# legacy asm per-module test drivers (check_tc_*.S + the modules under
+# test).  The Makefile owns every driver link; the test-tc-*.sh harnesses
+# only run them under TC_BUILD=$(BUILD)/asm.  One object list per driver
+# (the check_tc_<name>.o driver first, then the modules), one static pattern
+# rule for all of them.  tc-cli-test and tc-core-test use the config stub
+# instead of tc_config.o; every driver that links tc_cli.o also links toml.o
+# and libpcre2-8.a because tc_cli resolves [[watch.highlight]] through them.
 #
 # Every driver that links tc_core.o also links tc_json.o and tc_render.o:
 # the counting core's failure path emits the --json error shape through
@@ -284,9 +457,7 @@ $(TC): $(BUILD)/$(TC)
 # cache-bump too, because that driver reuses check_tc_cache.o and so
 # inherits the tc_dump removal.
 # ---------------------------------------------------------------------------
-PRINTF_O := $(BUILD)/check_tc_printf.o
-
-DRIVER_NAMES := cli config core cache cache-bump render misc watch json
+PRINTF_O := $(BUILD)/asm/check_tc_printf.o
 
 cli_OBJS        := check_tc_cli.o tc_cli.o tc_config_stub.o tc_util.o tc_render.o tc_json.o tc_core.o tc_cache.o
 config_OBJS     := check_tc_config.o tc_config.o tc_cli.o tc_util.o tc_render.o tc_json.o tc_core.o tc_cache.o
@@ -304,10 +475,10 @@ watch_OBJS      := check_tc_watch.o tc_watch.o tc_render.o tc_json.o tc_core.o t
 cli_LIBS        := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB) $(SQLITE_O)
 config_LIBS     := $(PRINTF_O) $(TOML_O) $(PCRE2_LIB) $(SQLITE_O)
 
-DRIVERS := $(foreach n,$(DRIVER_NAMES),$(BUILD)/tc-$(n)-test)
+ASM_DRIVERS := $(foreach n,$(DRIVER_NAMES),$(BUILD)/asm/tc-$(n)-test)
 
 .SECONDEXPANSION:
-$(DRIVERS): $(BUILD)/tc-%-test: $$(addprefix $(BUILD)/,$$($$*_OBJS)) $$(or $$($$*_LIBS),$(LIBS))
+$(ASM_DRIVERS): $(BUILD)/asm/tc-%-test: $$(addprefix $(BUILD)/asm/,$$($$*_OBJS)) $$(or $$($$*_LIBS),$(LIBS))
 	$(LINK) $@ $^
 
 # tc-cache-bump-test: tc_cache.S with its fingerprint VERSION constant
@@ -323,27 +494,62 @@ $(DRIVERS): $(BUILD)/tc-%-test: $$(addprefix $(BUILD)/,$$($$*_OBJS)) $$(or $$($$
 # by the test's database.  A cache FORMAT change bumps the parts in
 # tc_parse_facts.inc (every consumer rebuilds); a version bump here alone
 # only invalidates old rows.
-$(BUILD)/tc_cache_bump.S: $(ASM)/tc_cache.S | $(BUILD)
+$(BUILD)/asm/tc_cache_bump.S: $(ASM)/tc_cache.S | $(BUILD)/asm
 	sed 's/tc-cache-fp-v1/tc-cache-fp-v2/' $< > $@
 
-$(BUILD)/tc_cache_bump.o: $(BUILD)/tc_cache_bump.S $(ASM)/tc_platform.h $(ASM)/tc_layout.inc | $(TOOLCHAIN_DEP)
+$(BUILD)/asm/tc_cache_bump.o: $(BUILD)/asm/tc_cache_bump.S $(ASM)/tc_platform.h $(ASM)/tc_layout.inc | $(TOOLCHAIN_DEP)
 	$(CC) -I$(ASM) -c $< -o $@
 
-drivers: $(DRIVERS)
+drivers-asm: $(ASM_DRIVERS)
 
-# `make check-<name>` runs one harness (check-watch, check-cli, ...);
-# `make test` runs them all in this order.
-HARNESSES := twitch-counts tc-cli tc-config tc-core tc-cache tc-render tc-json tc-misc tc-watch
+# ---------------------------------------------------------------------------
+# harnesses.  `make check-<name>` runs one C harness (check-tc-cli, ...);
+# `make test` runs them all in this order.  `make test-asm` runs the legacy
+# asm battery against the asm build (see the C_HARNESSES / ASM_HARNESSES
+# definitions above).
+#
+# The check-<name> targets are explicit phony targets (the harness script is
+# not a file any rule produces): GNU make skips implicit-rule search for phony
+# targets, so a `check-%` PATTERN rule can never match them ("Nothing to be
+# done") — every harness must declare its own recipe.  Each depends on the
+# driver(s) its script runs, so the right driver is built (never the whole
+# set) and then the script executes.
+# ---------------------------------------------------------------------------
+check-tc-cli: $(BUILD)/tc-cli-test
+	./test-tc-cli.sh
+check-tc-config: $(BUILD)/tc-config-test
+	./test-tc-config.sh
+check-tc-core: $(BUILD)/tc-core-test
+	./test-tc-core.sh
+check-tc-cache: $(BUILD)/tc-cache-test $(BUILD)/tc-cache-bump-test
+	./test-tc-cache.sh
+check-tc-render: $(BUILD)/tc-render-test
+	./test-tc-render.sh
+check-tc-json: $(BUILD)/tc-json-test
+	./test-tc-json.sh
+check-tc-misc: $(BUILD)/tc-misc-test
+	./test-tc-misc.sh
+check-tc-watch: $(BUILD)/tc-watch-test
+	./test-tc-watch.sh
 
-check-%: all drivers
-	./test-$*.sh
+# The snapshot oracle (twitch-counts-test.py) against the C binary.  The
+# script honors TC_TEST_CMD (the C-port convention); when it is unset there
+# it falls back to ./twitch-counts, which is the same binary.
+check-twitch-counts-py: $(BUILD)/$(TC)
+	TC_TEST_CMD="$(BUILD)/$(TC)" python3 twitch-counts-test.py
 
-# The full battery: every harness for this platform, fail on any failure.
-# (test-twitch-counts.sh exercises the REAL twitch-counts binary; the
-# Linux-only fibonacci harness runs only on Linux.)
+# The full C battery: every harness for this platform plus the snapshot
+# oracle, fail on any failure.  (The Linux-only fibonacci harness runs only
+# on Linux.)
 test: all drivers
 	$(if $(LINUX_TESTS),$(LINUX_TESTS),true)
-	$(foreach h,$(HARNESSES),./test-$(h).sh &&) true
+	$(foreach h,$(C_HARNESSES),./test-$(h).sh &&) true
+	$(MAKE) check-twitch-counts-py
+
+# The legacy asm battery.  Requires the asm drivers (built by drivers-asm
+# through the ASM_DRIVERS prerequisite) and the asm product binary.
+test-asm: $(TC_ASM) $(ASM_DRIVERS)
+	$(foreach h,$(ASM_HARNESSES),TC_BUILD=$(BUILD)/asm TC_BIN_NAME=$(TC_ASM) ./test-$(h).sh &&) true
 
 # ---------------------------------------------------------------------------
 # static analysis & inspection (see ~/AGENTS.md "Tooling inventory")
@@ -399,7 +605,7 @@ mca: $(TOOLCHAIN_DEP)
 # Module set: every asm/ .S (find, maxdepth 1), so new modules are
 # covered automatically.  fibonacci.S is SKIPPED with a note: it is Linux-only
 # (ELF-only .section .rodata, never linked on Darwin), so the Darwin
-# pointer-alignment check does not apply.  Any OTHER module that fails to
+# pointer-alignment check does not apply.  ANY other module that fails to
 # cross-assemble is RED (fail-loud: "a warning is not green" — an unverifiable
 # module must not pass).  Missing tools (clang / llvm-readobj / llvm-objdump /
 # python3) are also fail-loud.
@@ -504,7 +710,8 @@ check-darwin-align:
 # `make decompile BIN=./twitch-counts FUNC=main` — Ghidra headless decompile of
 # one function to C.  Requires analyzeHeadless (installed at ~/bin, see
 # AGENTS.md); the first run creates the Ghidra project and imports the binary,
-# so it takes a few minutes.
+# so it takes a few minutes.  The default BIN is the C binary; for the legacy
+# asm port pass BIN=build/<os>/asm/twitch-counts-asm.
 #
 # Decompilation needs Ghidra's NATIVE decompiler for the host.  Ghidra ships
 # those only for x86_64 Linux/Windows and macOS; aarch64 Linux (this host) does
@@ -544,13 +751,13 @@ disasm:
 # binaries are stripped on Linux, the objects are not), so a writer can
 # verify the doc's symbol list or regenerate it after a refactor.  Best on
 # Linux (GNU/LLVM nm); the module objects are what it inspects.
-exports: $(TC_OBJS)
-	@for o in $(TC_OBJS); do \
+exports: $(ASM_OBJS)
+	@for o in $(ASM_OBJS); do \
 		echo "== $$(basename $$o)"; \
 		nm -g $$o | awk '$$2 == "T" { print "  " $$3 }'; \
 	done
 
 clean:
 	rm -rf build
-	rm -f $(FIB) $(TC)
+	rm -f $(FIB) $(TC) $(TC_ASM)
 	rm -f *.o tc-*-test twitch-counts-full

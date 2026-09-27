@@ -1,0 +1,2 @@
+error: no logs for channel 'nope' in <fixture>/Logs/Twitch/Channels
+available: biglogs, bon, chr, spaghettieframe

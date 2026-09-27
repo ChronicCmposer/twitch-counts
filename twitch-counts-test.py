@@ -20,12 +20,30 @@ Two halves, because they catch different things:
 
 Snapshots live next to this script in twitch-counts-snapshots/. Volatile fields
 (timestamps, cache hit counts) are normalized before comparison.
+
+The command under test comes from TC_TEST_CMD, a shell-style command line;
+unset, it defaults to ./twitch-counts. Record the snapshots from the Python
+reference with:
+
+    TC_TEST_CMD="python3 twitch-counts.py" twitch-counts-test --accept
+
+then verify the C port against those same snapshots with:
+
+    TC_TEST_CMD="build/<os>/twitch-counts" twitch-counts-test
+
+Each run builds a synthetic Chatterino log tree under a fresh HOME/XDG and
+points TWITCH_LOGS_DIR at it, so neither implementation can reach the real
+user's config, cache or logs.
 """
 
 import argparse
+import atexit
 import collections
 import datetime
 import json
+import select
+import shlex
+import shutil
 import signal
 import importlib.machinery
 import io
@@ -43,8 +61,235 @@ import time
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-COMMAND = os.path.join(HERE, "twitch-counts")
+
+
+def test_command():
+    """The command the characterization half runs: TC_TEST_CMD, else ./twitch-counts.
+
+    TC_TEST_CMD is a shell-style command line, so `--accept` can record the
+    snapshots from the Python reference ("python3 twitch-counts.py") and a later
+    verify can point at the C port ("build/<os>/twitch-counts") without changing
+    the script.  Resolved at module load so both halves always agree.
+    """
+    raw = os.environ.get("TC_TEST_CMD", "").strip()
+    if not raw:
+        return [os.path.join(HERE, "twitch-counts")]
+    try:
+        return shlex.split(raw)
+    except ValueError as exc:
+        raise SystemExit(f"TC_TEST_CMD is not a valid command line: {exc}") from None
+
+
+def _command_available(command):
+    """True when the command under test resolves to something spawnable."""
+    if os.sep in command[0]:
+        path = os.path.abspath(command[0])
+        return os.path.isfile(path) and os.access(path, os.X_OK)
+    return shutil.which(command[0]) is not None
+
+
+def _write_day(channels_dir, channel, day, entries):
+    """Write one Chatterino day file: <channel>/<channel>-YYYY-MM-DD.log.
+
+    `entries` is a list of (hour, minute, second, line) tuples in chronological
+    order; `line` is a whole log line ("alice: hi", or the "<channel> is live!"
+    marker).  A fixed script per day is what keeps a snapshot reproducible.
+    """
+    stamp = f"{day:%Y-%m-%d}"
+    lines = [f"# Start logging at {stamp} 00:00:00 EDT"]
+    lines += [f"[{h:02d}:{m:02d}:{s:02d}] {text}" for h, m, s, text in entries]
+    path = os.path.join(channels_dir, channel, f"{channel}-{stamp}.log")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+def _chr_day(day):
+    """chr: a busy channel with bots, a broadcaster, and pre-live chat.
+
+    Alice crosses 400 messages so --share-floor 400 has a survivor to show; the
+    pre-live chat on the first day is the only 'unknown' the range sees.
+    """
+    entries = []
+    if day.day == 1:
+        # Chat before the first live marker has no stream state to place it.
+        entries += [
+            (0, 0, 30, "eve: anyone there?"),
+            (0, 1, 0, "frank: loading"),
+            (0, 1, 30, "grace: give it a sec"),
+            (0, 2, 0, "eve: ok it is up"),
+        ]
+    entries += [
+        (5, 0, 0, "chr is live!"),
+        (5, 12, 0, "alice: morning"), (5, 30, 0, "bob: hey"),
+        (5, 45, 0, "carol: hi"), (5, 55, 0, "alice: five more"),
+        (6, 0, 0, "dave: what's up"), (6, 15, 0, "alice: same as ever"),
+        (6, 30, 0, "supibot: !uptime"), (6, 45, 0, "eve: first"),
+        (7, 0, 0, "frank: hello"), (7, 15, 0, "grace: welcome"),
+        (7, 30, 0, "chr: thanks everyone"), (7, 45, 0, "alice: great start"),
+        (8, 0, 0, "hank: nice"), (8, 20, 0, "iris: gg"),
+        (8, 40, 0, "jake: o7"), (9, 0, 0, "alice: long day"),
+        (9, 20, 0, "bob: yep"), (10, 0, 0, "streamelements: New follower supibot"),
+        (10, 30, 0, "alice: almost noon"), (11, 0, 0, "carol: lunch break?"),
+        (11, 30, 0, "dave: brb"), (12, 0, 0, "alice: back"),
+        (12, 15, 0, "eve: welcome back"), (13, 0, 0, "frank: this is fun"),
+        (13, 20, 0, "grace: glad you like it"), (13, 30, 0, "alice: afternoon"),
+        (14, 0, 0, "hank: more"), (14, 20, 0, "iris: agreed"),
+        (14, 40, 0, "jake: yes"), (15, 0, 0, "alice: almost done"),
+        (15, 30, 0, "hank: one more"), (16, 0, 0, "eve: keep it up"),
+        (16, 30, 0, "frank: will do"), (17, 0, 0, "grace: nice"),
+        (17, 30, 0, "iris: evening"), (18, 0, 0, "alice: evening crew"),
+        (18, 30, 0, "bob: evening"), (19, 0, 0, "carol: hello again"),
+        (19, 30, 0, "dave: hi"), (19, 45, 0, "jake: last one"),
+        (20, 0, 0, "hank: night shift"), (20, 30, 0, "iris: indeed"),
+        (20, 45, 0, "alice: almost wrapped"), (21, 0, 0, "alice: wrapping up"),
+        (22, 0, 0, "eve: see you all later"), (22, 30, 0, "frank: gg"),
+        (23, 0, 0, "chr is now offline."),
+        (23, 5, 0, "alice: gg"), (23, 10, 0, "eve: night"),
+        (23, 15, 0, "frank: see you"),
+    ]
+    return entries
+
+
+def _spaghettieframe_day(day):
+    """spaghettieframe: two very active users for -n 0 -m 100, light cast."""
+    entries = []
+    if day.day == 1:
+        entries += [
+            (0, 1, 0, "rare: is anyone around"),
+            (0, 1, 30, "occasional: quiet in here"),
+        ]
+    entries += [
+        (5, 0, 0, "spaghettieframe is live!"),
+        (5, 5, 0, "regular: hello"), (5, 20, 0, "lurker: hi"),
+        (6, 0, 0, "occasional: checking in"), (6, 5, 0, "regular: going"),
+        (6, 15, 0, "lurker: nice"), (6, 30, 0, "sparse: one message"),
+        (7, 0, 0, "regular: another"), (7, 5, 0, "lurker: and"),
+        (7, 10, 0, "occasional: out"), (8, 0, 0, "regular: good"),
+        (8, 5, 0, "lurker: great"), (9, 0, 0, "regular: done"),
+    ]
+    if 10 <= day.day <= 19:
+        entries += [(8, 30, 0, "rare: only some days")]
+    entries += [
+        (12, 0, 0, "spaghettieframe is now offline."),
+        (12, 5, 0, "regular: gg"), (12, 10, 0, "lurker: see you"),
+    ]
+    return entries
+
+
+def _bon_day(day):
+    """bon: an even cast of eight, and enough unknown chat for a column."""
+    entries = []
+    if day.day == 1:
+        entries += [
+            (0, 0, 45, "mike: early bird"),
+            (0, 1, 15, "nina: second"),
+        ]
+    entries += [
+        (5, 0, 0, "bon is live!"),
+        (5, 10, 0, "mike: hello"), (5, 25, 0, "nina: hi"),
+        (5, 40, 0, "oscar: yo"), (6, 0, 0, "pip: morning"),
+        (6, 20, 0, "quin: hey"), (6, 40, 0, "roxy: sup"),
+        (7, 0, 0, "sam: hello all"), (7, 15, 0, "tess: hi"),
+        (8, 0, 0, "mike: how is it going"), (8, 30, 0, "nina: good"),
+        (9, 0, 0, "oscar: same"), (10, 0, 0, "pip: long stream"),
+        (11, 0, 0, "quin: yes"), (12, 0, 0, "roxy: lunch"),
+        (13, 0, 0, "sam: back"), (14, 0, 0, "tess: welcome back"),
+        (15, 0, 0, "mike: afternoon"), (16, 0, 0, "nina: evening soon"),
+        (17, 0, 0, "oscar: almost done"), (18, 0, 0, "pip: great stream"),
+        (19, 0, 0, "quin: gg"), (20, 0, 0, "roxy: see you"),
+        (21, 0, 0, "sam: night"), (22, 0, 0, "tess: bye"),
+        (23, 0, 0, "bon is now offline."),
+        (23, 5, 0, "mike: gg"), (23, 10, 0, "nina: night"),
+        (23, 15, 0, "oscar: see you"),
+    ]
+    return entries
+
+
+def _write_bulk_day(channels_dir, channel, day):
+    """Write one day dense enough that a cold parse outlasts the SIGINT delay.
+
+    The Ctrl-C unit check interrupts a one-shot run mid-parse; a small fixture
+    would finish before the signal lands.  The old day (one line every 5 s) was
+    ~530k lines over the range, which the C port parses in ~45 ms -- long done
+    by the time the 0.5 s signal arrived.  Each day now carries a cast of five
+    chatters posting every second, ~25x denser, so even the C port is still
+    mid-parse when SIGINT lands (measured ~1.4 s for the C port over the range,
+    ~16 s for the Python reference -- both comfortably beyond the delay).
+    """
+    stamp = f"{day:%Y-%m-%d}"
+    lines = [f"# Start logging at {stamp} 00:00:00 EDT",
+             "[00:00:00] biglogs is live!"]
+    for second in range(5, 23 * 3600):
+        h, m, s = second // 3600, (second // 60) % 60, second % 60
+        for chatter in ("bulkuser0", "bulkuser1", "bulkuser2",
+                        "bulkuser3", "bulkuser4"):
+            lines.append(f"[{h:02d}:{m:02d}:{s:02d}] {chatter}: hello")
+    lines.append("[23:00:00] biglogs is now offline.")
+    path = os.path.join(channels_dir, channel, f"{channel}-{stamp}.log")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+def _build_fixture_env():
+    """A fresh, isolated environment plus a synthetic Chatterino log tree.
+
+    The characterization cases never pass --logs-dir, so they read the default
+    location.  This builds the tree the reference and the C port would otherwise
+    have to find on a real machine, and points HOME, the XDG directories and
+    TWITCH_LOGS_DIR at a fresh directory per run -- neither implementation can
+    touch the real user's config, cache or logs, and a bare checkout records
+    and verifies the same snapshots.  Returns the fixture root, which every path
+    the command under test could print lives beneath.
+    """
+    root = tempfile.mkdtemp(prefix="twitch-counts-test.")
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    home = os.path.join(root, "home")
+    os.environ["HOME"] = home
+    os.environ["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
+    os.environ["XDG_CACHE_HOME"] = os.path.join(home, ".cache")
+    os.makedirs(os.environ["XDG_CONFIG_HOME"], exist_ok=True)
+    os.makedirs(os.environ["XDG_CACHE_HOME"], exist_ok=True)
+    # The cases exercise --exclude-group and --include, which only mean
+    # something when the tool's own documented bots group is configured.
+    with open(os.path.join(os.environ["XDG_CONFIG_HOME"], "twitch-counts.toml"),
+              "w", encoding="utf-8") as handle:
+        handle.write("[exclude]\n"
+                     'bots = ["streamelements", "supibot", "fossabot", "nightbot"]\n'
+                     'always = ["bots"]\n')
+    channels = os.path.join(root, "Logs", "Twitch", "Channels")
+    os.environ["TWITCH_LOGS_DIR"] = channels
+    start = datetime.date(2026, 7, 1)
+    days = [start + datetime.timedelta(days=offset) for offset in range(32)]
+    for channel, entries_for in (
+        ("chr", _chr_day),
+        ("spaghettieframe", _spaghettieframe_day),
+        ("bon", _bon_day),
+    ):
+        os.makedirs(os.path.join(channels, channel), exist_ok=True)
+        for day in days:
+            _write_day(channels, channel, day, entries_for(day))
+    # A channel heavy enough for the SIGINT unit check, never referenced by the
+    # characterization cases so the recorded tables stay small and readable.
+    os.makedirs(os.path.join(channels, "biglogs"), exist_ok=True)
+    for day in days:
+        _write_bulk_day(channels, "biglogs", day)
+    return root
+
+
+# The Python reference is also imported in-process for the unit checks, which
+# always exercise the reference regardless of what COMMAND points at.
+PY_SOURCE = os.path.join(HERE, "twitch-counts.py")
+COMMAND = test_command()
+if not _command_available(COMMAND):
+    raise SystemExit(
+        f"command under test is missing or not executable: {COMMAND[0]!r} -- "
+        "set TC_TEST_CMD (e.g. TC_TEST_CMD=\"python3 twitch-counts.py\") or "
+        "build the C port at ./twitch-counts")
 SNAPSHOTS = os.path.join(HERE, "twitch-counts-snapshots")
+FIXTURE_ROOT = _build_fixture_env()
+# A non-tty subprocess sizes argparse output from COLUMNS (fallback 80); pinning
+# it keeps the snapshots independent of whatever shell invoked the test.
+SUBPROCESS_ENV = {**os.environ, "COLUMNS": "80", "LINES": "24"}
 
 # A fixed --end keeps live chat from moving the numbers under the test.
 END = "2026-08-01 12:00"
@@ -95,6 +340,13 @@ CASES = {
 }
 
 NORMALIZERS = (
+    # The fixture root moves on every run, so any path under it that the command
+    # prints -- the logs dir in the header or an error -- must compare equal.
+    (re.compile(re.escape(FIXTURE_ROOT)), "<fixture>"),
+    # The program name is basename(argv[0]): recording runs the Python reference
+    # as twitch-counts.py while the C port runs as twitch-counts, so the usage
+    # line (the only place either prints it) must not care which.
+    (re.compile(r"twitch-counts\.py"), "twitch-counts"),
     (re.compile(r"^(cache|end|begin):.*$", re.M), r"\1: <normalized>"),
     (re.compile(r'"generated_at": "[^"]*"'), '"generated_at": "<normalized>"'),
     (re.compile(r'"(begin|end)": "[^"]*"'), r'"\1": "<normalized>"'),
@@ -106,7 +358,8 @@ NORMALIZERS = (
 
 
 def capture(argv):
-    result = subprocess.run([COMMAND] + argv, capture_output=True, text=True)
+    result = subprocess.run(COMMAND + argv, capture_output=True, text=True,
+                            env=SUBPROCESS_ENV)
     text = result.stdout + result.stderr
     for pattern, replacement in NORMALIZERS:
         text = pattern.sub(replacement, text)
@@ -122,7 +375,7 @@ def load_module():
     covering their bodies -- which is exactly the failure the fingerprint exists
     to prevent, hidden inside the tests that check it.
     """
-    loader = importlib.machinery.SourceFileLoader("twitch_counts", COMMAND)
+    loader = importlib.machinery.SourceFileLoader("twitch_counts", PY_SOURCE)
     spec = importlib.util.spec_from_loader("twitch_counts", loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -225,7 +478,7 @@ def unit_checks(module, failures=None):
     # Two hand-kept lists had drifted to 8 and 13 of the 35 that actually work,
     # so the list is generated now; this is what keeps it honest. Any os.environ
     # read of a TWITCH_ name must appear in what --manual prints.
-    source = open(COMMAND).read()
+    source = open(PY_SOURCE).read()
     read_by_code = set(re.findall(r'environ\.get\("(TWITCH_[A-Z_]+)"', source))
     read_by_code |= {spec.env for spec in module.SETTINGS if spec.env}
     documented = {name for name, _ in module.environment_names()}
@@ -442,15 +695,17 @@ def unit_checks(module, failures=None):
     # a subprocess. Worth it: an interrupted --json used to emit a thirty-line
     # traceback where the manual promises {"error": ...}.
     def interrupt(argv, delay=0.5):
-        proc = subprocess.Popen([COMMAND] + argv, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+        proc = subprocess.Popen(COMMAND + argv, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, env=SUBPROCESS_ENV)
         time.sleep(delay)
         proc.send_signal(signal.SIGINT)
         out, err = proc.communicate(timeout=20)
         return out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), \
             proc.returncode
 
-    slow = ["-c", "bon", "-m", "1", "--no-cache"]     # long enough to interrupt
+    # biglogs is the fixture's heavy channel: a cold parse outlasts the delay,
+    # so the signal lands while the run is still working.
+    slow = ["-c", "biglogs", "-m", "1", "--no-cache"]  # long enough to interrupt
     out, err, code = interrupt(slow)
     if "Traceback" in err:
         failures.append("SIGINT on a one-shot run still prints a traceback")
@@ -1231,24 +1486,27 @@ def unit_checks(module, failures=None):
                 failures.append(f"[tail] seed_lookback={lookback}: expected the range to "
                                 f"count as {expected}, got {dict(report.selection.states)}")
 
-    # max_events must reach the kqueue call, not just the constructor.
-    class RecordingQueue:
-        def __init__(self): self.asked = None
-        def control(self, changes, count, timeout=None):
-            self.asked = count
-            return []
-        def close(self): pass
+    # max_events must reach the kqueue call, not just the constructor.  kqueue
+    # is macOS and the BSDs; on every other platform this check has nothing to
+    # test, and constructing the watcher would crash on select.kqueue.
+    if hasattr(select, "kqueue"):
+        class RecordingQueue:
+            def __init__(self): self.asked = None
+            def control(self, changes, count, timeout=None):
+                self.asked = count
+                return []
+            def close(self): pass
 
-    watcher = module.KqueueWatcher(7)
-    if watcher.queue is not None:      # only where kqueue exists
-        watcher.queue.close()
-        watcher.queue = RecordingQueue()
-        watcher.handles = {"fake": None}
-        watcher.wait(0.01)
-        if watcher.queue.asked != 7:
-            failures.append(f"max_events not passed through: asked for {watcher.queue.asked}")
-        watcher.handles = {}
-        watcher.close()
+        watcher = module.KqueueWatcher(7)
+        if watcher.queue is not None:      # only where kqueue exists
+            watcher.queue.close()
+            watcher.queue = RecordingQueue()
+            watcher.handles = {"fake": None}
+            watcher.wait(0.01)
+            if watcher.queue.asked != 7:
+                failures.append(f"max_events not passed through: asked for {watcher.queue.asked}")
+            watcher.handles = {}
+            watcher.close()
 
     # The fingerprint must cover the classification, wherever it lives.
     if module.fold_lines not in module.CACHE_INPUTS:
@@ -1468,21 +1726,26 @@ def unit_checks(module, failures=None):
                              (module.Windows, False), (module.Platform, False)):
         host = cls()
         # Notification: implemented platforms give a watcher, stubs say TODO.
-        try:
-            watcher = host.watcher(notify=True)
-            if not implemented:
-                failures.append(f"{host.name}: watcher(notify=True) should be Unsupported")
-            else:
-                if not watcher.enabled:
-                    failures.append(f"{host.name}: watcher should be notification-backed")
-                watcher.close()
-        except module.Unsupported as exc:
-            if implemented:
-                failures.append(f"{host.name}: watcher should work, got {exc}")
-            if "TODO - not implemented" not in str(exc):
-                failures.append(f"{host.name}: error should read TODO, got {exc!r}")
-            if "notify = false" not in str(exc):
-                failures.append(f"{host.name}: error should name the way round it")
+        # On a host without kqueue the MacOS watcher cannot even be constructed,
+        # so there is nothing its notify path can prove here; the polling half
+        # below still exercises every class.
+        can_notify = not (cls is module.MacOS and not hasattr(select, "kqueue"))
+        if can_notify:
+            try:
+                watcher = host.watcher(notify=True)
+                if not implemented:
+                    failures.append(f"{host.name}: watcher(notify=True) should be Unsupported")
+                else:
+                    if not watcher.enabled:
+                        failures.append(f"{host.name}: watcher should be notification-backed")
+                    watcher.close()
+            except module.Unsupported as exc:
+                if implemented:
+                    failures.append(f"{host.name}: watcher should work, got {exc}")
+                if "TODO - not implemented" not in str(exc):
+                    failures.append(f"{host.name}: error should read TODO, got {exc!r}")
+                if "notify = false" not in str(exc):
+                    failures.append(f"{host.name}: error should name the way round it")
         # Polling is always available, so a stub platform can still --watch.
         polling = host.watcher(notify=False)
         if polling.enabled:
@@ -1561,25 +1824,33 @@ def unit_checks(module, failures=None):
                 failures.append(f"{cls().name}: the injected platform was not used")
 
     # --- change notification ----------------------------------------------
-    watcher = module.PLATFORM.watcher()
+    # Linux change notification is a documented TODO, so this only runs where
+    # the platform actually answers with a watcher; a wrong error is still
+    # reported rather than skipped.
     try:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "watched.log")
-            with open(path, "w") as handle:
-                handle.write("x\n")
-            watcher.arm([path])
-            if watcher.enabled:
-                if watcher.wait(0.05):
-                    failures.append("watcher: woke without a write")
-                with open(path, "a") as handle:
-                    handle.write("y\n")
-                if not watcher.wait(1.0):
-                    failures.append("watcher: a write did not wake it")
-            watcher.arm([])       # dropping a path must release its descriptor
-            if watcher.handles:
-                failures.append("watcher: descriptors outlived their path")
-    finally:
-        watcher.close()
+        watcher = module.PLATFORM.watcher()
+    except module.Unsupported as exc:
+        if "TODO - not implemented" not in str(exc):
+            failures.append(f"watcher: unexpected error, got {exc!r}")
+    else:
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = os.path.join(tmp, "watched.log")
+                with open(path, "w") as handle:
+                    handle.write("x\n")
+                watcher.arm([path])
+                if watcher.enabled:
+                    if watcher.wait(0.05):
+                        failures.append("watcher: woke without a write")
+                    with open(path, "a") as handle:
+                        handle.write("y\n")
+                    if not watcher.wait(1.0):
+                        failures.append("watcher: a write did not wake it")
+                watcher.arm([])       # dropping a path must release its descriptor
+                if watcher.handles:
+                    failures.append("watcher: descriptors outlived their path")
+        finally:
+            watcher.close()
 
     # The fingerprint must be stable, or every run rebuilds the cache.
     if module.cache_fingerprint() != module.cache_fingerprint():
@@ -1863,8 +2134,11 @@ def unit_checks(module, failures=None):
         failures.append("slide: reset left the cached window behind")
 
     # And the whole thing must agree with a full re-sum over a real day.
-    real = os.path.join(module.DEFAULT_LOGS_DIR, "bonnie", "bonnie-2026-07-17.log")
-    if os.path.exists(real):
+    # Only where the platform knows a default logs location at all (Linux
+    # leaves it as a TODO) and the day file actually exists.
+    real = (os.path.join(module.DEFAULT_LOGS_DIR, "bonnie", "bonnie-2026-07-17.log")
+            if module.DEFAULT_LOGS_DIR else None)
+    if real and os.path.exists(real):
         day = datetime.date(2026, 7, 17)
         slid = module.TailReader(real, day); slid.refresh(None, os.stat(real))
         plain = module.TailReader(real, day); plain.refresh(None, os.stat(real))
@@ -1945,7 +2219,7 @@ def unit_checks(module, failures=None):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = os.path.join(tmp, "c.toml")
             with open(cfg, "w") as handle:
-                handle.write("min_count = 3\n[aliases]\nchr = \"chroniccmposer\"\n")
+                handle.write("min_count = 3\n[aliases]\nchr = \"bon\"\n")
             args = module.build_parser().parse_args(
                 ["-c", "chr", "-e", END, "--config", cfg, "--watch", "1"])
             session = module.LiveReaders()
@@ -1963,7 +2237,7 @@ def unit_checks(module, failures=None):
             # Editing the config mid-session must still land.
             time.sleep(0.01)
             with open(cfg, "w") as handle:
-                handle.write("min_count = 9\n[aliases]\nchr = \"chroniccmposer\"\n")
+                handle.write("min_count = 9\n[aliases]\nchr = \"bon\"\n")
             after = module.resolve_context(args, session)
             if after.window.threshold != 9:
                 failures.append(f"inputs: a config edit was not picked up "

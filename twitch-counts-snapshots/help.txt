@@ -1,0 +1,95 @@
+usage: twitch-counts [-h] [-c CHANNEL] [-b BEGIN | -S SINCE | --users N]
+                        [--users-policy HOW] [--users-max DURATION] [-e END]
+                        [-m MIN_COUNT] [-B] [--show COL[,COL...]]
+                        [--sort METRIC] [--share-floor N] [-n N]
+                        [--header MODE] [-d LOGS_DIR] [-j | -w [SECONDS]]
+                        [--watch-hold SECONDS] [--color {auto,always,never}]
+                        [-L | -O | -U] [-x LOGIN[,LOGIN...]] [-g GROUP]
+                        [--exclude-broadcaster] [--include LOGIN[,LOGIN...]]
+                        [--no-exclude] [--config CONFIG | --no-config]
+                        [--streamer] [--no-cache | --rebuild-cache] [--manual]
+                        [--emit-fish-completions]
+
+Count Chatterino chat messages per user for a channel and time range.
+
+options:
+  -h, --help            show this help message and exit
+  -c, --channel CHANNEL
+                        Twitch channel name (case-insensitive)
+  -b, --begin BEGIN     start of the range, e.g. '2026-07-01' (alternative to
+                        --since and --users)
+  -S, --since SINCE     start the range this far before --end, e.g. '30d'
+                        (alternative to --begin and --users)
+  --users N             size the window so N users meet --min-count, then hold
+                        that width
+  --users-policy HOW    how to settle when no window gives exactly --users:
+                        at-least, at-most or nearest (default: at-least)
+  --users-max DURATION  widest window --users may search (default: 24h)
+  -e, --end END         end of the range (default: now)
+  -m, --min-count MIN_COUNT
+                        only report users with at least this many messages
+                        (default: 1)
+  -B, --by-state        add live, offline and offline% columns (shorthand for
+                        --show)
+  --show COL[,COL...]   extra columns: live, live-share, offline, offline-
+                        share, unknown
+  --sort METRIC         order rows by: count, live, live-share, login,
+                        offline, offline-share, unknown (default: count)
+  --share-floor N       messages needed to be listed when a share is shown or
+                        sorted by, 0 to disable (default: 10)
+  -n, --top N           show at most N rows, 0 for unlimited (default: what
+                        fits the terminal; unlimited when piped)
+  --header MODE         provenance block: full, compact or none (default:
+                        full, or compact under --watch)
+  -d, --logs-dir LOGS_DIR
+                        Chatterino Twitch Channels directory
+  -j, --json            emit one JSON document with its own schema embedded
+  -w, --watch [SECONDS]
+                        redraw every SECONDS (default: watch.interval, 1),
+                        tinting a row green when its count rises and grey when
+                        it falls; a green still holding outranks a fall
+  --watch-hold SECONDS  how long a row stays tinted after it moves (default:
+                        watch.hold, 3s, one shade per 1/N of it; 0 holds
+                        indefinitely)
+  --color {auto,always,never}
+                        colour output (default: auto, meaning a terminal
+                        without NO_COLOR)
+  -L, --live            only messages sent while the channel was live
+  -O, --offline         only messages sent while the channel was offline
+  -U, --unknown         only messages no live/offline marker can place
+  -x, --exclude LOGIN[,LOGIN...]
+                        exclude these users; repeatable, comma-separated, ADDS
+                        to config exclusions
+  -g, --exclude-group GROUP
+                        exclude a group from the config's [exclude] table;
+                        repeatable
+  --exclude-broadcaster
+                        exclude the channel's own account
+  --include LOGIN[,LOGIN...]
+                        re-include users the merged exclusions would drop;
+                        repeatable
+  --no-exclude          ignore every exclusion for this run
+  --config CONFIG       TOML config file (default: ~/.config/twitch-
+                        counts.toml)
+  --no-config           ignore the config file entirely
+  --streamer            streamer mode: no content highlights while watching
+  --no-cache            parse the logs instead of using the cache
+  --rebuild-cache       discard the cache and parse everything
+  --manual              print the full manual: config keys, layering, cache
+                        and watch behaviour
+  --emit-fish-completions
+                        print fish completions; redirect into
+                        ~/.config/fish/completions/
+
+Datetimes accept 'YYYY-MM-DD', 'YYYY-MM-DD HH:MM[:SS]', or an ISO week
+('2026-W31', or '2026-W31-3' for its Wednesday); a bare date or week means its
+start for --begin and its end for --end, so '-b 2026-W31 -e 2026-W31' is
+exactly that week. The range is inclusive on both ends. Durations for --since
+look like '30d', '12h', '1w3d' ('m' is minutes). --users N sizes the window
+instead, widening it until N users meet --min-count and then holding that
+width. Any setting may instead come from an environment variable -- TWITCH_
+plus the flag name, or TWITCH_WATCH_/TWITCH_TAIL_ plus the config key for
+those tables -- or from the config file; --manual lists every one of them and
+the header reports which source was used. Exclusions are the exception to
+first-hit-wins: every layer adds to the set, so --exclude supplements the
+config rather than replacing it.

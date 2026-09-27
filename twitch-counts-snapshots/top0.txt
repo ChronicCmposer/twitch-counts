@@ -1,0 +1,17 @@
+channel:    spaghettieframe                                   [--channel]
+logs dir:   <fixture>/Logs/Twitch/Channels  [env TWITCH_LOGS_DIR]
+begin: <normalized>
+end: <normalized>
+threshold:  >= 100 message(s)                                 [--min-count]
+state:      live 394 / offline 64 / unknown 2                 [not filtered]
+exclude:    4 login(s), 0 in range: fossabot, nightbot, streamelements, +1 more  [config always:bots]
+config:     ~/.config/twitch-counts.toml                      [loaded]
+cache: <normalized>
+files:      32 log file(s) in range
+
+user     count
+-------  -----
+regular    191
+lurker     159
+-------  -----
+2 of 5 user(s); 350 of 460 message(s) in range

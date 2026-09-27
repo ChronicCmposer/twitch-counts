@@ -361,15 +361,25 @@ only after both are green and a real logic bug remains.
 
 ## Build & test
 
+> **C port is now primary.** The default `make` / `make test` build and test
+> the **pure-C port** (`c/`) — see **`c/README.md`** for the full C-port
+> documentation (module inventory, cache-fingerprint divergence, size recipe,
+> toolchain notes). The hand-written assembly port below is the **legacy**
+> build: opt-in via `make asm` / `make test-asm`, and its `make test-asm`
+> runs the same harnesses against `build/<os>/asm/`.
+
 | Command | Purpose |
 |---|---|
-| `make twitch-counts` | build (and refresh `./twitch-counts`) |
+| `make twitch-counts` | build the **C port** (and refresh `./twitch-counts`) |
+| `make asm` | build the legacy assembly port (`./twitch-counts-asm`) |
 | `make all` | + Linux-only `fibonacci` on Linux |
-| `make drivers` | per-module test drivers (`build/<os>/tc-*-test`) |
-| `make test` | every harness for this platform (fails on any failure) |
-| `make check-<h>` | one harness, e.g. `make check-tc-watch` |
+| `make drivers` | C per-module test drivers (`build/<os>/tc-*-test`) |
+| `make test` | the full **C** battery: every `test-tc-*.sh` harness + the snapshot oracle (fails on any failure) |
+| `make test-asm` | the legacy assembly battery against `build/<os>/asm/` |
+| `make check-<h>` | one C harness, e.g. `make check-tc-watch` |
+| `make check-twitch-counts-py` | the snapshot oracle against the C binary |
 | `make third-party` | just the vendored libraries |
-| `make gen-inc` | force-regenerate committed `.inc` blobs |
+| `make gen-inc` | force-regenerate committed `.inc` blobs (asm/ and c/) |
 | `make clean` | remove `build/` and root binaries |
 
 The `.S` sources go through the C preprocessor (`tc_platform.h`), so they are assembled with the **compiler driver** (`$(CC)` = `musl-gcc` on Linux, `clang` on macOS), never bare `as`. The Makefile also passes `-march=armv8.6-a` (`TC_MARCH`).

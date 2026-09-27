@@ -1,9 +1,19 @@
-# third_party — vendored sources for twitch-counts-full
+# third_party — vendored sources for twitch-counts
 
-`twitch-counts-full` is hand-written ARMv8-a assembly linked against libc
-plus three vendored C libraries: **tomlc99** (TOML parsing), the **SQLite
-amalgamation** (rollup cache), and **PCRE2-8** (regex).  It builds on two
-platforms from the same sources (see `tc_platform.h`):
+The repo ships two ports of `twitch-counts.py`, both linked against libc plus
+three vendored C libraries: **tomlc99** (TOML parsing), the **SQLite
+amalgamation** (rollup cache), and **PCRE2-8** (regex).
+
+- **C port (primary)** — `c/*.c`.  `make` produces
+  `build/<os>/twitch-counts` and copies it to `./twitch-counts`; `make test`
+  runs its battery.
+- **Legacy ARMv8-a assembly port** — `asm/tc_*.S`, opt-in.  `make asm`
+  produces `build/<os>/asm/twitch-counts-asm` (objects stay under
+  `build/<os>/asm/` so they can never collide with the C build) and copies
+  it to `./twitch-counts-asm`; its test battery is `make test-asm`.
+
+Both build on two platforms from the same sources (`c/tc_platform.h` /
+`asm/tc_platform.h` select):
 
 - **Linux**: statically linked against musl; all C is compiled with the musl
   toolchain so the final binary has zero glibc dependency.
@@ -29,6 +39,10 @@ Mac and a Linux VM never mixes the two.
 | `sqlite-amalgamation.zip` | SQLite amalgamation zip | Public Domain | no |
 | `LICENSE.tomlc99` | MIT text for tomlc99 | MIT | **yes** |
 
+The C port and the legacy asm port share the same vendored objects
+(`build/<os>/toml.o`, `build/<os>/sqlite3.o`,
+`build/<os>/pcre2/lib/libpcre2-8.a`) — one `make third-party` feeds both.
+
 ## Sources and versions
 
 - **musl 1.2.6** — <https://musl.libc.org/releases/musl-1.2.6.tar.gz> (MIT)
@@ -41,7 +55,7 @@ Mac and a Linux VM never mixes the two.
   dynamic linker (`ld-musl-aarch64.so.1`) in our own tree so that
   `musl-gcc`'s default (dynamically linked) test binaries are runnable —
   configure scripts such as pcre2's need to execute test programs.  The
-  final twitch-counts-full link uses `-static` regardless.
+  final `twitch-counts` link uses `-static` regardless.
 - **tomlc99** (master, fetched 2026-09-18) — <https://github.com/cktan/tomlc99>
   Raw `toml.c` + `toml.h` from master (MIT).  Compiled with
   `musl-gcc -std=c99 -c toml.c -o toml.o`.
@@ -57,28 +71,33 @@ Mac and a Linux VM never mixes the two.
   make -j libpcre2-8.la
   ```
   We link `build/<os>/pcre2/lib/libpcre2-8.a` (JIT off, Unicode on on both
-  platforms; the assembly passes no pcre2 option bits).
+  platforms; neither port passes pcre2 option bits).
 
 ## Build commands
 
-From the repository root, `make twitch-counts-full` (or `make all`):
-1. on Linux, bootstraps the musl toolchain (`third_party/musl/bin/musl-gcc`)
-   on first use — fetching the musl tarball above if it is not already
-   present; on macOS the toolchain is Apple clang;
-2. fetches the pcre2 tarball if needed and builds `libpcre2-8.a` under
-   `build/<os>/` with the platform compiler;
-3. compiles the vendored C into `build/<os>/toml.o` and
-   `build/<os>/sqlite3.o`;
-4. assembles the `tc_*.S` modules (through the C preprocessor) and links:
+From the repository root:
+
+1. `make` (or `make all`) — build the **C port**: on Linux, bootstraps the
+   musl toolchain (`third_party/musl/bin/musl-gcc`) on first use — fetching
+   the musl tarball above if it is not already present; on macOS the
+   toolchain is Apple clang; fetches the pcre2 tarball if needed and builds
+   `libpcre2-8.a` under `build/<os>/` with the platform compiler; compiles
+   the vendored C into `build/<os>/toml.o` and `build/<os>/sqlite3.o`;
+   compiles `c/*.c` and links `build/<os>/twitch-counts`, then copies it to
+   `./twitch-counts`:
    ```
-   Linux:  $(MUSL_GCC) -static -o build/linux/twitch-counts-full <objects> \
+   Linux:  $(MUSL_GCC) -static -o build/linux/twitch-counts <c objects> \
                build/linux/toml.o build/linux/sqlite3.o build/linux/pcre2/lib/libpcre2-8.a
-   macOS:  clang -o build/darwin/twitch-counts-full <objects> \
+   macOS:  clang -o build/darwin/twitch-counts <c objects> \
                build/darwin/toml.o build/darwin/sqlite3.o build/darwin/pcre2/lib/libpcre2-8.a
    ```
-   and copies the result to `./twitch-counts-full`.
-
-`make third-party` builds only the library objects/archives.
+   The C compile recipe is `-std=c99 -Os -ffunction-sections -fdata-sections
+   -fno-asynchronous-unwind-tables -fno-unwind-tables`.
+2. `make asm` — build the **legacy assembly port** the same way, but with
+   all objects and the product under `build/<os>/asm/`, copied to
+   `./twitch-counts-asm`.
+3. `make third-party` builds only the library objects/archives.
+4. `make test` — the C battery; `make test-asm` — the legacy asm battery.
 
 ## Notes
 

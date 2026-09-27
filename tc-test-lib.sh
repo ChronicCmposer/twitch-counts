@@ -20,6 +20,13 @@
 #                                 It runs in a command substitution, so the
 #                                 caller must propagate the failure:
 #                                     BIN=$(tc_driver tc-core-test) || exit 2
+#                                 The main product binary is "twitch-counts"
+#                                 (the C build, the default every harness
+#                                 resolves).  `make test-asm` exports
+#                                 TC_BIN_NAME=twitch-counts-asm (with
+#                                 TC_BUILD=build/<os>/asm), so a harness that
+#                                 asks for "twitch-counts" resolves the legacy
+#                                 asm binary instead.
 #     tc_require_python_tomllib   exit 2 unless python3 on PATH is >= 3.11
 #                                 (has tomllib) -- the oracle requirement.
 #     tc_sandbox PREFIX           mktemp -d under $TMPDIR (or /tmp), removed
@@ -70,11 +77,20 @@ tc_build_dir() {
 
 tc_driver() { # BIN=$(tc_driver <name>) || exit 2
     [ -n "${BUILD:-}" ] || tc_build_dir
-    if [ ! -x "$BUILD/$1" ]; then
-        echo "FAIL: $BUILD/$1 not found or not executable -- run: make drivers" >&2
+    _tc_name=$1
+    # The product binary is "twitch-counts" (the C build — the default every
+    # `make test` harness resolves) or "twitch-counts-asm" (the legacy asm
+    # build, selected by `make test-asm`, which also sets TC_BUILD to
+    # build/<os>/asm).  The per-module drivers (tc-*-test) need no mapping:
+    # TC_BUILD already points at the right tree.
+    if [ "$_tc_name" = "twitch-counts" ] && [ -n "${TC_BIN_NAME:-}" ]; then
+        _tc_name=$TC_BIN_NAME
+    fi
+    if [ ! -x "$BUILD/$_tc_name" ]; then
+        echo "FAIL: $BUILD/$_tc_name not found or not executable -- run: make drivers (C) or make drivers-asm (asm)" >&2
         return 2
     fi
-    printf '%s\n' "$BUILD/$1"
+    printf '%s\n' "$BUILD/$_tc_name"
 }
 
 tc_require_python_tomllib() {

@@ -1,0 +1,20 @@
+channel:    chr                                               [--channel]
+logs dir:   <fixture>/Logs/Twitch/Channels  [env TWITCH_LOGS_DIR]
+begin: <normalized>
+end: <normalized>
+threshold:  >= 1 message(s)                                   [built-in default]
+state:      live 1,448 / offline 97 / unknown 4               [--offline keeps offline]
+exclude:    4 login(s), 0 in range: fossabot, nightbot, streamelements, +1 more  [config always:bots]
+config:     ~/.config/twitch-counts.toml                      [loaded]
+cache: <normalized>
+top:        5 row(s)                                          [--top]
+files:      32 log file(s) in range
+
+user   count
+-----  -----
+eve       33
+frank     32
+alice     31
+grace      1
+-----  -----
+4 of 4 user(s); 97 of 97 message(s) in range

@@ -1,0 +1,13 @@
+channel:    chr                                               [--channel]
+logs dir:   <fixture>/Logs/Twitch/Channels  [env TWITCH_LOGS_DIR]
+begin: <normalized>
+end: <normalized>
+threshold:  >= 999999 message(s)                              [--min-count]
+state:      live 1,384 / offline 97 / unknown 4               [not filtered]
+exclude:    4 login(s), 2 in range: fossabot, nightbot, streamelements, +1 more  [config always:bots]
+config:     ~/.config/twitch-counts.toml                      [loaded]
+cache: <normalized>
+files:      32 log file(s) in range
+
+No users met the threshold (1485 message(s) in range).
+excluded 2 user(s), 64 message(s) not counted
