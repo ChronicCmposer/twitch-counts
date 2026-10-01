@@ -804,4 +804,71 @@ fi
 rm -rf "$LOGS/$CAPCH"
 
 # ---------------------------------------------------------------------------
+echo "== midnight rollover: a new day's file appearing after readers are primed =="
+# Regression for the C port's midnight bug (the fix in c/watch.c makes
+# watch_count refresh the dated-log listing every frame).  In a --watch session
+# whose window spans two days, the dated-log listing is memoized on the channel
+# directory's mtime and -- before the fix -- was refreshed only at launch.  A
+# log file for the NEW day created after the session started (what Chatterino
+# does at local midnight) therefore never entered the listing, and the new day
+# was silently never counted.
+#
+# This mirrors the Python contract in twitch-counts-test.py ("a counting pass
+# over a session must see a file that appears after the readers were primed":
+# files +1 and total_messages += N): the day-1 file exists at launch (readers
+# primed), the day-2 file is created mid-run by run_pty's append (mode "a"
+# creates it), and a later frame must show day-2's messages counted.  The
+# watch frame's compact header does not print the files line, so the closest
+# faithful proxies are the footer's user/message totals: day-1's 2 messages
+# and 2 users must grow to 6 messages and 3 users once day-2 (4 nina lines)
+# appears.  On the unfixed build the stale listing keeps the frame at 2 of 2
+# forever and these greps fail; with the fix they pass.
+MCH=midch
+mkdir -p "$LOGS/$MCH"
+python3 - "$LOGS/$MCH" "$MCH" > "$DATA/mid.dates" <<'PYEOF'
+import datetime, os, sys
+base, ch = sys.argv[1], sys.argv[2]
+today = datetime.date.today()
+tomorrow = today + datetime.timedelta(days=1)
+with open(os.path.join(base, f"{ch}-{today:%Y-%m-%d}.log"), "w") as f:
+    f.write("[10:00:00] midch is live!\n")
+    f.write("[10:00:01] alice: hello\n")
+    f.write("[10:00:02] bob: hi\n")
+print(f"{today:%Y-%m-%d} {tomorrow:%Y-%m-%d}")
+PYEOF
+read -r MBEGIN MEND < "$DATA/mid.dates"
+MBASE=( -c "$MCH" -d "$LOGS" -w 0.2 --config "$DATA/cfg.toml" --no-cache \
+        -b "$MBEGIN" -e "$MEND" )
+# The window spans both days, but at launch only day-1's file exists.  Point
+# the append at the day-2 path: run_pty's mode-"a" write creates it mid-run,
+# exactly the "new day's file appears after the readers were primed" event.
+export TCWATCH_LOG="$LOGS/$MCH/$MCH-$MEND.log"
+run_pty "$DATA/mid.out" 6 4.5 1.5 \
+    $'[10:00:05] nina: new day one\n[10:00:06] nina: new day two\n[10:00:07] nina: new day three\n[10:00:08] nina: new day four' \
+    "$BIN" "${MBASE[@]}"
+export TCWATCH_LOG="$LOGS/$CH/$CH-2026-09-18.log"
+tc_strip_ansi "$DATA/mid.out" > "$DATA/mid.plain"
+
+# the contract: day-2's messages (nina x4) reach the count on a later frame
+if grep -q "3 of 3 user(s); 6 of 6 message(s) in range" "$DATA/mid.plain" \
+    && grep -q "nina" "$DATA/mid.plain"; then
+    ok "midnight rollover: new day's file reaches the count (2 -> 6 messages, 2 -> 3 users)"
+else
+    bad "midnight rollover: new day's file reaches the count (2 -> 6 messages, 2 -> 3 users)"
+fi
+
+# and the readers were primed on day-1 alone first: the 2-of-2 frame precedes
+# the 6-of-6 frame in the transcript (a new file, not a launch-time listing).
+MID_FIRST=$(grep -n "2 of 2 message(s) in range" "$DATA/mid.plain" | head -1 | cut -d: -f1)
+MID_LAST=$(grep -n "6 of 6 message(s) in range" "$DATA/mid.plain" | head -1 | cut -d: -f1)
+if [ -n "$MID_FIRST" ] && [ -n "$MID_LAST" ] && [ "$MID_FIRST" -lt "$MID_LAST" ]; then
+    ok "midnight rollover: day-2 counted only after the day-1-primed frame"
+else
+    bad "midnight rollover: day-2 counted only after the day-1-primed frame" \
+        "first '2 of 2' frame: ${MID_FIRST:-absent}" \
+        "first '6 of 6' frame: ${MID_LAST:-absent}"
+fi
+rm -rf "$LOGS/$MCH"
+
+# ---------------------------------------------------------------------------
 tc_summary

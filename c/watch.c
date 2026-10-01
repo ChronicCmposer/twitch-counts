@@ -1975,6 +1975,10 @@ static void watch_count(tc_wsession *s, const tc_window *win,
     int current;
     int64_t i;
 
+    /* Python log_files_for: refresh the dated-log listing every frame, so a
+       new day's file (directory mtime change) is picked up at midnight. */
+    watch_listing_refresh(s);
+
     watch_reset_users(users);
     watch_reset_tally(tally);
     tally->users = users;
